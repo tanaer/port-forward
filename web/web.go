@@ -7,20 +7,20 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
+	"github.com/gin-gonic/gin"
 	"goForward/assets"
 	"goForward/conf"
 	"goForward/sql"
 	"goForward/utils"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
-	"github.com/gin-gonic/gin"
 )
 
 func Run() {
-    // [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
-    //  - using env:   export GIN_MODE=release
-    //  - using code:  gin.SetMode(gin.ReleaseMode)
-     
+	// [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+	//  - using env:   export GIN_MODE=release
+	//  - using code:  gin.SetMode(gin.ReleaseMode)
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	store := cookie.NewStore([]byte("secret"))
@@ -37,17 +37,17 @@ func Run() {
 	})
 	r.POST("/add", func(c *gin.Context) {
 		if c.PostForm("localPort") != "" && c.PostForm("remoteAddr") != "" && c.PostForm("remotePort") != "" && c.PostForm("protocol") != "" {
-		     outTimeStr := c.PostForm("outTime")
-		     outTimeInt, err := strconv.Atoi(outTimeStr)  
-		     if err != nil {  
-		         outTimeInt = 5
-		     }
+			outTimeStr := c.PostForm("outTime")
+			outTimeInt, err := strconv.Atoi(outTimeStr)
+			if err != nil {
+				outTimeInt = 5
+			}
 			f := conf.ConnectionStats{
 				LocalPort:  c.PostForm("localPort"),
 				RemotePort: c.PostForm("remotePort"),
 				RemoteAddr: c.PostForm("remoteAddr"),
-				Whitelist: c.PostForm("whitelist"),
-				Blacklist: c.PostForm("blacklist"),
+				Whitelist:  c.PostForm("whitelist"),
+				Blacklist:  c.PostForm("blacklist"),
 				OutTime:    outTimeInt,
 				Protocol:   c.PostForm("protocol"),
 			}
@@ -134,29 +134,44 @@ func Run() {
 		}
 	})
 	r.GET("/pwd", func(c *gin.Context) {
+		if conf.WebPass == "" {
+			c.Redirect(http.StatusFound, "/")
+			return
+		}
+		if authed, ok := sessions.Default(c).Get("authed").(bool); ok && authed {
+			c.Redirect(http.StatusFound, "/")
+			return
+		}
 		c.HTML(200, "pwd.tmpl", nil)
 	})
 	r.POST("/pwd", func(c *gin.Context) {
 		if !sql.IpFree(c.ClientIP()) {
-			c.HTML(200, "msg.tmpl", gin.H{
+			c.HTML(http.StatusOK, "msg.tmpl", gin.H{
 				"msg": "IP is Ban",
 				"suc": false,
 			})
 			return
 		}
+		password := c.PostForm("p")
 		session := sessions.Default(c)
-		session.Set("p", c.PostForm("p"))
-		// 设置session的过期时间为1天
-		session.Options(sessions.Options{MaxAge: 86400})
-		session.Save()
-		if c.PostForm("p") != conf.WebPass {
+		session.Options(sessions.Options{MaxAge: 864000})
+		if password != conf.WebPass {
 			ban := conf.IpBan{
 				Ip:        c.ClientIP(),
 				TimeStamp: time.Now().Unix(),
 			}
 			sql.AddBan(ban)
+			session.Delete("authed")
+			session.Save()
+			c.HTML(http.StatusOK, "msg.tmpl", gin.H{
+				"msg": "密码错误",
+				"suc": false,
+			})
+			return
 		}
-		c.Redirect(302, "/")
+		session.Set("authed", true)
+		session.Save()
+		c.Redirect(http.StatusFound, "/")
 	})
 	fmt.Println("Web管理面板端口:" + conf.WebPort)
 	r.Run("0.0.0.0:" + conf.WebPort)
@@ -165,15 +180,19 @@ func Run() {
 // 密码验证中间件
 func checkCookieMiddleware(c *gin.Context) {
 	currenPath := c.Request.URL.Path
-	if conf.WebPass != "" && currenPath != "/pwd" {
-		session := sessions.Default(c)
-		pass := session.Get("p")
-		if pass != conf.WebPass {
-			c.Redirect(http.StatusFound, "/pwd")
-			c.Abort()
-			return
-		}
+	if conf.WebPass == "" {
+		c.Next()
+		return
 	}
-	// 继续处理请求
+	if currenPath == "/pwd" {
+		c.Next()
+		return
+	}
+	session := sessions.Default(c)
+	if authed, ok := session.Get("authed").(bool); !ok || !authed {
+		c.Redirect(http.StatusFound, "/pwd")
+		c.Abort()
+		return
+	}
 	c.Next()
 }

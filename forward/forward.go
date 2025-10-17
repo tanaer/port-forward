@@ -4,32 +4,32 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"goForward/conf"
+	"goForward/sql"
 	"io"
-    "strings"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
-	"goForward/conf"
-	"goForward/sql"
 )
 
 type IPStruct struct {
-	Time        int64        `gorm:"-"`
-	TCPConnections net.Conn  `gorm:"-"`
+	Time           int64    `gorm:"-"`
+	TCPConnections net.Conn `gorm:"-"`
 }
 
 type ConnectionStats struct {
 	conf.ConnectionStats
-	TotalBytesOld  uint64     `gorm:"-"`
-	TotalBytesLock sync.Mutex `gorm:"-"`
+	TotalBytesOld  uint64               `gorm:"-"`
+	TotalBytesLock sync.Mutex           `gorm:"-"`
 	TCPConnections map[string]*IPStruct `gorm:"-"` // 用于存储 TCP 连接
-	TcpTime        int        `gorm:"-"` // TCP无传输时间
+	TcpTime        int                  `gorm:"-"` // TCP无传输时间
 }
 
-
 var Timestr string
+
 // 保存多个连接信息
 type LargeConnectionStats struct {
 	Connections []*ConnectionStats `json:"connections"`
@@ -150,24 +150,24 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	defer wg.Done()
 	defer clientConn.Close()
 
-    // 黑百名单判断
-    srcremoteAddr := clientConn.RemoteAddr()  
-    srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
-    
-    if cs.Whitelist != "" {
-        ok := ContainsIp(fmt.Sprintf("%v",srctcpAddr.IP), cs.Whitelist) 
-        if !ok {
-    		fmt.Println("no exsit Whitelist %v \n", srctcpAddr.IP)
-    		return
-        }
-    }
-    if cs.Blacklist != "" {
-        ok := ContainsIp(fmt.Sprintf("%v",srctcpAddr.IP), cs.Blacklist) 
-        if ok {
-    		fmt.Println("exsit Blacklist %v \n", srctcpAddr.IP)
-    		return
-        }
-    }
+	// 黑百名单判断
+	srcremoteAddr := clientConn.RemoteAddr()
+	srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
+
+	if cs.Whitelist != "" {
+		ok := ContainsIp(fmt.Sprintf("%v", srctcpAddr.IP), cs.Whitelist)
+		if !ok {
+			fmt.Println("no exsit Whitelist %v \n", srctcpAddr.IP)
+			return
+		}
+	}
+	if cs.Blacklist != "" {
+		ok := ContainsIp(fmt.Sprintf("%v", srctcpAddr.IP), cs.Blacklist)
+		if ok {
+			fmt.Println("exsit Blacklist %v \n", srctcpAddr.IP)
+			return
+		}
+	}
 
 	remoteConn, err := net.Dial("tcp", cs.RemoteAddr+":"+cs.RemotePort)
 	if err != nil {
@@ -176,7 +176,7 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	}
 	defer remoteConn.Close()
 
-// 	cs.TCPConnections = append(cs.TCPConnections, clientConn, remoteConn) // 添加连接到列表
+	// 	cs.TCPConnections = append(cs.TCPConnections, clientConn, remoteConn) // 添加连接到列表
 	var copyWG sync.WaitGroup
 	copyWG.Add(2)
 
@@ -210,7 +210,7 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 			return
 		}
 	}
-	
+
 	//copyWG.Wait()
 }
 
@@ -237,10 +237,10 @@ func (cs *ConnectionStats) handleUDPConnection(wg *sync.WaitGroup, localConn *ne
 			// 处理消息的边界和错误情况
 			//go cs.forwardUDPMessage(localConn, remoteAddr, buf[:n])
 			//bufPool.Put(buf[:n])
-            		go func() {
-			   cs.forwardUDPMessage(localConn, remoteAddr, buf[:n])
-			   bufPool.Put(&buf)
-			}()
+			go func(b []byte, size int) {
+				cs.forwardUDPMessage(localConn, remoteAddr, b[:size])
+				bufPool.Put(b)
+			}(buf, n)
 		}
 	}
 }
@@ -261,41 +261,37 @@ func (cs *ConnectionStats) forwardUDPMessage(localConn *net.UDPConn, remoteAddr 
 
 func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 	buf := bufPool.Get().([]byte)
-	// defer bufPool.Put(buf)
-	defer bufPool.Put(&buf)
-	
-	
-    srcremoteAddr := src.RemoteAddr()  
-    srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
-    srctcpAddrstr := fmt.Sprintf("%v:%v", srctcpAddr.IP, srctcpAddr.Port)
-    
-    
-    dstremoteAddr := dst.RemoteAddr()  
-    dsttcpAddr, _ := dstremoteAddr.(*net.TCPAddr)
-    dsttcpAddrstr := fmt.Sprintf("%v:%v", dsttcpAddr.IP, dsttcpAddr.Port)   
-    
-    
-    // 长连接时候，中断，数据丢失，重连
+	defer bufPool.Put(buf)
+
+	srcremoteAddr := src.RemoteAddr()
+	srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
+	srctcpAddrstr := fmt.Sprintf("%v:%v", srctcpAddr.IP, srctcpAddr.Port)
+
+	dstremoteAddr := dst.RemoteAddr()
+	dsttcpAddr, _ := dstremoteAddr.(*net.TCPAddr)
+	dsttcpAddrstr := fmt.Sprintf("%v:%v", dsttcpAddr.IP, dsttcpAddr.Port)
+
+	// 长连接时候，中断，数据丢失，重连
 	for {
-	    //从源读取
+		//从源读取
 		n, err := src.Read(buf)
-		if n > 0 { 
-		    cs.TotalBytesLock.Lock()
-		    cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr] = &IPStruct{Time:time.Now().Unix(), TCPConnections:src}
-		   	cs.TotalBytesLock.Unlock()
+		if n > 0 {
+			cs.TotalBytesLock.Lock()
+			cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr] = &IPStruct{Time: time.Now().Unix(), TCPConnections: src}
+			cs.TotalBytesLock.Unlock()
 			cs.TotalBytes += uint64(n)
-		
-            //写入目标
+
+			//写入目标
 			_, err := dst.Write(buf[:n])
-			if err != nil { 
-    		    cs.TotalBytesLock.Lock()
-    	        src.Close()
-    	        dst.Close()
-    	        delete(cs.TCPConnections, dsttcpAddrstr +"->"+srctcpAddrstr)
-    	        delete(cs.TCPConnections, srctcpAddrstr +"->"+dsttcpAddrstr)
-    	        cs.TotalBytesLock.Unlock()
-			    Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
-				fmt.Println("%v 写入目标时发生错误: %v \n",Timestr, err)
+			if err != nil {
+				cs.TotalBytesLock.Lock()
+				src.Close()
+				dst.Close()
+				delete(cs.TCPConnections, dsttcpAddrstr+"->"+srctcpAddrstr)
+				delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
+				cs.TotalBytesLock.Unlock()
+				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
+				fmt.Println("%v 写入目标时发生错误: %v \n", Timestr, err)
 				break
 			}
 		}
@@ -303,16 +299,16 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 		if err == io.EOF {
 			break
 		}
-		
-		if err != nil { 
-		    cs.TotalBytesLock.Lock()
-	        src.Close()
-	        dst.Close()
-	        delete(cs.TCPConnections, dsttcpAddrstr +"->"+srctcpAddrstr)
-	        delete(cs.TCPConnections, srctcpAddrstr +"->"+dsttcpAddrstr)
-	        cs.TotalBytesLock.Unlock()
-		    Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
-			fmt.Printf("%v 从源读取时发生错误: %v \n",Timestr, err)
+
+		if err != nil {
+			cs.TotalBytesLock.Lock()
+			src.Close()
+			dst.Close()
+			delete(cs.TCPConnections, dsttcpAddrstr+"->"+srctcpAddrstr)
+			delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
+			cs.TotalBytesLock.Unlock()
+			Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
+			fmt.Printf("%v 从源读取时发生错误: %v \n", Timestr, err)
 			break
 		}
 	}
@@ -331,7 +327,7 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 		select {
 		case <-ticker.C:
 			cs.TotalBytesLock.Lock()
-			
+
 			if cs.TotalBytes > cs.TotalBytesOld {
 				if cs.Protocol == "tcp" {
 					cs.TcpTime = 0
@@ -351,28 +347,28 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 				}
 				cs.TotalBytesOld = cs.TotalBytes
 				sql.UpdateForwardBytes(cs.Id, cs.TotalBytes)
-				
-				Timestr = time.Unix( time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
+
+				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 				fmt.Printf("%v 【%s】端口 %s 当前连接数: %d, 统计流量: %s\n", Timestr, cs.Protocol, cs.LocalPort, len(cs.TCPConnections), total)
 				if conf.Debug {
-    				i := 1
-    				for index, _ := range cs.TCPConnections {
-    				    // cs.RemotePort cs.RemoteAddr
-    			        fmt.Printf("%v 【%s】端口 %v、  %s  \n",Timestr, cs.LocalPort, i , index)
-    			        i++
-    				}
+					i := 1
+					for index, _ := range cs.TCPConnections {
+						// cs.RemotePort cs.RemoteAddr
+						fmt.Printf("%v 【%s】端口 %v、  %s  \n", Timestr, cs.LocalPort, i, index)
+						i++
+					}
 				}
 
-			}else{
-			    times := time.Now().Unix()
+			} else {
+				times := time.Now().Unix()
 				for index, ips := range cs.TCPConnections {
-				    //最大空闲连接丢弃
-				    if cs.OutTime>1 && int(times-ips.Time)>cs.OutTime {
-				        ips.TCPConnections.Close()
-				        fmt.Printf("%v 【%s】端口 超时 Close %vs  %s  \n",Timestr, cs.LocalPort, int(times-ips.Time), index)
-				        delete(cs.TCPConnections, index)
-				    }
-				}	
+					//最大空闲连接丢弃
+					if cs.OutTime > 1 && int(times-ips.Time) > cs.OutTime {
+						ips.TCPConnections.Close()
+						fmt.Printf("%v 【%s】端口 超时 Close %vs  %s  \n", Timestr, cs.LocalPort, int(times-ips.Time), index)
+						delete(cs.TCPConnections, index)
+					}
+				}
 			}
 			cs.TotalBytesLock.Unlock()
 		//当协程退出时执行
@@ -397,35 +393,32 @@ func releaseResources(stats *ConnectionStats) {
 	closeTCPConnections(stats)
 }
 
-
 // 包含ip
 func ContainsIp(ipStr string, iplist string) bool {
-	// 解析IP地址  
-	ip := net.ParseIP(ipStr)  
-	if ip == nil {  
+	// 解析IP地址
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
 		return false
 	}
-	status := false 
-    strarr := strings.Split(iplist, ";")
-    for _, vv := range strarr {
-    	// 定义CIDR网段  
-    	vv = strings.ReplaceAll(vv, " ", "")
-    	_, ipNet, err := net.ParseCIDR(vv)  
-    	if err != nil {  
-    	    if vv == ipStr {
-    	        status = true
-    	        break
-    	    }else{
-    	        continue
-    	    }
-    	}
-    	// 检查IP地址是否属于CIDR网段  
-    	if ipNet.Contains(ip) {  
-    	    status = true
-    		break
-    	}
-    }
-    return status
+	status := false
+	strarr := strings.Split(iplist, ";")
+	for _, vv := range strarr {
+		// 定义CIDR网段
+		vv = strings.ReplaceAll(vv, " ", "")
+		_, ipNet, err := net.ParseCIDR(vv)
+		if err != nil {
+			if vv == ipStr {
+				status = true
+				break
+			} else {
+				continue
+			}
+		}
+		// 检查IP地址是否属于CIDR网段
+		if ipNet.Contains(ip) {
+			status = true
+			break
+		}
+	}
+	return status
 }
-
-
