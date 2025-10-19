@@ -50,8 +50,6 @@
 
         .but {
             display: inline-block;
-            width: 32px;
-            height: 28px;
             color: white;
             background-color: #28a745;
             border: none;
@@ -59,7 +57,7 @@
             cursor: pointer;
             text-decoration-line: none;
             text-align: center;
-            line-height: 30px;
+            min-width: 48px;
         }
 
         form {
@@ -76,17 +74,32 @@
             padding: 12px;
         }
 
-        select {
-            background-color: #fff;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            color: #495057;
-        }
-
         label {
             display: block;
             margin-bottom: 5px;
             color: #495057;
+        }
+
+        .protocol-options {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 10px;
+        }
+
+        .protocol-options label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .but.edit {
+            background-color: #6c757d;
         }
 
         .send {
@@ -129,9 +142,10 @@
                     <td>{{.Whitelist}}</td>
                     <td>{{.Blacklist}}</td>
                     <td>
-                        <div class="but-container">
-                            <a class="but" href="/del/{{.Id}}">删除</a>
+                        <div class="actions">
+                            <a class="but edit" href="/edit/{{.Id}}">编辑</a>
                             <a class="but" style="background-color: #{{if eq .Status 0}}d93b3b{{else}}2181b5{{end}};" href="/do/{{.Id}}">{{if eq .Status 0}}停用{{else}}启用{{end}}</a>
+                            <a class="but" href="/del/{{.Id}}">删除</a>
                         </div>
                     </td>
                 </tr>
@@ -147,11 +161,11 @@
         <input type="text" name="remoteAddr" placeholder="远程地址" required>
         <input type="number" name="outTime" placeholder="超时时间" required>
         
-        <label for="protocol">类型:</label>
-        <select id="protocol" name="protocol" required>
-            <option value="tcp">TCP</option>
-            <option value="udp">UDP</option>
-        </select>
+        <label>类型:</label>
+        <div class="protocol-options">
+            <label><input type="checkbox" name="protocol" value="tcp" checked>TCP</label>
+            <label><input type="checkbox" name="protocol" value="udp">UDP</label>
+        </div>
         
         <label for="protocol">IP白名单:</label>
         <textarea name="whitelist"  cols="30" rows="5" placeholder="192.168.1.0/25;192.168.5.221"></textarea>
@@ -161,6 +175,14 @@
         
         <input class="send" type="submit" value="添加" />
     </form>
+    <script>
+    document.getElementById('addForm').addEventListener('submit', function (event) {
+        const selected = document.querySelectorAll('input[name="protocol"]:checked');
+        if (!selected.length) {
+            alert('请至少选择一种协议类型');
+            event.preventDefault();
+        }
+    });
+    </script>
 </body>
-
 </html>

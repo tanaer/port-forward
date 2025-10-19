@@ -157,14 +157,14 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	if cs.Whitelist != "" {
 		ok := ContainsIp(fmt.Sprintf("%v", srctcpAddr.IP), cs.Whitelist)
 		if !ok {
-			fmt.Println("no exsit Whitelist %v \n", srctcpAddr.IP)
+			fmt.Printf("no exsit Whitelist %v \n", srctcpAddr.IP)
 			return
 		}
 	}
 	if cs.Blacklist != "" {
 		ok := ContainsIp(fmt.Sprintf("%v", srctcpAddr.IP), cs.Blacklist)
 		if ok {
-			fmt.Println("exsit Blacklist %v \n", srctcpAddr.IP)
+			fmt.Printf("exsit Blacklist %v \n", srctcpAddr.IP)
 			return
 		}
 	}
@@ -291,7 +291,7 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 				delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
 				cs.TotalBytesLock.Unlock()
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
-				fmt.Println("%v 写入目标时发生错误: %v \n", Timestr, err)
+				fmt.Printf("%v 写入目标时发生错误: %v \n", Timestr, err)
 				break
 			}
 		}

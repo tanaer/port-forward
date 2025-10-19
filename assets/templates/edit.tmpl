@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>编辑转发</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: auto;
+            max-width: 640px;
+            background-color: #f8f9fa;
+            font-size: 16px;
+            padding: 20px;
+        }
+
+        h2 {
+            color: #343a40;
+        }
+
+        form {
+            margin-top: 20px;
+        }
+
+        input,
+        textarea,
+        button {
+            margin-bottom: 10px;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #495057;
+        }
+
+        .protocol-options {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 10px;
+        }
+
+        .protocol-options label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 0;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .primary {
+            border: none;
+            color: white;
+            background-color: #2181b5;
+            cursor: pointer;
+        }
+
+        .secondary {
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+            padding: 12px;
+            background-color: #6c757d;
+            color: #fff;
+            width: 100%;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>编辑转发</h2>
+    <form action="/edit/{{.forward.Id}}" method="post" id="editForm">
+        <label>本地端口:</label>
+        <input type="text" name="localPort" value="{{.forward.LocalPort}}" required>
+
+        <label>远程端口:</label>
+        <input type="text" name="remotePort" value="{{.forward.RemotePort}}" required>
+
+        <label>远程地址:</label>
+        <input type="text" name="remoteAddr" value="{{.forward.RemoteAddr}}" required>
+
+        <label>超时时间:</label>
+        <input type="number" name="outTime" value="{{.forward.OutTime}}" required>
+
+        <label>类型:</label>
+        <div class="protocol-options">
+            <label><input type="checkbox" name="protocol" value="tcp" {{if .selectedTCP}}checked{{end}}>TCP</label>
+            <label><input type="checkbox" name="protocol" value="udp" {{if .selectedUDP}}checked{{end}}>UDP</label>
+        </div>
+
+        <label>IP白名单:</label>
+        <textarea name="whitelist" cols="30" rows="5">{{.forward.Whitelist}}</textarea>
+
+        <label>IP黑名单:</label>
+        <textarea name="blacklist" cols="30" rows="5">{{.forward.Blacklist}}</textarea>
+
+        <div class="actions">
+            <input class="primary" type="submit" value="保存" />
+            <a class="secondary" href="/">返回</a>
+        </div>
+    </form>
+    <script>
+    document.getElementById('editForm').addEventListener('submit', function (event) {
+        const selected = document.querySelectorAll('input[name="protocol"]:checked');
+        if (!selected.length) {
+            alert('请至少选择一种协议类型');
+            event.preventDefault();
+        }
+    });
+    </script>
+</body>
+
+</html>

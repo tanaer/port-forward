@@ -1,18 +1,18 @@
 package sql
 
 import (
-	"os/exec"  
+	"bufio"
 	"fmt"
-	"bufio"  
+	"github.com/glebarez/sqlite"
+	"goForward/conf"
+	"gorm.io/gorm"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-    "strconv"
-	"goForward/conf"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 // 定义数据库指针
@@ -43,44 +43,43 @@ func init() {
 func GetList() []conf.ConnectionStats {
 	var res []conf.ConnectionStats
 	db.Model(&conf.ConnectionStats{}).Find(&res)
-	
+
 	var dealRes []conf.ConnectionStats
 	for i := range res {
-	    if strings.Contains(res[i].LocalPort,",") {
-	          LocalPorts := strings.Split(res[i].LocalPort, ",")
-	          for _,LocalPort := range LocalPorts {
-	             res[i].LocalPort = LocalPort
-	             res[i].RemotePort = LocalPort
-	             dealRes = append(dealRes, res[i])
-	          }
-	    }else{
-	        dealRes = append(dealRes, res[i])
-	    }
+		if strings.Contains(res[i].LocalPort, ",") {
+			LocalPorts := strings.Split(res[i].LocalPort, ",")
+			for _, LocalPort := range LocalPorts {
+				res[i].LocalPort = LocalPort
+				res[i].RemotePort = LocalPort
+				dealRes = append(dealRes, res[i])
+			}
+		} else {
+			dealRes = append(dealRes, res[i])
+		}
 	}
 	fmt.Println(dealRes)
 	return dealRes
 }
 
-
 // 获取转发列表
 func GetForwardList() []conf.ConnectionStats {
 	var res []conf.ConnectionStats
 	db.Model(&conf.ConnectionStats{}).Find(&res)
-    var size string  
-    var bytes float64  
-    for i := range res {  
-        bytes = float64(res[i].TotalBytes)  
-        if bytes > 0 {  
-            if bytes < (1024 * 1024 * 0.5) {  
-                size = strconv.FormatFloat(bytes/1024, 'f', 2, 64) + " KB"  
-            } else {  
-                size = strconv.FormatFloat(bytes/(1024*1024), 'f', 2, 64) + " MB"  
-            }  
-            res[i].TolBytes = size // 假设您有一个TolBytes字段来存储格式化后的值  
-        } else {
-            res[i].TolBytes = " 0KB" 
-        }
-    }
+	var size string
+	var bytes float64
+	for i := range res {
+		bytes = float64(res[i].TotalBytes)
+		if bytes > 0 {
+			if bytes < (1024 * 1024 * 0.5) {
+				size = strconv.FormatFloat(bytes/1024, 'f', 2, 64) + " KB"
+			} else {
+				size = strconv.FormatFloat(bytes/(1024*1024), 'f', 2, 64) + " MB"
+			}
+			res[i].TolBytes = size // 假设您有一个TolBytes字段来存储格式化后的值
+		} else {
+			res[i].TolBytes = " 0KB"
+		}
+	}
 	return res
 }
 
@@ -88,19 +87,19 @@ func GetForwardList() []conf.ConnectionStats {
 func GetAction() []conf.ConnectionStats {
 	var res []conf.ConnectionStats
 	db.Model(&conf.ConnectionStats{}).Where("status = ?", 0).Find(&res)
-	
+
 	var dealRes []conf.ConnectionStats
 	for i := range res {
-	    if strings.Contains(res[i].LocalPort,",") {
-	          LocalPorts := strings.Split(res[i].LocalPort, ",")
-	          for _,LocalPort := range LocalPorts {
-	             res[i].LocalPort = LocalPort
-	             res[i].RemotePort = LocalPort
-	             dealRes = append(dealRes, res[i])
-	          }
-	    }else{
-	        dealRes = append(dealRes, res[i])
-	    }
+		if strings.Contains(res[i].LocalPort, ",") {
+			LocalPorts := strings.Split(res[i].LocalPort, ",")
+			for _, LocalPort := range LocalPorts {
+				res[i].LocalPort = LocalPort
+				res[i].RemotePort = LocalPort
+				dealRes = append(dealRes, res[i])
+			}
+		} else {
+			dealRes = append(dealRes, res[i])
+		}
 	}
 	fmt.Println(dealRes)
 	return dealRes
@@ -150,43 +149,68 @@ func GetForward(id int) conf.ConnectionStats {
 	return get
 }
 
-// checkPortWithNetstat 使用netstat命令检查端口是否启用  
-func checkPortWithNetstat(port string) bool {  
-	cmd := exec.Command("netstat", "-tuln")  
-	output, err := cmd.Output()  
-	if err != nil {  
-		return false  
-	}  
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))  
-	for scanner.Scan() {  
-		line := scanner.Text()  
-		// 查找包含指定端口号的行  
-		if strings.Contains(line, ":"+port+" ") {  
-			return true  
-		}  
-	}  
-	return false  
+// GetForwardByPortAndProtocol 根据本地端口与协议获取单个转发
+func GetForwardByPortAndProtocol(localPort, protocol string) conf.ConnectionStats {
+	var get conf.ConnectionStats
+	db.Model(&conf.ConnectionStats{}).Where("local_port = ? AND protocol = ?", localPort, protocol).First(&get)
+	return get
 }
 
-
-// 判断指定端口转发是否可添加
-func FreeForward(localPort, protocol string) bool {
-    
-    //  return false
-    if checkPortWithNetstat(localPort) {
-        return false
-    }
-    
-	var get conf.ConnectionStats
-	res := db.Model(&conf.ConnectionStats{}).Where("local_port = ? And protocol = ?", localPort, protocol).Find(&get)
-	if res.Error == nil {
-		if get.Id == 0 {
-			return true
-		} else {
-			return false
+// checkPortWithNetstat 使用netstat命令检查端口是否启用
+func checkPortWithNetstat(port string, protocol string) bool {
+	cmd := exec.Command("netstat", "-tuln")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, ":"+port) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		proto := strings.ToLower(fields[0])
+		switch protocol {
+		case "udp":
+			if strings.HasPrefix(proto, "udp") {
+				return true
+			}
+		default:
+			if strings.HasPrefix(proto, "tcp") {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// 判断指定端口转发是否可添加
+func FreeForward(localPort, protocol string) bool {
+	return freeForwardInternal(localPort, protocol, 0, false)
+}
+
+// FreeForwardExclude 判断端口是否可用，忽略指定ID
+func FreeForwardExclude(localPort, protocol string, excludeID int, skipPortCheck bool) bool {
+	return freeForwardInternal(localPort, protocol, excludeID, skipPortCheck)
+}
+
+func freeForwardInternal(localPort, protocol string, excludeID int, skipPortCheck bool) bool {
+	if !skipPortCheck && checkPortWithNetstat(localPort, protocol) {
+		return false
+	}
+	var count int64
+	query := db.Model(&conf.ConnectionStats{}).Where("local_port = ? And protocol = ?", localPort, protocol)
+	if excludeID > 0 {
+		query = query.Where("id <> ?", excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false
+	}
+	return count == 0
 }
 
 // 去掉所有空格
@@ -225,6 +249,36 @@ func AddForward(newForward conf.ConnectionStats) int {
 	// 提交事务
 	tx.Commit()
 	return newForward.Id
+}
+
+// 更新转发
+func UpdateForwardConfig(updated conf.ConnectionStats) bool {
+	updated.RemoteAddr = rmSpaces(updated.RemoteAddr)
+	updated.RemotePort = rmSpaces(updated.RemotePort)
+	updated.LocalPort = rmSpaces(updated.LocalPort)
+	updated.Blacklist = rmSpaces(updated.Blacklist)
+	updated.Whitelist = rmSpaces(updated.Whitelist)
+	updated.Protocol = rmSpaces(updated.Protocol)
+	if updated.Protocol != "udp" {
+		updated.Protocol = "tcp"
+	}
+
+	values := map[string]interface{}{
+		"local_port":  updated.LocalPort,
+		"remote_port": updated.RemotePort,
+		"remote_addr": updated.RemoteAddr,
+		"out_time":    updated.OutTime,
+		"protocol":    updated.Protocol,
+		"whitelist":   updated.Whitelist,
+		"blacklist":   updated.Blacklist,
+	}
+
+	res := db.Model(&conf.ConnectionStats{}).Where("id = ?", updated.Id).Updates(values)
+	if res.Error != nil {
+		log.Println("更新转发配置失败:", res.Error)
+		return false
+	}
+	return true
 }
 
 // 删除转发

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -36,35 +38,142 @@ func Run() {
 		c.JSON(200, sql.GetIpBan())
 	})
 	r.POST("/add", func(c *gin.Context) {
-		if c.PostForm("localPort") != "" && c.PostForm("remoteAddr") != "" && c.PostForm("remotePort") != "" && c.PostForm("protocol") != "" {
+		protocols := c.PostFormArray("protocol")
+		if c.PostForm("localPort") != "" && c.PostForm("remoteAddr") != "" && c.PostForm("remotePort") != "" && len(protocols) > 0 {
 			outTimeStr := c.PostForm("outTime")
 			outTimeInt, err := strconv.Atoi(outTimeStr)
 			if err != nil {
 				outTimeInt = 5
 			}
-			f := conf.ConnectionStats{
-				LocalPort:  c.PostForm("localPort"),
-				RemotePort: c.PostForm("remotePort"),
-				RemoteAddr: c.PostForm("remoteAddr"),
-				Whitelist:  c.PostForm("whitelist"),
-				Blacklist:  c.PostForm("blacklist"),
-				OutTime:    outTimeInt,
-				Protocol:   c.PostForm("protocol"),
+			protocolSet := map[string]struct{}{}
+			for _, protocol := range protocols {
+				p := strings.ToLower(strings.TrimSpace(protocol))
+				if p == "tcp" || p == "udp" {
+					protocolSet[p] = struct{}{}
+				}
 			}
-			if utils.AddForward(f) {
+			if len(protocolSet) == 0 {
 				c.HTML(200, "msg.tmpl", gin.H{
-					"msg": "添加成功",
+					"msg": "添加失败，协议类型不正确",
+					"suc": false,
+				})
+				return
+			}
+			var success []string
+			var failed []string
+			order := []string{"tcp", "udp"}
+			for _, proto := range order {
+				if _, ok := protocolSet[proto]; !ok {
+					continue
+				}
+				f := conf.ConnectionStats{
+					LocalPort:  c.PostForm("localPort"),
+					RemotePort: c.PostForm("remotePort"),
+					RemoteAddr: c.PostForm("remoteAddr"),
+					Whitelist:  c.PostForm("whitelist"),
+					Blacklist:  c.PostForm("blacklist"),
+					OutTime:    outTimeInt,
+					Protocol:   proto,
+				}
+				if utils.AddForward(f) {
+					success = append(success, strings.ToUpper(proto))
+				} else {
+					failed = append(failed, strings.ToUpper(proto))
+				}
+			}
+			if len(success) > 0 && len(failed) == 0 {
+				c.HTML(200, "msg.tmpl", gin.H{
+					"msg": fmt.Sprintf("添加成功：%s", strings.Join(success, "、")),
 					"suc": true,
+				})
+			} else if len(success) > 0 {
+				sort.Strings(failed)
+				c.HTML(200, "msg.tmpl", gin.H{
+					"msg": fmt.Sprintf("部分成功：已启用 %s，未能启用 %s，请确认端口是否占用", strings.Join(success, "、"), strings.Join(failed, "、")),
+					"suc": false,
 				})
 			} else {
 				c.HTML(200, "msg.tmpl", gin.H{
-					"msg": "添加失败，端口已占用",
+					"msg": "添加失败，端口可能已占用",
 					"suc": false,
 				})
 			}
 		} else {
 			c.HTML(200, "msg.tmpl", gin.H{
 				"msg": "添加失败，表单信息不完整",
+				"suc": false,
+			})
+		}
+	})
+	r.GET("/edit/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		intID, err := strconv.Atoi(id)
+		if err != nil {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": "ID错误，无法编辑",
+				"suc": false,
+			})
+			return
+		}
+		f := sql.GetForward(intID)
+		if f.Id == 0 {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": "未找到该转发",
+				"suc": false,
+			})
+			return
+		}
+		tcpForward := sql.GetForwardByPortAndProtocol(f.LocalPort, "tcp")
+		udpForward := sql.GetForwardByPortAndProtocol(f.LocalPort, "udp")
+		c.HTML(200, "edit.tmpl", gin.H{
+			"forward":     f,
+			"selectedTCP": tcpForward.Id != 0,
+			"selectedUDP": udpForward.Id != 0,
+		})
+	})
+	r.POST("/edit/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		intID, err := strconv.Atoi(id)
+		if err != nil {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": "ID错误，无法保存",
+				"suc": false,
+			})
+			return
+		}
+		protocols := c.PostFormArray("protocol")
+		if len(protocols) == 0 {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": "保存失败，请至少选择一种协议",
+				"suc": false,
+			})
+			return
+		}
+		outTimeStr := c.PostForm("outTime")
+		outTimeInt, err := strconv.Atoi(outTimeStr)
+		if err != nil {
+			outTimeInt = 5
+		}
+		update := conf.ConnectionStats{
+			Id:         intID,
+			LocalPort:  c.PostForm("localPort"),
+			RemotePort: c.PostForm("remotePort"),
+			RemoteAddr: c.PostForm("remoteAddr"),
+			Whitelist:  c.PostForm("whitelist"),
+			Blacklist:  c.PostForm("blacklist"),
+			OutTime:    outTimeInt,
+		}
+		if ok, msg := utils.UpdateForwardGroup(update, protocols); ok {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": "更新成功",
+				"suc": true,
+			})
+		} else {
+			if msg == "" {
+				msg = "保存失败"
+			}
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": msg,
 				"suc": false,
 			})
 		}
