@@ -1,0 +1,6 @@
+# Local database (do not commit)
+goForward.db
+
+# Runtime logs
+logs/
+devops_logs/
