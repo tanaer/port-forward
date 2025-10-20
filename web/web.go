@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -28,7 +29,14 @@ func Run() {
 	store := cookie.NewStore([]byte("secret"))
 	r.Use(sessions.Sessions("goForward", store))
 	r.Use(checkCookieMiddleware)
-	r.SetHTMLTemplate(template.Must(template.New("").Funcs(r.FuncMap).ParseFS(assets.Templates, "templates/*")))
+
+	funcMap := template.FuncMap{
+		"toJSON": func(v interface{}) template.JS {
+			b, _ := json.Marshal(v)
+			return template.JS(b)
+		},
+	}
+	r.SetHTMLTemplate(template.Must(template.New("").Funcs(funcMap).ParseFS(assets.Templates, "templates/*")))
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.tmpl", gin.H{
 			"forwardList": sql.GetForwardList(),
@@ -72,6 +80,7 @@ func Run() {
 					RemoteAddr: c.PostForm("remoteAddr"),
 					Whitelist:  c.PostForm("whitelist"),
 					Blacklist:  c.PostForm("blacklist"),
+					Remark:     c.PostForm("remark"),
 					OutTime:    outTimeInt,
 					Protocol:   proto,
 				}
@@ -161,6 +170,7 @@ func Run() {
 			RemoteAddr: c.PostForm("remoteAddr"),
 			Whitelist:  c.PostForm("whitelist"),
 			Blacklist:  c.PostForm("blacklist"),
+			Remark:     c.PostForm("remark"),
 			OutTime:    outTimeInt,
 		}
 		if ok, msg := utils.UpdateForwardGroup(update, protocols); ok {
@@ -177,6 +187,24 @@ func Run() {
 				"suc": false,
 			})
 		}
+	})
+	r.POST("/import", func(c *gin.Context) {
+		var payload struct {
+			Forwards []utils.ImportDefinition `json:"forwards"`
+		}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"msg": "导入失败，JSON格式不正确",
+				"suc": false,
+			})
+			return
+		}
+		summary := utils.ImportForwardDefinitions(payload.Forwards)
+		c.JSON(http.StatusOK, gin.H{
+			"msg":    summary.Message(),
+			"suc":    len(summary.Failed) == 0,
+			"detail": summary,
+		})
 	})
 	r.GET("/do/:id", func(c *gin.Context) {
 		id := c.Param("id")

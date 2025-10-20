@@ -227,8 +227,25 @@ func AddForward(newForward conf.ConnectionStats) int {
 	newForward.Blacklist = rmSpaces(newForward.Blacklist)
 	newForward.Whitelist = rmSpaces(newForward.Whitelist)
 	newForward.Protocol = rmSpaces(newForward.Protocol)
+	newForward.Remark = strings.TrimSpace(newForward.Remark)
 	if newForward.Protocol != "udp" {
 		newForward.Protocol = "tcp"
+	}
+	existing := GetForwardByPortAndProtocol(newForward.LocalPort, newForward.Protocol)
+	if existing.Id != 0 {
+		if existing.Status == 0 {
+			return 0
+		}
+		newForward.Id = existing.Id
+		newForward.TotalBytes = existing.TotalBytes
+		newForward.TotalGigabyte = existing.TotalGigabyte
+		if !UpdateForwardConfig(newForward) {
+			return 0
+		}
+		if !UpdateForwardStatus(existing.Id, 0) {
+			return 0
+		}
+		return existing.Id
 	}
 	if !FreeForward(newForward.LocalPort, newForward.Protocol) {
 		return 0
@@ -271,6 +288,7 @@ func UpdateForwardConfig(updated conf.ConnectionStats) bool {
 		"protocol":    updated.Protocol,
 		"whitelist":   updated.Whitelist,
 		"blacklist":   updated.Blacklist,
+		"remark":      strings.TrimSpace(updated.Remark),
 	}
 
 	res := db.Model(&conf.ConnectionStats{}).Where("id = ?", updated.Id).Updates(values)

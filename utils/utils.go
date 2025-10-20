@@ -22,6 +22,7 @@ func spawnForwardInstance(f conf.ConnectionStats) {
 			Whitelist:  f.Whitelist,
 			Protocol:   f.Protocol,
 			OutTime:    f.OutTime,
+			Remark:     f.Remark,
 			TotalBytes: f.TotalBytes,
 		},
 		TotalBytesOld:  f.TotalBytes,
@@ -38,6 +39,7 @@ func sanitizeConnectionInput(f conf.ConnectionStats) conf.ConnectionStats {
 	f.RemoteAddr = strings.ReplaceAll(f.RemoteAddr, " ", "")
 	f.Blacklist = strings.ReplaceAll(f.Blacklist, " ", "")
 	f.Whitelist = strings.ReplaceAll(f.Whitelist, " ", "")
+	f.Remark = strings.TrimSpace(f.Remark)
 	if f.OutTime <= 0 {
 		f.OutTime = 5
 	}
@@ -66,6 +68,7 @@ func AddForward(newF conf.ConnectionStats) bool {
 					Whitelist:  newF.Whitelist,
 					Protocol:   newF.Protocol,
 					OutTime:    newF.OutTime,
+					Remark:     newF.Remark,
 					TotalBytes: 0,
 				}
 				spawnForwardInstance(cfg)
@@ -80,6 +83,7 @@ func AddForward(newF conf.ConnectionStats) bool {
 				Whitelist:  newF.Whitelist,
 				Protocol:   newF.Protocol,
 				OutTime:    newF.OutTime,
+				Remark:     newF.Remark,
 				TotalBytes: 0,
 			}
 			spawnForwardInstance(cfg)
@@ -254,4 +258,84 @@ func UpdateForwardGroup(base conf.ConnectionStats, protocols []string) (bool, st
 	}
 
 	return true, ""
+}
+
+type ImportDefinition struct {
+	LocalPort  string `json:"localPort"`
+	RemotePort string `json:"remotePort"`
+	RemoteAddr string `json:"remoteAddr"`
+	Protocol   string `json:"protocol"`
+	OutTime    int    `json:"outTime"`
+	Whitelist  string `json:"whitelist"`
+	Blacklist  string `json:"blacklist"`
+	Remark     string `json:"remark"`
+}
+
+type ImportSummary struct {
+	Added   int      `json:"added"`
+	Updated int      `json:"updated"`
+	Skipped int      `json:"skipped"`
+	Failed  []string `json:"failed"`
+}
+
+func (s ImportSummary) Message() string {
+	return fmt.Sprintf("导入完成，新建%d条，更新%d条，跳过重复%d条，失败%d条", s.Added, s.Updated, s.Skipped, len(s.Failed))
+}
+
+func ImportForwardDefinitions(defs []ImportDefinition) ImportSummary {
+	summary := ImportSummary{}
+	for idx, def := range defs {
+		proto := strings.ToLower(strings.TrimSpace(def.Protocol))
+		if proto != "udp" {
+			proto = "tcp"
+		}
+		cfg := conf.ConnectionStats{
+			LocalPort:  def.LocalPort,
+			RemotePort: def.RemotePort,
+			RemoteAddr: def.RemoteAddr,
+			Whitelist:  def.Whitelist,
+			Blacklist:  def.Blacklist,
+			Remark:     def.Remark,
+			OutTime:    def.OutTime,
+			Protocol:   proto,
+		}
+		cfg = sanitizeConnectionInput(cfg)
+		cfg.Protocol = proto
+		if cfg.LocalPort == "" || cfg.RemoteAddr == "" {
+			summary.Failed = append(summary.Failed, fmt.Sprintf("第%d条本地或远程地址为空", idx+1))
+			continue
+		}
+		if cfg.RemotePort == "" {
+			cfg.RemotePort = cfg.LocalPort
+		}
+		existing := sql.GetForwardByPortAndProtocol(cfg.LocalPort, cfg.Protocol)
+		if existing.Id != 0 {
+			existingSan := sanitizeConnectionInput(existing)
+			if existingSan.RemotePort == cfg.RemotePort &&
+				existingSan.RemoteAddr == cfg.RemoteAddr &&
+				existingSan.OutTime == cfg.OutTime &&
+				existingSan.Whitelist == cfg.Whitelist &&
+				existingSan.Blacklist == cfg.Blacklist &&
+				existingSan.Remark == cfg.Remark {
+				summary.Skipped++
+				continue
+			}
+			cfg.Id = existing.Id
+			cfg.TotalBytes = existing.TotalBytes
+			cfg.TotalGigabyte = existing.TotalGigabyte
+			cfg.Status = existing.Status
+			if ok, msg := UpdateForward(cfg); !ok {
+				summary.Failed = append(summary.Failed, fmt.Sprintf("第%d条更新失败:%s", idx+1, msg))
+				continue
+			}
+			summary.Updated++
+			continue
+		}
+		if !AddForward(cfg) {
+			summary.Failed = append(summary.Failed, fmt.Sprintf("第%d条添加失败，端口可能占用", idx+1))
+			continue
+		}
+		summary.Added++
+	}
+	return summary
 }

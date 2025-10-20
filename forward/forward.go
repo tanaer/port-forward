@@ -3,6 +3,7 @@ package forward
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"goForward/conf"
 	"goForward/sql"
@@ -284,6 +285,9 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 			//写入目标
 			_, err := dst.Write(buf[:n])
 			if err != nil {
+				if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+					break
+				}
 				cs.TotalBytesLock.Lock()
 				src.Close()
 				dst.Close()
@@ -301,6 +305,9 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 		}
 
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+				break
+			}
 			cs.TotalBytesLock.Lock()
 			src.Close()
 			dst.Close()

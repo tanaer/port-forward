@@ -92,6 +92,9 @@
         <label>超时时间:</label>
         <input type="number" name="outTime" value="{{.forward.OutTime}}" required>
 
+        <label>备注:</label>
+        <input type="text" name="remark" value="{{.forward.Remark}}">
+
         <label>类型:</label>
         <div class="protocol-options">
             <label><input type="checkbox" name="protocol" value="tcp" {{if .selectedTCP}}checked{{end}}>TCP</label>

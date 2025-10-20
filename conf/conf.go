@@ -10,13 +10,14 @@ type ConnectionStats struct {
 	LocalPort     string
 	RemoteAddr    string
 	RemotePort    string
-	OutTime        int
+	OutTime       int
 	Protocol      string
-	Whitelist      string
-	Blacklist      string
+	Whitelist     string
+	Blacklist     string
+	Remark        string
 	Status        int
 	TotalBytes    uint64
-	TolBytes    string
+	TolBytes      string
 	TotalGigabyte uint64
 }
 
