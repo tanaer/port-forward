@@ -412,6 +412,42 @@
             }
         }
 
+        // 解析 Hysteria2 订阅
+        async function parseHy2Sub() {
+            const subUrl = document.getElementById('hy2Sub').value;
+            if (!subUrl) {
+                alert('请输入订阅链接');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('subscription', subUrl);
+
+                const response = await fetch('/proxy/parse-hy2', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    alert('解析失败: ' + data.error);
+                    return;
+                }
+
+                document.getElementById('hy2Server').value = data.server || '';
+                document.getElementById('hy2Port').value = data.port || '443';
+                document.getElementById('hy2Password').value = data.password || '';
+                document.getElementById('hy2Obfs').value = data.obfs || '';
+                document.getElementById('hy2ObfsPassword').value = data.obfsPass || '';
+                document.getElementById('hy2SNI').value = data.sni || '';
+                alert('订阅解析成功！');
+            } catch (error) {
+                alert('解析失败: ' + error.message);
+            }
+        }
+
+        // 解析 VMess 订阅
         async function parseVmessSub() {
             const subUrl = document.getElementById('vmessSub').value;
             if (!subUrl) {
@@ -445,9 +481,11 @@
                 document.getElementById('vmessWsPath').value = data.wsPath || '';
                 document.getElementById('vmessWsHost').value = data.wsHost || '';
 
+                // 触发相关配置显示
                 toggleVmessWsConfig();
                 toggleVmessTLSConfig();
-                alert('订阅解析成功！');
+
+                alert('VMess 订阅解析成功！');
             } catch (error) {
                 alert('解析失败: ' + error.message);
             }
