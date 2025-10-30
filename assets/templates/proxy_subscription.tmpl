@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订阅链接 - {{.proxy.Name}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 10px; }
+        .nav { margin-bottom: 30px; }
+        .nav a { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; }
+        .nav a:hover { background: #5a6268; }
+        .section { margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+        .section h2 { color: #007bff; margin-bottom: 15px; font-size: 18px; }
+        .link-box { background: white; padding: 15px; border: 1px solid #ddd; border-radius: 4px; word-break: break-all; font-family: monospace; font-size: 13px; margin-bottom: 10px; }
+        .btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; text-decoration: none; margin-right: 10px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .qrcode { text-align: center; margin: 20px 0; }
+        .qrcode canvas { border: 2px solid #ddd; border-radius: 8px; }
+        .info { background: #d1ecf1; border-left: 4px solid #0c5460; padding: 15px; margin-bottom: 20px; border-radius: 4px; }
+        .info h3 { color: #0c5460; margin-bottom: 10px; }
+        .info p { color: #0c5460; margin: 5px 0; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 订阅链接</h1>
+        <p style="color: #666; margin-bottom: 20px;">{{.proxy.Name}}</p>
+
+        <div class="nav">
+            <a href="/proxy">← 返回列表</a>
+        </div>
+
+        <div class="info">
+            <h3>📋 配置信息</h3>
+            <p><strong>入站端口:</strong> {{.proxy.InboundPort}}</p>
+            <p><strong>Reality域名:</strong> {{.proxy.RealityServerName}}</p>
+            <p><strong>UUID:</strong> {{.proxy.UUID}}</p>
+            <p><strong>备注:</strong> {{.proxy.Remark}}</p>
+        </div>
+
+        <!-- 通用订阅链接 -->
+        <div class="section">
+            <h2>🔗 通用订阅链接</h2>
+            <p style="color: #666; margin-bottom: 10px;">适用于 V2Ray、Clash 等客户端</p>
+            <div class="link-box" id="subUrl">{{.subUrl}}</div>
+            <button class="btn btn-primary" onclick="copyText('subUrl')">📋 复制订阅链接</button>
+        </div>
+
+        <!-- VLESS 链接 -->
+        <div class="section">
+            <h2>🔐 VLESS 链接</h2>
+            <p style="color: #666; margin-bottom: 10px;">直接导入到客户端</p>
+            <div class="link-box" id="vlessLink">{{.vlessLink}}</div>
+            <button class="btn btn-primary" onclick="copyText('vlessLink')">📋 复制 VLESS 链接</button>
+            <button class="btn btn-success" onclick="showQRCode('vlessLink')">📱 显示二维码</button>
+        </div>
+
+        <!-- 二维码 -->
+        <div class="section" id="qrcodeSection" style="display: none;">
+            <h2>📱 扫描二维码</h2>
+            <div class="qrcode" id="qrcode"></div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="section">
+            <h2>📖 使用说明</h2>
+            <ol style="padding-left: 20px; color: #666;">
+                <li style="margin-bottom: 10px;">复制上方的订阅链接或 VLESS 链接</li>
+                <li style="margin-bottom: 10px;">在客户端中添加订阅或导入配置</li>
+                <li style="margin-bottom: 10px;">推荐客户端:
+                    <ul style="margin-top: 5px;">
+                        <li>Windows: v2rayN, Clash for Windows</li>
+                        <li>macOS: V2RayX, ClashX</li>
+                        <li>Android: v2rayNG, Clash for Android</li>
+                        <li>iOS: Shadowrocket, Quantumult X</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function copyText(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                alert('复制成功！');
+            }).catch(err => {
+                // 降级方案
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('复制成功！');
+            });
+        }
+
+        function showQRCode(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            const qrcodeSection = document.getElementById('qrcodeSection');
+            const qrcodeDiv = document.getElementById('qrcode');
+
+            // 清空之前的二维码
+            qrcodeDiv.innerHTML = '';
+
+            // 生成新二维码
+            new QRCode(qrcodeDiv, {
+                text: text,
+                width: 300,
+                height: 300,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+
+            // 显示二维码区域
+            qrcodeSection.style.display = 'block';
+            qrcodeSection.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

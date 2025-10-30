@@ -2,15 +2,21 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"sync"
 	"goForward/conf"
 	"goForward/forward"
+	"goForward/proxy"
 	"goForward/sql"
 	"goForward/web"
 )
 
 func main() {
 	go web.Run()
+
+	// 启动所有活动的代理配置
+	go loadActiveProxies()
+
 	// 初始化通道
 	conf.Ch = make(chan string)
 	forwardList := sql.GetAction()
@@ -60,6 +66,31 @@ func main() {
 	conf.Wg.Wait()
 	defer close(conf.Ch)
 }
+
+// loadActiveProxies 加载并启动所有活动的代理配置
+func loadActiveProxies() {
+	// 给 web 服务一点启动时间
+	// time.Sleep(2 * time.Second)
+
+	activeProxies := sql.GetActiveProxies()
+	if len(activeProxies) == 0 {
+		fmt.Println("[Proxy] 没有找到活动的代理配置")
+		return
+	}
+
+	fmt.Printf("[Proxy] 找到 %d 个活动的代理配置，开始启动...\n", len(activeProxies))
+	pm := proxy.GetProxyManager()
+
+	for _, proxyConfig := range activeProxies {
+		fmt.Printf("[Proxy] 启动代理 ID=%d Port=%d...\n", proxyConfig.Id, proxyConfig.InboundPort)
+		if err := pm.StartProxy(proxyConfig.Id); err != nil {
+			fmt.Printf("[Proxy] 启动代理 ID=%d 失败: %v\n", proxyConfig.Id, err)
+		} else {
+			fmt.Printf("[Proxy] 代理 ID=%d 启动成功\n", proxyConfig.Id)
+		}
+	}
+}
+
 func init() {
 	flag.StringVar(&conf.WebPort, "port", "8889", "Web Port")
 	flag.StringVar(&conf.WebPass, "pass", "", "Web Password")

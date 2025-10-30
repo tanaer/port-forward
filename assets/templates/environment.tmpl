@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>环境配置 - goForward</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 10px; }
+        .nav { margin-bottom: 30px; }
+        .nav a { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; margin-right: 10px; }
+        .nav a:hover { background: #5a6268; }
+
+        .status-banner { padding: 20px; border-radius: 8px; margin-bottom: 30px; text-align: center; }
+        .status-banner.ready { background: #d4edda; border: 2px solid #28a745; }
+        .status-banner.not-ready { background: #f8d7da; border: 2px solid #dc3545; }
+        .status-banner h2 { margin-bottom: 10px; }
+        .status-banner.ready h2 { color: #155724; }
+        .status-banner.not-ready h2 { color: #721c24; }
+        .status-banner p { color: #666; }
+
+        .dependency-card { background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #007bff; }
+        .dependency-card.installed { border-left-color: #28a745; }
+        .dependency-card.not-installed { border-left-color: #dc3545; }
+
+        .dep-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .dep-name { font-size: 20px; font-weight: 600; color: #333; }
+        .dep-status { padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .dep-status.installed { background: #d4edda; color: #155724; }
+        .dep-status.not-installed { background: #f8d7da; color: #721c24; }
+
+        .dep-info { color: #666; margin-bottom: 10px; }
+        .dep-info strong { color: #333; }
+
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .action-buttons { display: flex; gap: 10px; margin-top: 15px; }
+
+        .info-box { background: #d1ecf1; border-left: 4px solid #0c5460; padding: 15px; margin-top: 30px; border-radius: 4px; }
+        .info-box h3 { color: #0c5460; margin-bottom: 10px; }
+        .info-box ul { padding-left: 20px; color: #0c5460; }
+        .info-box li { margin: 5px 0; }
+
+        .loading { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000; text-align: center; }
+        .loading.show { display: block; }
+        .overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; }
+        .overlay.show { display: block; }
+
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 环境配置</h1>
+        <p style="color: #666; margin-bottom: 20px;">代理功能依赖检查与安装</p>
+
+        <div class="nav">
+            <a href="/">← 返回首页</a>
+            <a href="/proxy">代理管理</a>
+            <button class="btn btn-primary" onclick="checkEnvironment()" style="border: none;">🔄 刷新状态</button>
+        </div>
+
+        <!-- 状态横幅 -->
+        {{if .status.Ready}}
+        <div class="status-banner ready">
+            <h2>✅ 环境已就绪</h2>
+            <p>所有依赖已安装，可以正常使用代理功能</p>
+        </div>
+        {{else}}
+        <div class="status-banner not-ready">
+            <h2>⚠️ 环境未就绪</h2>
+            <p>{{.status.Message}}</p>
+            <div style="margin-top: 15px;">
+                <button class="btn btn-success" onclick="installAll()">🚀 一键安装所有依赖</button>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- 依赖列表 -->
+        {{range .status.Dependencies}}
+        <div class="dependency-card {{if .Installed}}installed{{else}}not-installed{{end}}">
+            <div class="dep-header">
+                <div class="dep-name">
+                    {{if eq .Name "Xray-core"}}🔐{{else}}🚀{{end}} {{.Name}}
+                </div>
+                <div class="dep-status {{if .Installed}}installed{{else}}not-installed{{end}}">
+                    {{if .Installed}}✅ 已安装{{else}}❌ 未安装{{end}}
+                </div>
+            </div>
+
+            {{if .Installed}}
+            <div class="dep-info">
+                <strong>版本:</strong> {{.Version}}
+            </div>
+            <div class="dep-info">
+                <strong>路径:</strong> {{.Path}}
+            </div>
+            <div class="dep-info">
+                <strong>状态:</strong> <span style="color: #28a745;">✓ 正常</span>
+            </div>
+            {{else}}
+            <div class="dep-info">
+                <strong>状态:</strong> <span style="color: #dc3545;">✗ 未安装</span>
+            </div>
+            <div class="dep-info">
+                <strong>说明:</strong> {{if eq .Name "Xray-core"}}Xray 是 VLESS+Reality 协议的核心引擎{{else}}Hysteria2 是高速代理协议客户端{{end}}
+            </div>
+
+            <div class="action-buttons">
+                {{if eq .Name "Xray-core"}}
+                <button class="btn btn-primary" onclick="installXray()">📥 安装 Xray</button>
+                {{else}}
+                <button class="btn btn-primary" onclick="installHy2()">📥 安装 Hysteria2</button>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        <!-- 说明信息 -->
+        <div class="info-box">
+            <h3>💡 使用说明</h3>
+            <ul>
+                <li><strong>Xray-core:</strong> 用于处理 VLESS+Reality 入站连接，提供加密和流量伪装</li>
+                <li><strong>Hysteria2:</strong> 用于连接上游服务器，提供高速、稳定的代理传输</li>
+                <li>安装过程会从 GitHub 下载最新版本的二进制文件</li>
+                <li>文件将安装到 <code>bin/</code> 目录下</li>
+                <li>安装过程可能需要几分钟，请耐心等待</li>
+                <li>如果下载失败，请检查网络连接或手动下载</li>
+            </ul>
+        </div>
+
+        <!-- 手动安装说明 -->
+        {{if not .status.Ready}}
+        <div class="info-box" style="background: #fff3cd; border-left-color: #856404; margin-top: 20px;">
+            <h3>🔧 手动安装（可选）</h3>
+            <ul style="color: #856404;">
+                <li><strong>Xray:</strong> <code>bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install</code></li>
+                <li><strong>Hysteria2:</strong> <code>bash &lt;(curl -fsSL https://get.hy2.sh/)</code></li>
+                <li>或直接下载二进制文件到 <code>bin/</code> 目录并重命名为 <code>xray</code> 和 <code>hysteria2</code></li>
+            </ul>
+        </div>
+        {{end}}
+    </div>
+
+    <!-- 加载提示 -->
+    <div class="overlay" id="overlay"></div>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <h3>正在安装依赖...</h3>
+        <p>这可能需要几分钟，请不要关闭页面</p>
+    </div>
+
+    <script>
+        function showLoading() {
+            document.getElementById('overlay').classList.add('show');
+            document.getElementById('loading').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('loading').classList.remove('show');
+        }
+
+        async function checkEnvironment() {
+            location.reload();
+        }
+
+        async function installXray() {
+            if (!confirm('确定要安装 Xray-core 吗？\n\n这将从 GitHub 下载最新版本，可能需要几分钟。')) {
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/api/environment/install-xray', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('安装已开始！\n\n请等待约 1-2 分钟后刷新页面查看安装结果。');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 60000); // 60秒后自动刷新
+                } else {
+                    alert('安装失败: ' + (data.message || '未知错误'));
+                    hideLoading();
+                }
+            } catch (error) {
+                alert('安装失败: ' + error.message);
+                hideLoading();
+            }
+        }
+
+        async function installHy2() {
+            if (!confirm('确定要安装 Hysteria2 吗？\n\n这将从 GitHub 下载最新版本，可能需要几分钟。')) {
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/api/environment/install-hy2', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('安装已开始！\n\n请等待约 1-2 分钟后刷新页面查看安装结果。');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 60000); // 60秒后自动刷新
+                } else {
+                    alert('安装失败: ' + (data.message || '未知错误'));
+                    hideLoading();
+                }
+            } catch (error) {
+                alert('安装失败: ' + error.message);
+                hideLoading();
+            }
+        }
+
+        async function installAll() {
+            if (!confirm('确定要一键安装所有依赖吗？\n\n这将安装 Xray-core 和 Hysteria2，可能需要几分钟。')) {
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/api/environment/install-all', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('安装已开始！\n\n请等待约 2-3 分钟后刷新页面查看安装结果。\n\n页面将在 2 分钟后自动刷新。');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 120000); // 120秒后自动刷新
+                } else {
+                    alert('安装失败: ' + (data.message || '未知错误'));
+                    hideLoading();
+                }
+            } catch (error) {
+                alert('安装失败: ' + error.message);
+                hideLoading();
+            }
+        }
+    </script>
+</body>
+</html>

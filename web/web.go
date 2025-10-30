@@ -37,6 +37,13 @@ func Run() {
 		},
 	}
 	r.SetHTMLTemplate(template.Must(template.New("").Funcs(funcMap).ParseFS(assets.Templates, "templates/*")))
+
+	// 注册代理管理路由
+	RegisterProxyRoutes(r)
+
+	// 注册安装器路由
+	RegisterInstallerRoutes(r)
+
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.tmpl", gin.H{
 			"forwardList": sql.GetForwardList(),
@@ -321,7 +328,8 @@ func checkCookieMiddleware(c *gin.Context) {
 		c.Next()
 		return
 	}
-	if currenPath == "/pwd" {
+	// 排除密码页面和订阅路由（订阅路由需要公开访问）
+	if currenPath == "/pwd" || strings.HasPrefix(currenPath, "/sub/") {
 		c.Next()
 		return
 	}

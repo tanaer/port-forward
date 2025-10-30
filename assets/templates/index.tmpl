@@ -123,7 +123,11 @@
 </head>
 
 <body>
-    <h2>转发列表</h2>
+    <h2>🔧 端口隧道</h2>
+    <div style="margin-bottom: 20px;">
+        <a href="/proxy" class="but" style="background-color: #007bff; text-decoration: none;">🚀 代理转发</a>
+        <a href="/environment" class="but" style="background-color: #17a2b8; text-decoration: none; margin-left: 10px;">⚙️ 环境配置</a>
+    </div>
     <div class="toolbar">
         <button type="button" id="copySelected">复制选中</button>
         <button type="button" id="copyAll">复制全部</button>
@@ -174,7 +178,7 @@
         </table>
     </div>
 
-    <h2>添加转发</h2>
+    <h2>添加端口隧道</h2>
     <form action="/add" method="post" id="addForm">
         <input type="text" name="localPort" placeholder="本地端口" required>
         <input type="text" name="remotePort" placeholder="远程端口" required>

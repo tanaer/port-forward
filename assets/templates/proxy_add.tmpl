@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>添加代理 - goForward</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 10px; }
+        .nav { margin-bottom: 30px; }
+        .nav a { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; }
+        .nav a:hover { background: #5a6268; }
+        .section { margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+        .section h2 { color: #007bff; margin-bottom: 15px; font-size: 18px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #333; font-weight: 600; }
+        input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        textarea { resize: vertical; min-height: 60px; }
+        .btn { padding: 12px 30px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; color: white; margin-left: 10px; }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-success { background: #28a745; color: white; margin-left: 10px; }
+        .btn-success:hover { background: #218838; }
+        .help-text { font-size: 12px; color: #666; margin-top: 5px; }
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>➕ 添加代理配置</h1>
+        <p style="color: #666; margin-bottom: 20px;">配置 VLESS+Reality 入站和 Hysteria2 出站</p>
+
+        <div class="nav">
+            <a href="/proxy">← 返回列表</a>
+        </div>
+
+        <form method="POST" action="/proxy/add">
+            <!-- 基本信息 -->
+            <div class="section">
+                <h2>📋 基本信息</h2>
+                <div class="form-group">
+                    <label>配置名称 *</label>
+                    <input type="text" name="name" required placeholder="例如: 美国节点1">
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea name="remark" placeholder="可选的备注信息"></textarea>
+                </div>
+            </div>
+
+            <!-- VLESS+Reality 配置 -->
+            <div class="section">
+                <h2>🔐 VLESS+Reality 入站配置</h2>
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>监听端口</label>
+                            <input type="number" name="inboundPort" placeholder="留空自动生成随机端口 (10000+)">
+                            <div class="help-text">建议留空，系统会自动生成10000以上的随机可用端口</div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>UUID *</label>
+                            <input type="text" name="uuid" id="uuid" required placeholder="点击右侧按钮生成">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Reality 回落域名 *</label>
+                    <select name="realityDest" id="realityDest" required onchange="updateSNI()">
+                        <option value="">选择域名</option>
+                        {{range .realityDomains}}
+                        <option value="{{.}}">{{.}}</option>
+                        {{end}}
+                    </select>
+                    <div class="help-text">选择未被GFW屏蔽的国际大公司域名</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Server Name (SNI) *</label>
+                    <input type="text" name="realityServerName" id="sni" required>
+                </div>
+
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>私钥 *</label>
+                            <input type="text" name="privateKey" id="privateKey" required>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>公钥 *</label>
+                            <input type="text" name="publicKey" id="publicKey" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Short ID *</label>
+                    <input type="text" name="shortId" id="shortId" required>
+                </div>
+
+                <button type="button" class="btn btn-success" onclick="generateKeys()">🔑 一键生成密钥</button>
+            </div>
+
+            <!-- Hysteria2 配置 -->
+            <div class="section">
+                <h2>🚀 出站配置</h2>
+
+                <div class="form-group">
+                    <label>出站类型 *</label>
+                    <select name="outboundType" id="outboundType" required onchange="toggleOutboundConfig()">
+                        <option value="hysteria2">Hysteria2（高速专线）</option>
+                        <option value="vmess">VMess（通用协议）</option>
+                        <option value="socks5">SOCKS5（本地代理）</option>
+                    </select>
+                    <div class="help-text">
+                        Hysteria2: 高速、稳定，适合专线中转<br>
+                        VMess: V2Ray 通用协议，兼容性好<br>
+                        SOCKS5: 连接本地或远程 SOCKS5 服务器
+                    </div>
+                </div>
+
+                <!-- Hysteria2 配置区域 -->
+                <div id="hy2Config">
+
+                <div class="form-group">
+                    <label>Hysteria2 订阅链接</label>
+                    <input type="text" name="hy2Subscription" id="hy2Sub" placeholder="可选: 粘贴订阅链接自动解析">
+                    <button type="button" class="btn btn-secondary" onclick="parseHy2Sub()">解析订阅</button>
+                </div>
+
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>服务器地址 *</label>
+                            <input type="text" name="hy2Server" id="hy2Server" required placeholder="example.com">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>端口 *</label>
+                            <input type="text" name="hy2Port" id="hy2Port" value="443" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>密码 *</label>
+                    <input type="text" name="hy2Password" id="hy2Password" required>
+                </div>
+
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>混淆类型</label>
+                            <select name="hy2Obfs" id="hy2Obfs">
+                                <option value="">无</option>
+                                <option value="salamander">salamander</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>混淆密码</label>
+                            <input type="text" name="hy2ObfsPassword" id="hy2ObfsPassword">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>SNI</label>
+                    <input type="text" name="hy2SNI" id="hy2SNI">
+                </div>
+
+                <div class="row">
+                    <div class="col">
+                        <div class="form-group">
+                            <label>上行带宽 (Mbps)</label>
+                            <input type="number" name="hy2UpMbps" value="100">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>下行带宽 (Mbps)</label>
+                            <input type="number" name="hy2DownMbps" value="100">
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="form-group">
+                            <label>SOCKS5端口</label>
+                            <input type="number" name="hy2Socks5Port" value="10808">
+                        </div>
+                    </div>
+                </div>
+                </div>
+
+                <!-- SOCKS5 配置区域 -->
+                <div id="socks5Config" style="display: none;">
+                    <div class="form-group">
+                        <label>SOCKS5 服务器地址 *</label>
+                        <input type="text" name="socks5Addr" id="socks5Addr" placeholder="例如: 127.0.0.1 或 proxy.example.com">
+                        <div class="help-text">SOCKS5 代理服务器的 IP 地址或域名</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>SOCKS5 端口 *</label>
+                        <input type="number" name="socks5Port" id="socks5Port" value="1080" placeholder="1080">
+                        <div class="help-text">SOCKS5 代理服务器的端口，默认 1080</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label>用户名</label>
+                                <input type="text" name="socks5User" id="socks5User" placeholder="可选，如需认证请填写">
+                                <div class="help-text">如果 SOCKS5 服务器需要认证，请填写用户名</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label>密码</label>
+                                <input type="password" name="socks5Password" id="socks5Password" placeholder="可选，如需认证请填写">
+                                <div class="help-text">如果 SOCKS5 服务器需要认证，请填写密码</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="background: #fff3cd; padding: 15px; border-radius: 4px; border-left: 4px solid #856404;">
+                        <strong style="color: #856404;">💡 使用场景：</strong>
+                        <ul style="color: #856404; margin: 10px 0 0 20px;">
+                            <li>连接本地 SOCKS5 代理（如 Shadowsocks、V2Ray）</li>
+                            <li>连接远程 SOCKS5 服务器</li>
+                            <li>多层代理串联</li>
+                            <li>支持有无认证的 SOCKS5 服务器</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- VMess 配置区域 -->
+                <div id="vmessConfig" style="display: none;">
+                    <div class="form-group">
+                        <label>VMess 订阅链接</label>
+                        <input type="text" name="vmessSubscription" id="vmessSub" placeholder="可选: 粘贴 vmess:// 链接自动解析">
+                        <button type="button" class="btn btn-secondary" onclick="parseVmessSub()">解析订阅</button>
+                    </div>
+
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label>服务器地址 *</label>
+                                <input type="text" name="vmessServer" id="vmessServer" placeholder="example.com">
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label>端口 *</label>
+                                <input type="number" name="vmessPort" id="vmessPort" value="443">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>UUID *</label>
+                        <input type="text" name="vmessUUID" id="vmessUUID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    </div>
+
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label>alterID</label>
+                                <input type="number" name="vmessAlterID" id="vmessAlterID" value="0">
+                                <div class="help-text">推荐使用 0（最新版本）</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label>加密方式</label>
+                                <select name="vmessSecurity" id="vmessSecurity">
+                                    <option value="auto">auto（自动）</option>
+                                    <option value="aes-128-gcm">aes-128-gcm</option>
+                                    <option value="chacha20-poly1305">chacha20-poly1305</option>
+                                    <option value="none">none（不加密）</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label>传输协议</label>
+                                <select name="vmessNetwork" id="vmessNetwork" onchange="toggleVmessWsConfig()">
+                                    <option value="tcp">TCP</option>
+                                    <option value="ws">WebSocket</option>
+                                    <option value="h2">HTTP/2</option>
+                                    <option value="grpc">gRPC</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" name="vmessTLS" id="vmessTLS" value="1" onchange="toggleVmessTLSConfig()">
+                                    启用 TLS
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TLS 配置 -->
+                    <div id="vmessTLSConfig" style="display: none;">
+                        <div class="form-group">
+                            <label>TLS Server Name (SNI)</label>
+                            <input type="text" name="vmessServerName" id="vmessServerName" placeholder="example.com">
+                        </div>
+                    </div>
+
+                    <!-- WebSocket 配置 -->
+                    <div id="vmessWsConfig" style="display: none;">
+                        <div class="form-group">
+                            <label>WebSocket 路径</label>
+                            <input type="text" name="vmessWsPath" id="vmessWsPath" placeholder="/path">
+                        </div>
+                        <div class="form-group">
+                            <label>WebSocket Host</label>
+                            <input type="text" name="vmessWsHost" id="vmessWsHost" placeholder="example.com">
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="background: #d1ecf1; padding: 15px; border-radius: 4px; border-left: 4px solid #0c5460;">
+                        <strong style="color: #0c5460;">💡 VMess 协议说明：</strong>
+                        <ul style="color: #0c5460; margin: 10px 0 0 20px;">
+                            <li>V2Ray/Xray 原生协议，兼容性好</li>
+                            <li>支持 TCP、WebSocket、HTTP/2 等多种传输</li>
+                            <li>推荐使用 WebSocket + TLS 提高安全性</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">💾 保存并启动</button>
+            <a href="/proxy" class="btn btn-secondary" style="text-decoration: none; display: inline-block;">取消</a>
+        </form>
+    </div>
+
+    <script>
+        function toggleOutboundConfig() {
+            const outboundType = document.getElementById('outboundType').value;
+            const hy2Config = document.getElementById('hy2Config');
+            const socks5Config = document.getElementById('socks5Config');
+            const vmessConfig = document.getElementById('vmessConfig');
+
+            // 隐藏所有配置
+            hy2Config.style.display = 'none';
+            socks5Config.style.display = 'none';
+            vmessConfig.style.display = 'none';
+
+            // 清除所有必填项
+            document.getElementById('hy2Server').removeAttribute('required');
+            document.getElementById('hy2Password').removeAttribute('required');
+            document.getElementById('socks5Addr').removeAttribute('required');
+            document.getElementById('vmessServer').removeAttribute('required');
+            document.getElementById('vmessUUID').removeAttribute('required');
+
+            // 根据类型显示对应配置
+            if (outboundType === 'socks5') {
+                socks5Config.style.display = 'block';
+                document.getElementById('socks5Addr').setAttribute('required', 'required');
+            } else if (outboundType === 'vmess') {
+                vmessConfig.style.display = 'block';
+                document.getElementById('vmessServer').setAttribute('required', 'required');
+                document.getElementById('vmessUUID').setAttribute('required', 'required');
+            } else {
+                hy2Config.style.display = 'block';
+                document.getElementById('hy2Server').setAttribute('required', 'required');
+                document.getElementById('hy2Password').setAttribute('required', 'required');
+            }
+        }
+
+        function toggleVmessWsConfig() {
+            const network = document.getElementById('vmessNetwork').value;
+            const wsConfig = document.getElementById('vmessWsConfig');
+            wsConfig.style.display = (network === 'ws') ? 'block' : 'none';
+        }
+
+        function toggleVmessTLSConfig() {
+            const tls = document.getElementById('vmessTLS').checked;
+            const tlsConfig = document.getElementById('vmessTLSConfig');
+            tlsConfig.style.display = tls ? 'block' : 'none';
+        }
+
+        function updateSNI() {
+            const dest = document.getElementById('realityDest').value;
+            if (dest) {
+                const sni = dest.split(':')[0];
+                document.getElementById('sni').value = sni;
+            }
+        }
+
+        async function generateKeys() {
+            try {
+                const response = await fetch('/proxy/generate-keys');
+                const data = await response.json();
+                document.getElementById('uuid').value = data.uuid;
+                document.getElementById('privateKey').value = data.privateKey;
+                document.getElementById('publicKey').value = data.publicKey;
+                document.getElementById('shortId').value = data.shortId;
+                alert('密钥生成成功！');
+            } catch (error) {
+                alert('生成失败: ' + error.message);
+            }
+        }
+
+        async function parseHy2Sub() {
+            const subUrl = document.getElementById('hy2Sub').value;
+            if (!subUrl) {
+                alert('请输入订阅链接');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('subscription', subUrl);
+
+                const response = await fetch('/proxy/parse-hy2', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    alert('解析失败: ' + data.error);
+                    return;
+                }
+
+                document.getElementById('hy2Server').value = data.server || '';
+                document.getElementById('hy2Port').value = data.port || '443';
+                document.getElementById('hy2Password').value = data.password || '';
+                document.getElementById('hy2Obfs').value = data.obfs || '';
+                document.getElementById('hy2ObfsPassword').value = data.obfsPass || '';
+                document.getElementById('hy2SNI').value = data.sni || '';
+                alert('订阅解析成功！');
+            } catch (error) {
+                alert('解析失败: ' + error.message);
+            }
+        }
+
+        async function parseVmessSub() {
+            const subUrl = document.getElementById('vmessSub').value;
+            if (!subUrl) {
+                alert('请输入 VMess 链接');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('subscription', subUrl);
+
+                const response = await fetch('/proxy/parse-vmess', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    alert('解析失败: ' + data.error);
+                    return;
+                }
+
+                document.getElementById('vmessServer').value = data.server || '';
+                document.getElementById('vmessPort').value = data.port || '443';
+                document.getElementById('vmessUUID').value = data.uuid || '';
+                document.getElementById('vmessAlterID').value = data.alterId || '0';
+                document.getElementById('vmessSecurity').value = data.security || 'auto';
+                document.getElementById('vmessNetwork').value = data.network || 'tcp';
+                document.getElementById('vmessTLS').checked = data.tls || false;
+                document.getElementById('vmessServerName').value = data.serverName || '';
+                document.getElementById('vmessWsPath').value = data.wsPath || '';
+                document.getElementById('vmessWsHost').value = data.wsHost || '';
+
+                // 触发相关配置显示
+                toggleVmessWsConfig();
+                toggleVmessTLSConfig();
+
+                alert('VMess 订阅解析成功！');
+            } catch (error) {
+                alert('解析失败: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -37,6 +37,8 @@ func init() {
 	}
 	db.AutoMigrate(&conf.ConnectionStats{})
 	db.AutoMigrate(&conf.IpBan{})
+	// 初始化代理相关表
+	InitProxyTables()
 }
 
 // 获取转发列表
