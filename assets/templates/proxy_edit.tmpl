@@ -173,7 +173,7 @@
                     <div class="col">
                         <div class="form-group">
                             <label>混淆类型</label>
-                            <select name="hy2Obfs">
+                            <select name="hy2Obfs" id="hy2Obfs">
                                 <option value="" {{if eq .proxy.Hy2Obfs ""}}selected{{end}}>无</option>
                                 <option value="salamander" {{if eq .proxy.Hy2Obfs "salamander"}}selected{{end}}>salamander</option>
                             </select>
@@ -182,14 +182,14 @@
                     <div class="col">
                         <div class="form-group">
                             <label>混淆密码</label>
-                            <input type="text" name="hy2ObfsPassword" value="{{.proxy.Hy2ObfsPassword}}">
+                            <input type="text" name="hy2ObfsPassword" id="hy2ObfsPassword" value="{{.proxy.Hy2ObfsPassword}}">
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>SNI</label>
-                    <input type="text" name="hy2SNI" value="{{.proxy.Hy2SNI}}">
+                    <input type="text" name="hy2SNI" id="hy2SNI" value="{{.proxy.Hy2SNI}}">
                 </div>
 
                 <div class="row">
