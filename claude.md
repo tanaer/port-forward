@@ -193,6 +193,77 @@ All issues fixed and optimized.
 
 **One-Click Installation Command:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash
 ```
+
+---
+
+## 2025-10-30 - UI Enhancement for Hysteria2 Installation
+
+### 中文版本
+
+**在代理添加/编辑页面添加Hysteria2一键安装提示**
+
+为了方便用户部署Hysteria2服务器，在Web界面中添加醒目的安装提示：
+
+**UI改进：**
+- ✨ 渐变紫色背景的提示卡片（视觉突出）
+- 📋 一键复制安装命令按钮
+- 📖 直接链接到安装文档
+- 🎯 突出显示核心特性
+
+**功能实现：**
+- 复制按钮支持现代 `navigator.clipboard` API
+- 提供传统 `execCommand` 降级方案
+- 兼容 HTTP 和 HTTPS 环境
+- 用户友好的操作反馈
+
+**脚本修复：**
+- 修复 Python 脚本 EOF 错误（非交互式环境下的崩溃）
+- 添加 `EOFError` 和 `KeyboardInterrupt` 异常处理
+- 改进用户取消操作的处理流程
+
+**显示位置：**
+- 添加代理页面：选择 Hysteria2 出站时显示
+- 编辑代理页面：Hysteria2 配置区域顶部
+
+**修改文件：**
+- assets/templates/proxy_add.tmpl (添加页面)
+- assets/templates/proxy_edit.tmpl (编辑页面)
+- scripts/hysteria2-install.py (异常处理)
+
+---
+
+### English Version
+
+**Add Hysteria2 One-Click Installation Prompt in Proxy Pages**
+
+Added prominent installation prompts in the web interface to help users deploy Hysteria2 servers:
+
+**UI Improvements:**
+- ✨ Gradient purple background card (visually prominent)
+- 📋 One-click copy installation command button
+- 📖 Direct link to installation documentation
+- 🎯 Highlight core features
+
+**Feature Implementation:**
+- Copy button supports modern `navigator.clipboard` API
+- Provides traditional `execCommand` fallback
+- Compatible with HTTP and HTTPS environments
+- User-friendly operation feedback
+
+**Script Fixes:**
+- Fixed Python script EOF error (crash in non-interactive environments)
+- Added `EOFError` and `KeyboardInterrupt` exception handling
+- Improved user cancellation handling
+
+**Display Locations:**
+- Add proxy page: Shows when selecting Hysteria2 outbound
+- Edit proxy page: Top of Hysteria2 configuration section
+
+**Modified Files:**
+- assets/templates/proxy_add.tmpl (add page)
+- assets/templates/proxy_edit.tmpl (edit page)
+- scripts/hysteria2-install.py (exception handling)
+
 
