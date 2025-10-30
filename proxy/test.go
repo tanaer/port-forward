@@ -53,8 +53,8 @@ func TestHysteria2Connection(server string, port string) *TestResult {
 func TestVMessConnection(server string, port int) *TestResult {
 	result := &TestResult{}
 
-	// 拼接地址
-	addr := fmt.Sprintf("%s:%d", server, port)
+	// 拼接地址（支持IPv6）
+	addr := net.JoinHostPort(server, fmt.Sprintf("%d", port))
 
 	// 开始计时
 	start := time.Now()
@@ -82,8 +82,8 @@ func TestVMessConnection(server string, port int) *TestResult {
 func TestSOCKS5Connection(addr string, port int) *TestResult {
 	result := &TestResult{}
 
-	// 拼接地址
-	address := fmt.Sprintf("%s:%d", addr, port)
+	// 拼接地址（支持IPv6）
+	address := net.JoinHostPort(addr, fmt.Sprintf("%d", port))
 
 	// 开始计时
 	start := time.Now()
