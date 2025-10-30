@@ -157,7 +157,8 @@ run_script() {
     print_info "启动安装向导..."
     echo ""
 
-    python3 "/tmp/$SCRIPT_NAME"
+    # 重要：使用 < /dev/tty 确保可以接收用户输入
+    python3 "/tmp/$SCRIPT_NAME" < /dev/tty
 }
 
 # 清理

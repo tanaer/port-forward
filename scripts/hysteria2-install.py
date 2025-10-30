@@ -104,11 +104,11 @@ def install_redhat_dependencies():
         return False
 
 # ============================================
-# 用户协议
+# 环境设置
 # ============================================
 
-def agree_treaty():
-    """用户协议确认"""
+def setup_environment():
+    """设置环境和快捷方式"""
     def create_shortcut():
         """创建快捷方式"""
         try:
@@ -124,52 +124,15 @@ curl -fsSL {SCRIPT_URL} -o /tmp/hy2.py && python3 /tmp/hy2.py
             print(f"\033[91m✗ 创建快捷命令失败: {e}\033[0m")
 
     config_dir = Path("/etc/hy2config")
-    agree_file = config_dir / "agree.txt"
 
-    if agree_file.exists():
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "hy2_url_scheme.txt").touch()
         create_shortcut()
         return True
-
-    # 显示协议
-    os.system("clear")
-    print("=" * 60)
-    print("Hysteria2 安装脚本 - 使用协议")
-    print("=" * 60)
-    print("""
-\033[93m重要提示:\033[0m
-
-1. 本程序仅供学习交流使用，不得用于任何商业用途
-2. 使用者必须遵守部署服务器所在地、所在国家和用户所在国家的法律法规
-3. 程序作者不对使用者任何不当行为负责
-4. 本脚本会修改系统配置（防火墙、网络设置等）
-5. 请确保您有权限进行这些操作
-
-""")
-
-    while True:
-        try:
-            choice = input("是否同意以上条款？[y/n]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print("\n\n已取消")
-            return False
-
-        if choice == "y":
-            try:
-                config_dir.mkdir(parents=True, exist_ok=True)
-                agree_file.write_text(f"Agreed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-                (config_dir / "hy2_url_scheme.txt").touch()
-                create_shortcut()
-                print("\033[92m✓ 已同意协议\033[0m")
-                time.sleep(1)
-                return True
-            except Exception as e:
-                print(f"\033[91m✗ 创建配置文件失败: {e}\033[0m")
-                return False
-        elif choice == "n":
-            print("已取消安装")
-            return False
-        else:
-            print("\033[91m请输入 y 或 n\033[0m")
+    except Exception as e:
+        print(f"\033[91m✗ 初始化环境失败: {e}\033[0m")
+        return False
 
 # ============================================
 # Hysteria2 安装/卸载
@@ -818,8 +781,8 @@ def main():
         print("\033[91m✗ 依赖安装失败\033[0m")
         sys.exit(1)
 
-    # 用户协议
-    if not agree_treaty():
+    # 设置环境
+    if not setup_environment():
         sys.exit(1)
 
     # 主循环
