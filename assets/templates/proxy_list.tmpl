@@ -47,6 +47,7 @@
             <a href="/">← 返回端口隧道</a>
             <a href="/environment">🔧 环境配置</a>
             <a href="/proxy/add">➕ 添加代理</a>
+            <a href="javascript:void(0)" onclick="showHy2Install()" style="background: #28a745;">🚀 快速安装Hysteria2</a>
         </div>
 
         <div class="stats">
@@ -181,6 +182,68 @@
                 testBtn.style.opacity = '1';
                 testBtn.style.pointerEvents = 'auto';
             }
+        }
+
+        function showHy2Install() {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <h2 style="margin: 0 0 20px 0; color: #333;">🚀 Hysteria2 自动安装</h2>
+                    <p style="color: #666; margin-bottom: 20px;">完全自动化安装，无需手动配置，自动输出订阅信息</p>
+
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                        <p style="margin: 0 0 10px 0; font-weight: 600; color: #333;">一键安装命令：</p>
+                        <code style="display: block; background: #e9ecef; padding: 12px; border-radius: 4px; font-size: 13px; word-break: break-all; color: #495057;">
+curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash
+                        </code>
+                    </div>
+
+                    <div style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                        <strong>✨ 自动化特性：</strong>
+                        <ul style="margin: 10px 0 0 20px;">
+                            <li>自动安装依赖和Hysteria2</li>
+                            <li>自动生成证书和配置</li>
+                            <li>自动获取服务器IP地址</li>
+                            <li>自动启动服务</li>
+                            <li>直接输出订阅链接和二维码</li>
+                        </ul>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="this.closest('div[style*=position]').remove()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
+                        <button onclick="copyHy2InstallCommand(); this.style.background='#218838'; this.textContent='已复制!'; setTimeout(() => {this.style.background='#28a745'; this.textContent='复制命令'}, 2000)" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📋 复制命令</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        function copyHy2InstallCommand() {
+            const cmd = 'curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash';
+            navigator.clipboard.writeText(cmd).then(() => {
+                // Show success feedback
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
         }
     </script>
 </body>
