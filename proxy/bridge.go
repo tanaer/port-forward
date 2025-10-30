@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"goForward/proxy/hysteria"
 	"goForward/proxy/xray"
@@ -17,19 +19,25 @@ type Bridge struct {
 	hy2Client     *hysteria.Client
 	xrayConfig    string
 	hy2Config     string
+	socks5Port    int  // Hysteria2 SOCKS5端口
 	running       bool
 	mu            sync.Mutex
 }
 
 // NewBridge 创建代理桥接
-func NewBridge(id int) *Bridge {
+func NewBridge(id int, socks5Port int) *Bridge {
 	execPath, _ := os.Executable()
 	baseDir := filepath.Join(filepath.Dir(execPath), "proxy_configs")
+
+	if socks5Port == 0 {
+		socks5Port = 10808 // 默认端口
+	}
 
 	return &Bridge{
 		id:         id,
 		xrayConfig: filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)),
 		hy2Config:  filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id)),
+		socks5Port: socks5Port,
 		running:    false,
 	}
 }
@@ -49,8 +57,13 @@ func (b *Bridge) Start() error {
 		return fmt.Errorf("启动Hysteria2失败: %v", err)
 	}
 
-	// 等待Hysteria2启动
-	// time.Sleep(2 * time.Second)
+	// 等待Hysteria2的SOCKS5端口就绪
+	fmt.Printf("[Bridge-%d] 等待Hysteria2 SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
+	if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
+		b.hy2Client.Stop()
+		return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
+	}
+	fmt.Printf("[Bridge-%d] Hysteria2 SOCKS5端口(%d)已就绪\n", b.id, b.socks5Port)
 
 	// 再启动Xray（连接到Hysteria2的SOCKS5）
 	b.xrayManager = xray.NewManager(b.xrayConfig)
@@ -63,6 +76,23 @@ func (b *Bridge) Start() error {
 	b.running = true
 	fmt.Printf("[Bridge-%d] 代理桥接已启动\n", b.id)
 	return nil
+}
+
+// waitForSocks5Ready 等待SOCKS5端口就绪
+func (b *Bridge) waitForSocks5Ready(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return fmt.Errorf("超时: SOCKS5端口 %d 在 %v 内未就绪", port, timeout)
 }
 
 // Stop 停止桥接
@@ -153,7 +183,7 @@ func GetBridgeManager() *BridgeManager {
 }
 
 // AddBridge 添加桥接
-func (bm *BridgeManager) AddBridge(id int) *Bridge {
+func (bm *BridgeManager) AddBridge(id int, socks5Port int) *Bridge {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 
@@ -161,7 +191,7 @@ func (bm *BridgeManager) AddBridge(id int) *Bridge {
 		return bridge
 	}
 
-	bridge := NewBridge(id)
+	bridge := NewBridge(id, socks5Port)
 	bm.bridges[id] = bridge
 	return bridge
 }

@@ -90,7 +90,7 @@ func (pm *ProxyManager) StartProxy(id int) error {
 
 	// 获取或创建桥接
 	bridgeManager := GetBridgeManager()
-	bridge := bridgeManager.AddBridge(id)
+	bridge := bridgeManager.AddBridge(id, cfg.Hy2Socks5Port)
 
 	// 如果是 SOCKS5 或 VMess 出站，只启动 Xray
 	if cfg.OutboundType == "socks5" || cfg.OutboundType == "vmess" {
