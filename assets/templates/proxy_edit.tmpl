@@ -126,35 +126,27 @@
                 <div id="hy2Config">
 
                 <!-- Hysteria2 一键安装提示 -->
-                <div class="form-group" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    <div style="color: white; margin-bottom: 15px;">
-                        <strong style="font-size: 16px;">🚀 还没有 Hysteria2 服务器？</strong>
-                        <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">使用我们的一键安装脚本，快速部署您自己的 Hysteria2 服务器</p>
+                <div class="form-group" style="background: #f0f4ff; border-left: 4px solid #667eea; padding: 12px 15px;">
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #333;">🚀 还没有 Hysteria2 服务器？</strong>
                     </div>
-
-                    <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 6px; margin-bottom: 12px;">
-                        <code style="color: #fff; font-size: 13px; word-break: break-all; display: block; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; font-family: 'Courier New', monospace;">
-curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash
-                        </code>
+                    <div style="background: #fff; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
+                        <code style="font-size: 13px; color: #495057; word-break: break-all; font-family: 'Courier New', monospace;">curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash</code>
                     </div>
-
-                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
-                        <button type="button" class="btn" onclick="copyHy2InstallCmd()" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-                            📋 复制安装命令
+                    <div style="display: flex; gap: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="copyHy2InstallCmd()" style="padding: 6px 12px; font-size: 13px;">
+                            📋 复制命令
                         </button>
-                        <a href="https://github.com/tanaer/port-forward/blob/master/HYSTERIA2_INSTALL.md" target="_blank" style="color: white; text-decoration: none; font-size: 13px; opacity: 0.9; border-bottom: 1px dashed rgba(255,255,255,0.5); padding-bottom: 2px;">
-                            📖 查看安装文档
+                        <a href="https://github.com/tanaer/port-forward/blob/master/HYSTERIA2_AUTO_INSTALL.md" target="_blank" class="btn" style="padding: 6px 12px; font-size: 13px; background: #6c757d; color: white; text-decoration: none;">
+                            📖 查看文档
                         </a>
-                    </div>
-
-                    <div style="color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.2);">
-                        <strong>✨ 特性：</strong> 安全无泄露 · 自动配置 · 多客户端支持 · 一键部署
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Hysteria2 订阅链接</label>
-                    <input type="text" name="hy2Subscription" value="{{.proxy.Hy2Subscription}}">
+                    <input type="text" name="hy2Subscription" id="hy2Sub" value="{{.proxy.Hy2Subscription}}" placeholder="可选: 粘贴订阅链接自动解析">
+                    <button type="button" class="btn btn-secondary" onclick="parseHy2Sub()">解析订阅</button>
                 </div>
 
                 <div class="row">
