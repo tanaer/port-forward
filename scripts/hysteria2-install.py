@@ -112,6 +112,7 @@ def setup_environment():
     def create_shortcut():
         """创建快捷方式"""
         try:
+            # 交互式快捷命令
             hy2_shortcut = Path("/usr/local/bin/hy2")
             shortcut_content = f"""#!/bin/bash
 # Hysteria2 快捷启动脚本
@@ -120,6 +121,16 @@ curl -fsSL {SCRIPT_URL} -o /tmp/hy2.py && python3 /tmp/hy2.py
             hy2_shortcut.write_text(shortcut_content)
             hy2_shortcut.chmod(0o755)
             print("\033[92m✓ 快捷命令 'hy2' 已创建\033[0m")
+
+            # 自动安装快捷命令
+            hy2_auto_shortcut = Path("/usr/local/bin/hy2-auto")
+            auto_shortcut_content = f"""#!/bin/bash
+# Hysteria2 自动安装脚本
+curl -fsSL {SCRIPT_URL} -o /tmp/hy2.py && python3 /tmp/hy2.py --auto
+"""
+            hy2_auto_shortcut.write_text(auto_shortcut_content)
+            hy2_auto_shortcut.chmod(0o755)
+            print("\033[92m✓ 自动安装命令 'hy2-auto' 已创建\033[0m")
         except Exception as e:
             print(f"\033[91m✗ 创建快捷命令失败: {e}\033[0m")
 
@@ -775,6 +786,190 @@ def show_banner():
     print("=" * 60 + "\033[0m")
     print()
 
+def auto_install():
+    """全自动安装模式"""
+    print("\033[94m" + "=" * 60)
+    print("Hysteria2 自动安装模式")
+    print("=" * 60 + "\033[0m")
+
+    # 使用默认配置
+    hy2_port = 443
+    hy2_username = "user"
+    import random
+    import string
+    hy2_passwd = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+    hy2_url = "https://www.bing.com"
+    brutal_mode = "true"  # 默认不开启Brutal模式
+
+    # 生成自签证书
+    domain_name = "bing.com"
+    target_dir = "/etc/ssl/private"
+
+    print("\n1. 生成自签名证书...")
+    try:
+        # 创建目录
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+
+        # 生成EC参数
+        ec_param = f"{target_dir}/ec_param.pem"
+        subprocess.run(
+            ["openssl", "ecparam", "-name", "prime256v1", "-out", ec_param],
+            check=True,
+            capture_output=True
+        )
+
+        # 生成证书和私钥
+        subprocess.run([
+            "openssl", "req", "-x509", "-nodes", "-newkey", f"ec:{ec_param}",
+            "-keyout", f"{target_dir}/{domain_name}.key",
+            "-out", f"{target_dir}/{domain_name}.crt",
+            "-subj", f"/CN={domain_name}",
+            "-days", "36500"
+        ], check=True, capture_output=True)
+
+        # 设置权限
+        os.chmod(f"{target_dir}/{domain_name}.key", 0o644)
+        os.chmod(f"{target_dir}/{domain_name}.crt", 0o644)
+        os.chmod(target_dir, 0o755)
+
+        # 清理临时文件
+        try:
+            os.remove(ec_param)
+        except:
+            pass
+
+        print(f"\033[92m✓ 证书生成成功\033[0m")
+    except Exception as e:
+        print(f"\033[91m✗ 证书生成失败: {e}\033[0m")
+        sys.exit(1)
+
+    # 获取IP地址
+    print("\n2. 获取服务器IP地址...")
+    global hy2_domain
+    try:
+        response = requests.get('http://ip-api.com/json/', timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        isp = data.get('isp', '').lower()
+        if 'cloudflare' in isp:
+            print("\033[93m检测到Cloudflare WARP，使用IPv6\033[0m")
+            response = requests.get('https://api.ip.sb/geoip', timeout=5)
+            response.raise_for_status()
+            ip_data = response.json()
+            hy2_domain = f"[{ip_data.get('ip', '')}]"
+        else:
+            hy2_domain = data.get('query', '')
+        print(f"\033[92m✓ 服务器IP: {hy2_domain}\033[0m")
+    except Exception as e:
+        print(f"\033[91m✗ 获取IP失败: {e}\033[0m")
+        sys.exit(1)
+
+    # 安装Hysteria2
+    print("\n3. 安装Hysteria2...")
+    result = subprocess.run(
+        "bash <(curl -fsSL https://get.hy2.sh/)",
+        shell=True,
+        executable="/bin/bash"
+    )
+    if result.returncode != 0:
+        print("\033[91m✗ Hysteria2 安装失败\033[0m")
+        sys.exit(1)
+    print("\033[92m✓ Hysteria2 安装成功\033[0m")
+
+    # 生成配置文件
+    print("\n4. 生成配置文件...")
+    config_content = f"""listen: :{hy2_port}
+
+tls:
+  cert: /etc/ssl/private/{domain_name}.crt
+  key: /etc/ssl/private/{domain_name}.key
+
+auth:
+  type: password
+  password: {hy2_passwd}
+
+masquerade:
+  type: proxy
+  proxy:
+    url: {hy2_url}
+    rewriteHost: true
+
+ignoreClientBandwidth: {brutal_mode}
+
+sniff:
+  enable: true
+  timeout: 2s
+  rewriteDomain: false
+  tcpPorts: 80,443,8000-9000
+  udpPorts: all
+"""
+
+    config_file = Path("/etc/hysteria/config.yaml")
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(config_content)
+    print("\033[92m✓ 配置文件生成成功\033[0m")
+
+    # 启动服务
+    print("\n5. 启动Hysteria2服务...")
+    subprocess.run("systemctl enable --now hysteria-server.service", shell=True)
+    subprocess.run("systemctl restart hysteria-server.service", shell=True)
+    print("\033[92m✓ 服务已启动\033[0m")
+
+    # 生成订阅链接
+    print("\n6. 生成客户端配置...")
+    hy2_passwd_encoded = urllib.parse.quote(hy2_passwd)
+    hy2_v2ray = f"hysteria2://{hy2_passwd_encoded}@{hy2_domain}:{hy2_port}?sni={domain_name}&insecure=1#{urllib.parse.quote(hy2_username)}"
+
+    # 输出订阅信息
+    print("\n" + "=" * 60)
+    print("\033[92m安装完成！订阅信息如下：\033[0m")
+    print("=" * 60)
+    print(f"\n\033[94m【Hysteria2 链接】\033[0m")
+    print(f"{hy2_v2ray}")
+    print("\n\033[93m支持客户端: v2rayN, NekoBox, v2rayNG, NekoRay\033[0m")
+
+    # 显示二维码
+    print("\n【客户端二维码】")
+    subprocess.run(
+        f'echo "{hy2_v2ray}" | qrencode -s 1 -m 1 -t ANSI256 -o -',
+        shell=True
+    )
+
+    # 保存配置到文件
+    config_dir = Path("/etc/hy2config")
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    url_scheme_file = config_dir / "hy2_url_scheme.txt"
+    url_scheme_file.write_text(f"Hysteria2 订阅链接:\n{hy2_v2ray}\n")
+
+    print(f"\n\033[92m配置文件已保存到: {config_dir}/hy2_url_scheme.txt\033[0m")
+
+    # 生成客户端配置文件
+    try:
+        encoded_url = urllib.parse.quote(hy2_v2ray)
+        configs = {
+            "clash": f"{SUBSCRIPTION_API}/clash?config={encoded_url}",
+            "singbox": f"{SUBSCRIPTION_API}/singbox?config={encoded_url}",
+            "xray": f"{SUBSCRIPTION_API}/xray?config={encoded_url}"
+        }
+
+        for name, url in configs.items():
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    config_file = config_dir / f"{name}.yaml"
+                    config_file.write_text(response.text)
+                    print(f"\033[92m✓ {name.capitalize()} 配置已生成: {config_file}\033[0m")
+            except:
+                pass
+    except:
+        pass
+
+    print("\n" + "=" * 60)
+    print("\033[92m安装成功完成！服务已自动启动。\033[0m")
+    print("=" * 60)
+
+
 def main():
     """主函数"""
     # 检查root权限
@@ -782,6 +977,11 @@ def main():
         print("\033[91m✗ 请使用 root 权限运行此脚本\033[0m")
         print("使用: sudo python3", sys.argv[0])
         sys.exit(1)
+
+    # 检查是否为自动模式
+    if len(sys.argv) > 1 and sys.argv[1] == "--auto":
+        auto_install()
+        return
 
     # 安装依赖
     if not install_system_dependencies():

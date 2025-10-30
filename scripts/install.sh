@@ -154,11 +154,11 @@ download_script() {
 
 # 运行安装脚本
 run_script() {
-    print_info "启动安装向导..."
+    print_info "启动自动安装（无需手动配置）..."
     echo ""
 
-    # 重要：使用 < /dev/tty 确保可以接收用户输入
-    python3 "/tmp/$SCRIPT_NAME" < /dev/tty
+    # 自动运行模式，无需交互
+    python3 "/tmp/$SCRIPT_NAME" --auto
 }
 
 # 清理
