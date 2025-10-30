@@ -107,3 +107,92 @@ Modified files:
 - assets/templates/proxy_edit.tmpl - VMess edit interface
 - proxy/vmess/parser.go - VMess subscription parsing
 - web/proxy.go - VMess parsing API
+
+---
+
+## 2025-10-30 - Hysteria2 Installation Script
+
+### 中文版本
+
+**添加Hysteria2一键安装脚本**
+
+整合和优化原有的两个脚本，提供更安全、易用的安装体验：
+
+**功能特性：**
+1. **整合依赖安装** - 合并phy2.sh到主脚本，无需额外脚本
+2. **安全优化** - 使用隐私友好的订阅转换服务 (Sublink Worker)
+3. **UI优化** - 清晰的交互界面和菜单系统
+4. **完整文档** - 详细的README和使用说明
+5. **一键部署** - 提供install.sh快速安装脚本
+
+**新增文件：**
+- scripts/hysteria2-install.py - 主安装脚本 (1000+ 行)
+- scripts/install.sh - 一键部署脚本
+- scripts/README.md - 完整使用文档
+- HYSTERIA2_INSTALL.md - 快速开始指南
+
+**改进点：**
+- ✅ 移除第三方配置泄露风险（原脚本会将配置发送到 sub.crazyact.com）
+- ✅ 使用 sublink-worker 订阅转换API（开源、无日志、隐私友好）
+- ✅ 自动生成 Clash/Sing-box/Xray 配置
+- ✅ 完善的错误处理和用户提示
+- ✅ 支持多种证书配置方式（ACME/自签/手动）
+- ✅ 集成系统依赖检测和安装
+- ✅ 优化的交互体验和界面
+
+**安全分析：**
+审查了原始脚本 phy2.sh 和 hysteria2.py，发现的问题：
+- phy2.sh Line 18: 删除 Python pip 保护机制
+- hysteria2.py Line 400-402: 配置信息泄露给第三方服务
+- hysteria2.py Line 17: 动态下载远程脚本存在风险
+
+已全部修复并优化。
+
+**一键安装命令：**
+```bash
+curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/master/scripts/install.sh | bash
+```
+
+---
+
+### English Version
+
+**Add Hysteria2 One-Click Installation Script**
+
+Integrated and optimized the original two scripts to provide a more secure and user-friendly installation experience:
+
+**Features:**
+1. **Integrated Dependency Installation** - Merged phy2.sh into main script, no extra scripts needed
+2. **Security Optimization** - Using privacy-friendly subscription conversion service (Sublink Worker)
+3. **UI Optimization** - Clear interactive interface and menu system
+4. **Complete Documentation** - Detailed README and usage instructions
+5. **One-Click Deployment** - Provided install.sh for quick installation
+
+**New Files:**
+- scripts/hysteria2-install.py - Main installation script (1000+ lines)
+- scripts/install.sh - One-click deployment script
+- scripts/README.md - Complete usage documentation
+- HYSTERIA2_INSTALL.md - Quick start guide
+
+**Improvements:**
+- ✅ Removed third-party config leakage risk (original script sent config to sub.crazyact.com)
+- ✅ Using sublink-worker subscription API (open-source, no-log, privacy-friendly)
+- ✅ Auto-generate Clash/Sing-box/Xray configurations
+- ✅ Comprehensive error handling and user prompts
+- ✅ Support multiple certificate configuration methods (ACME/Self-signed/Manual)
+- ✅ Integrated system dependency detection and installation
+- ✅ Optimized interaction experience and interface
+
+**Security Analysis:**
+Reviewed original scripts phy2.sh and hysteria2.py, found issues:
+- phy2.sh Line 18: Removes Python pip protection mechanism
+- hysteria2.py Line 400-402: Config info leaked to third-party service
+- hysteria2.py Line 17: Dynamic download of remote script poses risk
+
+All issues fixed and optimized.
+
+**One-Click Installation Command:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/master/scripts/install.sh | bash
+```
+
