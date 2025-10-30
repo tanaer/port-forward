@@ -125,6 +125,33 @@
                 <!-- Hysteria2 配置区域 -->
                 <div id="hy2Config">
 
+                <!-- Hysteria2 一键安装提示 -->
+                <div class="form-group" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="color: white; margin-bottom: 15px;">
+                        <strong style="font-size: 16px;">🚀 还没有 Hysteria2 服务器？</strong>
+                        <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">使用我们的一键安装脚本，快速部署您自己的 Hysteria2 服务器</p>
+                    </div>
+
+                    <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                        <code style="color: #fff; font-size: 13px; word-break: break-all; display: block; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; font-family: 'Courier New', monospace;">
+curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash
+                        </code>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
+                        <button type="button" class="btn" onclick="copyHy2InstallCmd()" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 8px 16px; font-size: 13px; cursor: pointer; border-radius: 4px; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            📋 复制安装命令
+                        </button>
+                        <a href="https://github.com/tanaer/port-forward/blob/master/HYSTERIA2_INSTALL.md" target="_blank" style="color: white; text-decoration: none; font-size: 13px; opacity: 0.9; border-bottom: 1px dashed rgba(255,255,255,0.5); padding-bottom: 2px;">
+                            📖 查看安装文档
+                        </a>
+                    </div>
+
+                    <div style="color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        <strong>✨ 特性：</strong> 安全无泄露 · 自动配置 · 多客户端支持 · 一键部署
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label>Hysteria2 订阅链接</label>
                     <input type="text" name="hy2Subscription" value="{{.proxy.Hy2Subscription}}">
@@ -432,6 +459,43 @@
             } catch (error) {
                 alert('解析失败: ' + error.message);
             }
+        }
+
+        // 复制 Hysteria2 安装命令
+        function copyHy2InstallCmd() {
+            const cmd = 'curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash';
+
+            // 尝试使用现代 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(cmd).then(() => {
+                    alert('✅ 安装命令已复制到剪贴板！\n\n在服务器上以 root 权限执行此命令即可安装 Hysteria2');
+                }).catch(err => {
+                    fallbackCopy(cmd);
+                });
+            } else {
+                fallbackCopy(cmd);
+            }
+        }
+
+        // 降级方案：使用传统方法复制
+        function fallbackCopy(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+
+            try {
+                document.execCommand('copy');
+                alert('✅ 安装命令已复制到剪贴板！\n\n在服务器上以 root 权限执行此命令即可安装 Hysteria2');
+            } catch (err) {
+                alert('❌ 复制失败，请手动复制命令：\n\ncurl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash');
+            }
+
+            document.body.removeChild(textArea);
         }
 
         // 页面加载时初始化显示

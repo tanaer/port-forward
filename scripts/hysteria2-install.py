@@ -147,7 +147,12 @@ curl -fsSL {SCRIPT_URL} -o /tmp/hy2.py && python3 /tmp/hy2.py
 """)
 
     while True:
-        choice = input("是否同意以上条款？[y/n]: ").strip().lower()
+        try:
+            choice = input("是否同意以上条款？[y/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\n已取消")
+            return False
+
         if choice == "y":
             try:
                 config_dir.mkdir(parents=True, exist_ok=True)
@@ -162,7 +167,7 @@ curl -fsSL {SCRIPT_URL} -o /tmp/hy2.py && python3 /tmp/hy2.py
                 return False
         elif choice == "n":
             print("已取消安装")
-            sys.exit(0)
+            return False
         else:
             print("\033[91m请输入 y 或 n\033[0m")
 
