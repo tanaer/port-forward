@@ -509,4 +509,30 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		status := pm.GetProxyStatus(id)
 		c.JSON(200, status)
 	})
+
+	// 测试代理连接
+	r.GET("/proxy/test/:id", func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		proxyConfig := sql.GetProxy(id)
+		if proxyConfig.Id == 0 {
+			c.JSON(404, gin.H{"error": "代理配置不存在"})
+			return
+		}
+
+		var result *proxy.TestResult
+
+		switch proxyConfig.OutboundType {
+		case "hysteria2":
+			result = proxy.TestHysteria2Connection(proxyConfig.Hy2Server, proxyConfig.Hy2Port)
+		case "vmess":
+			result = proxy.TestVMessConnection(proxyConfig.VmessServer, proxyConfig.VmessPort)
+		case "socks5":
+			result = proxy.TestSOCKS5Connection(proxyConfig.Socks5Addr, proxyConfig.Socks5Port)
+		default:
+			c.JSON(400, gin.H{"error": "不支持的代理类型"})
+			return
+		}
+
+		c.JSON(200, result)
+	})
 }

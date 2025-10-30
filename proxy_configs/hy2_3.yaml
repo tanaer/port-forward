@@ -1,0 +1,9 @@
+server: 160.187.110.11:443
+auth: zKx8KJxnCZJNnnnF
+tls:
+    sni: bing.com
+bandwidth:
+    up: 200 mbps
+    down: 200 mbps
+socks5:
+    listen: 127.0.0.1:10808

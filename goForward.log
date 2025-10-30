@@ -52,3 +52,18 @@ Web管理面板端口:8889
 [GIN] 2025/10/30 - 23:49:19 | 200 |     759.444µs |  59.174.109.122 | GET      "/proxy"
 [GIN] 2025/10/30 - 23:49:21 | 200 |     769.873µs |  59.174.109.122 | GET      "/proxy"
 [GIN] 2025/10/30 - 23:49:22 | 200 |     288.531µs |  59.174.109.122 | GET      "/proxy/add"
+[GIN] 2025/10/31 - 00:03:54 | 200 |      175.47µs |  59.174.109.122 | POST     "/proxy/parse-hy2"
+[GIN] 2025/10/31 - 00:04:25 | 200 |     286.438µs |  59.174.109.122 | GET      "/proxy/generate-keys"
+[Hysteria2] 进程已启动 PID=243611
+[Xray] 进程已启动 PID=243612
+[Bridge-3] 代理桥接已启动
+[GIN] 2025/10/31 - 00:04:46 | 200 |    9.353892ms |  59.174.109.122 | POST     "/proxy/add"
+[GIN] 2025/10/31 - 00:04:48 | 200 |     412.554µs |  59.174.109.122 | GET      "/"
+[GIN] 2025/10/31 - 00:04:50 | 200 |     988.053µs |  59.174.109.122 | GET      "/proxy"
+[Hysteria2] 进程异常退出: exit status 1
+
+2025/10/31 00:04:52 [31;1m/root/port-forward/sql/proxy.go:148 [35;1mrecord not found
+[0m[33m[0.078ms] [34;1m[rows:0][0m SELECT * FROM `subscriptions` WHERE proxy_id = 3 ORDER BY `subscriptions`.`id` LIMIT 1
+[GIN] 2025/10/31 - 00:04:52 | 200 |     3.71108ms |  59.174.109.122 | GET      "/proxy/subscription/3"
+[GIN] 2025/10/31 - 00:05:21 | 200 |      799.93µs |  59.174.109.122 | GET      "/proxy"
+[GIN] 2025/10/31 - 00:07:41 | 200 |    1.166137ms |  59.174.109.122 | GET      "/proxy/edit/3"

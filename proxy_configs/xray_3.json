@@ -1,0 +1,68 @@
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 16830,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "flow": "xtls-rprx-vision",
+            "id": "e45b0be2-52c2-44df-9143-5e9a53b79e58"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.tesla.com:443",
+          "privateKey": "dIUVS2bxIuHAYTPwpP6zdYPDg4Ov4bZl6Lpc7WCvBXw",
+          "serverNames": [
+            "www.tesla.com"
+          ],
+          "shortIds": [
+            "cc1b599129a5209b"
+          ],
+          "show": false
+        }
+      },
+      "tag": "vless-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 10808
+          }
+        ]
+      },
+      "tag": "socks-out"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "outboundTag": "socks-out"
+      }
+    ]
+  }
+}

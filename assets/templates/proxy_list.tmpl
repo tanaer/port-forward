@@ -29,7 +29,13 @@
         .btn-warning { background: #ffc107; color: #333; }
         .btn-danger { background: #dc3545; color: white; }
         .btn-info { background: #17a2b8; color: white; }
+        .btn-test { background: #6c757d; color: white; }
         .actions a:hover { opacity: 0.8; }
+        .latency { font-weight: 600; }
+        .latency.good { color: #28a745; }
+        .latency.medium { color: #ffc107; }
+        .latency.bad { color: #dc3545; }
+        .latency.testing { color: #6c757d; }
     </style>
 </head>
 <body>
@@ -68,6 +74,7 @@
                     <th>Reality域名</th>
                     <th>出站服务器</th>
                     <th>状态</th>
+                    <th>延迟</th>
                     <th>流量</th>
                     <th>操作</th>
                 </tr>
@@ -104,8 +111,12 @@
                         <span class="status inactive">已停止</span>
                         {{end}}
                     </td>
+                    <td>
+                        <span id="latency-{{.Id}}" class="latency">-</span>
+                    </td>
                     <td>{{.TotalGigabyte}} GB</td>
                     <td class="actions">
+                        <a href="javascript:void(0)" onclick="testProxy({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>
                         <a href="/proxy/subscription/{{.Id}}" class="btn-info">订阅</a>
                         {{if eq .Status 0}}
@@ -118,7 +129,7 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="9" style="text-align: center; padding: 40px; color: #999;">
+                    <td colspan="10" style="text-align: center; padding: 40px; color: #999;">
                         暂无代理配置，<a href="/proxy/add" style="color: #007bff;">点击添加</a>
                     </td>
                 </tr>
@@ -126,5 +137,51 @@
             </tbody>
         </table>
     </div>
+
+    <script>
+        async function testProxy(id) {
+            const latencyEl = document.getElementById('latency-' + id);
+            const testBtn = document.getElementById('test-btn-' + id);
+
+            // 显示测试中状态
+            latencyEl.textContent = '测试中...';
+            latencyEl.className = 'latency testing';
+            testBtn.textContent = '测试中';
+            testBtn.style.opacity = '0.6';
+            testBtn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/proxy/test/' + id);
+                const result = await response.json();
+
+                if (result.success) {
+                    latencyEl.textContent = result.rtt;
+
+                    // 根据延迟设置颜色
+                    const ms = result.latency / 1000000; // 纳秒转毫秒
+                    if (ms < 100) {
+                        latencyEl.className = 'latency good';
+                    } else if (ms < 300) {
+                        latencyEl.className = 'latency medium';
+                    } else {
+                        latencyEl.className = 'latency bad';
+                    }
+                } else {
+                    latencyEl.textContent = '失败';
+                    latencyEl.className = 'latency bad';
+                    alert('测试失败: ' + result.message);
+                }
+            } catch (error) {
+                latencyEl.textContent = '错误';
+                latencyEl.className = 'latency bad';
+                alert('测试出错: ' + error.message);
+            } finally {
+                // 恢复按钮状态
+                testBtn.textContent = '测试';
+                testBtn.style.opacity = '1';
+                testBtn.style.pointerEvents = 'auto';
+            }
+        }
+    </script>
 </body>
 </html>

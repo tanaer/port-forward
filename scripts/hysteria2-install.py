@@ -378,9 +378,16 @@ def generate_self_signed_cert():
             "-days", "36500"
         ], check=True, capture_output=True)
 
-        # 设置权限
+        # 设置权限 - 确保Hysteria服务可以读取
         os.chmod(f"{target_dir}/{domain_name}.key", 0o644)
         os.chmod(f"{target_dir}/{domain_name}.crt", 0o644)
+        os.chmod(target_dir, 0o755)  # 确保目录可访问
+
+        # 清理临时文件
+        try:
+            os.remove(ec_param)
+        except:
+            pass
 
         print(f"\033[92m✓ 自签名证书生成成功\033[0m")
         print(f"   证书: {target_dir}/{domain_name}.crt")
