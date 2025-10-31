@@ -215,7 +215,7 @@
 
                 <div class="form-group">
                     <label>
-                        <input type="checkbox" name="hy2Insecure" value="1" {{if .proxy.Hy2Insecure}}checked{{end}}>
+                        <input type="checkbox" name="hy2Insecure" id="hy2Insecure" value="1" {{if .proxy.Hy2Insecure}}checked{{end}}>
                         跳过证书验证 (不安全)
                     </label>
                 </div>
@@ -441,6 +441,7 @@
                 document.getElementById('hy2Obfs').value = data.obfs || '';
                 document.getElementById('hy2ObfsPassword').value = data.obfsPass || '';
                 document.getElementById('hy2SNI').value = data.sni || '';
+                document.getElementById('hy2Insecure').checked = data.insecure || false;
                 alert('订阅解析成功！');
             } catch (error) {
                 alert('解析失败: ' + error.message);
