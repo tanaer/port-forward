@@ -11,7 +11,7 @@
         "clients": [
           {
             "flow": "xtls-rprx-vision",
-            "id": "724ed0b1-c86a-42d3-9c8e-2af1b0a379ea"
+            "id": "724ed0b1-c86a-42d3-9c8e-2af1b0a379eb"
           }
         ],
         "decryption": "none"
