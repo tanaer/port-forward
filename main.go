@@ -12,6 +12,10 @@ import (
 )
 
 func main() {
+	// 初始化统计聚合器（Phase 1 优化）
+	forward.InitStatsAggregator()
+	defer forward.ShutdownStatsAggregator()
+
 	go web.Run()
 
 	// 启动所有活动的代理配置
@@ -51,7 +55,7 @@ func main() {
 			},
 			TotalBytesOld:  forwardList[i].TotalBytes,
 			TotalBytesLock: sync.Mutex{},
-			TCPConnections: make(map[string]*forward.IPStruct), 
+			TCPConnections: make(map[string]*forward.IPStruct),
 		}
 
 		largeStats.Connections[i] = connectionStats
