@@ -185,7 +185,8 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
             return conn.Control(func(s uintptr) error {
                 // golang.org/x/sys/unix 在 Go 1.21+ 推荐使用
                 // 注意：需要 go get golang.org/x/sys/unix
-                return unix.SetsockoptInt(unix.Fd(int(s)), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+                fd := int(s)  // 修复：直接转换为 int，不使用 unix.Fd
+                return unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
             })
         },
     }
@@ -517,8 +518,9 @@ func UpdateForwardGb(id int, gb uint64) error {
 }
 
 // 2.5. 直接数据库更新（用于回退，避免死锁）
+// 修复：将函数放到 sql 包中，直接使用现有的 db 变量
 func updateForwardDirect(id int, bytes uint64, gb uint64) error {
-    // 直接写入数据库，不经过聚合器（避免死锁）
+    // sql 包中的直接更新函数（绕过聚合器）
     tx := db.Begin()
     if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
         bytes, gb, id).Error; err != nil {
@@ -540,7 +542,7 @@ func (sa *StatsAggregator) flush() {
     // 修复：检查批量更新错误，避免静默丢失数据
     if err := sql.BatchUpdateStats(sa.pending); err != nil {
         log.Printf("[StatsAggregator] Batch update failed: %v, falling back to individual updates", err)
-        // 修复：使用直接更新函数，避免死锁
+        // 修复：使用 sql 包中的直接更新函数，避免死锁
         for id, stats := range sa.pending {
             if err := updateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
                 log.Printf("[StatsAggregator] Direct update failed for ID %d: %v", id, err)
