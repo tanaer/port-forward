@@ -176,18 +176,16 @@ func (pc *PortChecker) isPortAvailable(port int) (bool, error) {
         }
     }
 
-    // 使用 SO_REUSEADDR 检查端口
-    addr := fmt.Sprintf(":%d", port)
+    // 使用 net.ListenTCP 检查端口
     listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-        IP:   []byte{0, 0, 0, 0},
+        IP:   net.IPv4zero,  // 修复：使用 net.IPv4zero
         Port: port,
     })
     if err != nil {
         pc.cache[port] = false
         return false, nil
     }
-    listener.SetLinger(0) // 立即关闭
-    listener.Close()
+    listener.Close()  // 修复：直接 Close()，不调用 SetLinger()
     pc.cache[port] = true
     pc.lastCheck = time.Now()
     return true, nil
@@ -195,6 +193,8 @@ func (pc *PortChecker) isPortAvailable(port int) (bool, error) {
 ```
 
 **备用方案**：保留 netstat 但添加缓存（60秒内有效），避免频繁系统调用
+
+**缓存粒度**：使用 `port+protocol` 作为缓存键（如 `8080+tcp`），避免 TCP/UDP 互相干扰
 
 #### 1.4 添加性能监控
 **新增功能**：
@@ -227,9 +227,14 @@ func init() {
 **资源投入**：2 人 × 1 周（串行执行）
 
 ### 风险评估
-- **技术风险**：低 - 主要是代码重构，不涉及架构改变
-- **兼容性风险**：低 - 保持 API 和配置格式不变
+- **技术风险**：中 - 重写 forward.ConnectionStats.printStats 的并发和持久化逻辑，影响运行中的转发
+- **兼容性风险**：中 - 修改数据库写入方式，需保证前后一致
 - **性能风险**：中 - 需要充分测试确保优化有效
+
+**压测与回滚预案**：
+- 压测：在 Staging 环境进行并发 1000 连接压测 30 分钟
+- 回滚：保留现有 UpdateForwardBytes 接口作为回退路径
+- 灰度：使用 Feature Flag 控制新机制开关
 
 ## Phase 2: 代码质量提升（v1.4.0）
 
@@ -347,7 +352,7 @@ func (cv *ConfigValidator) Validate(config *Config) error {
 type HotReloader struct {
     watchers map[string]*fsnotify.Watcher
     handlers map[string]func()
-    db       *sql.DB // 权威数据源
+    db       *gorm.DB // 修复：使用 *gorm.DB（而非 *sql.DB）以便调用 GORM API
 }
 
 // 监听配置文件变化，优先写入数据库
@@ -378,6 +383,8 @@ func (hr *HotReloader) WatchConfig(path string, handler func()) error {
     return watcher.Add(path)
 }
 ```
+
+**说明**：数据库层使用 GORM ORM（与现有代码一致），而非标准 *sql.DB
 
 **数据源优先级**：
 1. 数据库 - 权威数据源
@@ -442,29 +449,61 @@ goforward reload --config /etc/goforward/config.yaml
 
 ## 关键问题解答
 
-### sql.BatchUpdateStats 与 sql.UpdateForwardBytes 的兼容性
-**现有调用点**：`forward/printStats()` 每 5 秒调用 `sql.UpdateForwardConfig()`
+### sql.BatchUpdateStats 与 sql.UpdateForwardBytes/sql.UpdateForwardGb 的协作
+**现有调用点**：
+- `forward/printStats()` 每 5 秒调用 `sql.UpdateForwardConfig()` (bytes + gb)
+- `sql.UpdateForwardBytes()` 和 `sql.UpdateForwardGb()` 分离更新
 
-**兼容性方案**：
+**协作方案**：
 ```go
-// 向后兼容：保留现有调用入口
+// 1. 统一的统计聚合器
+type StatsAggregator struct {
+    mu      sync.RWMutex
+    pending map[int]*PendingStats  // 存储待更新的统计
+    ticker  *time.Ticker
+}
+
+type PendingStats struct {
+    Bytes uint64
+    GB    uint64
+}
+
+// 2. 兼容现有接口（向后兼容）
 func UpdateForwardBytes(id int, bytes uint64) error {
-    // 1. 收集到聚合器
-    aggregator.Submit(id, bytes)
+    aggregator.Add(id, bytes, 0)
     return nil
 }
 
-// 内部批量更新（内部实现）
-func BatchUpdateStats(stats map[int]uint64) {
-    // 批量写入数据库（单个事务）
-    db.AutoMigrate(&TrafficStats{})
+func UpdateForwardGb(id int, gb uint64) error {
+    aggregator.Add(id, 0, gb)
+    return nil
 }
-```
 
-**迁移策略**：
-1. **Phase 1 Week 1**: 实现 BatchUpdateStats 作为内部方法
-2. **Phase 1 Week 2**: 修改现有调用点使用批量更新
-3. **回退路径**：保留 UpdateForwardBytes 接口，内部调用聚合器
+// 3. 内部批量更新（后台执行）
+func (sa *StatsAggregator) flush() {
+    sa.mu.Lock()
+    defer sa.mu.Unlock()
+
+    if len(sa.pending) == 0 {
+        return
+    }
+
+    // 单事务批量更新
+    tx := db.Begin()
+    for id, stats := range sa.pending {
+        tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+            stats.Bytes, stats.GB, id)
+    }
+    tx.Commit()
+
+    sa.pending = make(map[int]*PendingStats)
+}
+
+// 4. 平滑迁移策略
+// Phase 1 Week 1: 实现 StatsAggregator + UpdateForwardBytes/UpdateForwardGb 转发
+// Phase 1 Week 2: 修改 printStats() 直接调用聚合器而非 UpdateForwardConfig()
+// Phase 1 Week 3: 全量切换到批量更新，保留旧接口作为最终回退路径
+```
 
 ## Phase 4: 部署与运维优化（v1.6.0）
 
