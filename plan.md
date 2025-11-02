@@ -96,17 +96,21 @@ func (stats *ConnectionStats) printStats() {
 
 ### StatsAggregator 最终 API 定义
 
+**位置说明**：考虑到Go的import cycle问题，**PendingStats需在sql包中定义**，而非forward包。这样依赖关系为：forward → sql（无循环）。
+
 **核心结构体**：
 ```go
-type StatsAggregator struct {
-    mu      sync.RWMutex
-    pending map[int]*PendingStats  // 统一使用 PendingStats，而非 TrafficStats
-    ticker  *time.Ticker
-}
-
+// sql包中定义（sql/sql.go或新建sql/stats.go）
 type PendingStats struct {
     Bytes uint64  // 统一命名：Bytes（而非 bytes）
     GB    uint64  // 统一命名：GB（而非 Gigabyte）
+}
+
+// forward包中定义（forward/stats.go）
+type StatsAggregator struct {
+    mu      sync.RWMutex
+    pending map[int]*sql.PendingStats  // 引用sql包的PendingStats
+    ticker  *time.Ticker
 }
 ```
 
@@ -122,8 +126,8 @@ func (sa *StatsAggregator) Add(id int, bytes uint64, gb uint64) {
         existing.Bytes += bytes
         existing.GB += gb
     } else {
-        // 新建条目
-        sa.pending[id] = &PendingStats{Bytes: bytes, GB: gb}
+        // 新建条目（使用sql包的PendingStats）
+        sa.pending[id] = &sql.PendingStats{Bytes: bytes, GB: gb}
     }
 }
 
@@ -150,12 +154,18 @@ func (sa *StatsAggregator) flush() {
     }
 
     // 成功后清空缓存
-    sa.pending = make(map[int]*PendingStats)
+    sa.pending = make(map[int]*sql.PendingStats)
 }
 ```
 
 **与 sql 包的协作接口**：
 ```go
+// sql/stats.go（新建文件） - PendingStats定义在此
+type PendingStats struct {
+    Bytes uint64
+    GB    uint64
+}
+
 // sql/batch.go（新建文件）
 func BatchUpdateStats(stats map[int]*PendingStats) error {
     tx := db.Begin()
@@ -192,6 +202,8 @@ func UpdateForwardDirect(id int, bytes uint64, gb uint64) error {
 **向后兼容适配层**：
 ```go
 // forward/legacy.go（新增）
+import "goForward/sql"  // 引入sql包以使用sql.PendingStats
+
 var globalAggregator *StatsAggregator
 
 func UpdateForwardBytes(id int, bytes uint64) error {
@@ -287,12 +299,14 @@ func (cm *ConfigManager) Shutdown(ctx context.Context) error {
 
 在开始 Phase 1 Week 1 之前，请确认：
 
-- [ ] StatsAggregator 使用 `PendingStats` 而非 `TrafficStats`
-- [ ] sql 包新增 `BatchUpdateStats()` 和 `UpdateForwardDirect()` 函数
+- [ ] **关键**：PendingStats 在 sql 包中定义（避免循环依赖）
+- [ ] StatsAggregator 使用 `sql.PendingStats` 而非 `TrafficStats`
+- [ ] sql 包新增 `sql/stats.go`（PendingStats定义）、`sql/batch.go`、`sql/direct.go`
+- [ ] forward 包导入 sql 包，但 sql 包不导入 forward 包（避免循环依赖）
 - [ ] 保留现有 `UpdateForwardBytes()` 和 `UpdateForwardGb()` 接口作为适配层
 - [ ] PortChecker 使用字符串键 `"port/protocol"` 格式
-- [ ] 所有新增文件已创建：sql/batch.go、sql/direct.go、forward/legacy.go
-- [ ] 编译通过且无未使用的导入
+- [ ] 所有新增文件已创建：sql/stats.go、sql/batch.go、sql/direct.go、forward/legacy.go
+- [ ] **编译��过且无 import cycle**（使用 `go build ./...` 验证）
 
 ---
 
@@ -675,8 +689,21 @@ goforward reload --config /etc/goforward/config.yaml
 ```
 sql/
 ├── sql.go          # 现有数据库操作
+├── stats.go        # 新增：PendingStats 结构体定义（避免循环依赖）
 ├── batch.go        # 新增：批量更新函数
 └── direct.go       # 新增：直接更新函数（回退路径）
+```
+
+**stats.go**：
+```go
+package sql
+
+// PendingStats 包装待更新的统计数据
+// 位置：sql包中定义，forward包引用，避免循环依赖
+type PendingStats struct {
+    Bytes uint64
+    GB    uint64
+}
 ```
 
 **batch.go**：
@@ -686,12 +713,6 @@ package sql
 import (
     "time"
 )
-
-// PendingStats 包装待更新的统计数据
-type PendingStats struct {
-    Bytes uint64
-    GB    uint64
-}
 
 // BatchUpdateStats 批量更新统计数据（优化路径）
 // 优势：单个事务，减少数据库压力
