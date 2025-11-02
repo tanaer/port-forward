@@ -160,41 +160,44 @@ func (cm *ConnectionManager) gcIdleConnections() {
 // 使用 SO_REUSEADDR + 缓存优化端口检查
 type PortChecker struct {
     mu       sync.Mutex
-    cache    map[int]bool
-    lastCheck time.Time
+    cache    map[string]bool      // 修复：键改为字符串
+    lastCheck map[string]time.Time // 修复：为每个键独立记录时间戳
     cacheTTL  time.Duration
 }
 
-func (pc *PortChecker) isPortAvailable(port int) (bool, error) {
+func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) {
+    key := fmt.Sprintf("%d/%s", port, protocol)  // 修复：使用 "port/protocol" 格式
+
     pc.mu.Lock()
     defer pc.mu.Unlock()
 
     // 检查缓存（60秒内有效）
-    if cached, exists := pc.cache[port]; exists {
-        if time.Since(pc.lastCheck) < pc.cacheTTL {
+    if cached, exists := pc.cache[key]; exists {
+        if time.Since(pc.lastCheck[key]) < pc.cacheTTL {
             return cached, nil
         }
     }
 
     // 使用 net.ListenTCP 检查端口
     listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-        IP:   net.IPv4zero,  // 修复：使用 net.IPv4zero
+        IP:   net.IPv4zero,
         Port: port,
     })
     if err != nil {
-        pc.cache[port] = false
+        pc.cache[key] = false
+        pc.lastCheck[key] = time.Now()
         return false, nil
     }
-    listener.Close()  // 修复：直接 Close()，不调用 SetLinger()
-    pc.cache[port] = true
-    pc.lastCheck = time.Now()
+    listener.Close()
+    pc.cache[key] = true
+    pc.lastCheck[key] = time.Now()
     return true, nil
 }
 ```
 
 **备用方案**：保留 netstat 但添加缓存（60秒内有效），避免频繁系统调用
 
-**缓存粒度**：使用 `port+protocol` 作为缓存键（如 `8080+tcp`），避免 TCP/UDP 互相干扰
+**缓存示例**：`8080/tcp`、`8080/udp` 作为独立键，避免协议间干扰
 
 #### 1.4 添加性能监控
 **新增功能**：
@@ -454,6 +457,30 @@ goforward reload --config /etc/goforward/config.yaml
 - `forward/printStats()` 每 5 秒调用 `sql.UpdateForwardConfig()` (bytes + gb)
 - `sql.UpdateForwardBytes()` 和 `sql.UpdateForwardGb()` 分离更新
 
+**BatchUpdateStats 实现**：
+```go
+// sql 包中的批量更新函数
+func BatchUpdateStats(stats map[int]*PendingStats) error {
+    tx := db.Begin()
+    defer func() {
+        if r := recover(); r != nil {
+            tx.Rollback()
+            panic(r)
+        }
+    }()
+
+    for id, stats := range stats {
+        if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+            stats.Bytes, stats.GB, id).Error; err != nil {
+            tx.Rollback()
+            return err
+        }
+    }
+
+    return tx.Commit().Error
+}
+```
+
 **协作方案**：
 ```go
 // 1. 统一的统计聚合器
@@ -488,13 +515,8 @@ func (sa *StatsAggregator) flush() {
         return
     }
 
-    // 单事务批量更新
-    tx := db.Begin()
-    for id, stats := range sa.pending {
-        tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
-            stats.Bytes, stats.GB, id)
-    }
-    tx.Commit()
+    // 修复：调用已有的批量更新函数（而非直接使用 db）
+    sql.BatchUpdateStats(sa.pending)
 
     sa.pending = make(map[int]*PendingStats)
 }
