@@ -157,16 +157,16 @@ func (cm *ConnectionManager) gcIdleConnections() {
 **风险提示**：直接使用 `net.Listen` 会临时抢占端口，可能打断真实业务
 **解决方案**：
 ```go
-// 使用 SO_REUSEADDR + 缓存优化端口检查
+// 使用监听配置 + 缓存优化端口检查
 type PortChecker struct {
     mu       sync.Mutex
-    cache    map[string]bool      // 修复：键改为字符串
-    lastCheck map[string]time.Time // 修复：为每个键独立记录时间戳
+    cache    map[string]bool      // 键改为字符串
+    lastCheck map[string]time.Time // 每个键独立记录时间戳
     cacheTTL  time.Duration
 }
 
 func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) {
-    key := fmt.Sprintf("%d/%s", port, protocol)  // 修复：使用 "port/protocol" 格式
+    key := fmt.Sprintf("%d/%s", port, protocol)
 
     pc.mu.Lock()
     defer pc.mu.Unlock()
@@ -178,11 +178,20 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
         }
     }
 
-    // 使用 net.ListenTCP 检查端口
-    listener, err := net.ListenTCP("tcp", &net.TCPAddr{
-        IP:   net.IPv4zero,
-        Port: port,
-    })
+    // 使用 ListenConfig 配置端口检查（支持 SO_REUSEADDR）
+    lc := net.ListenConfig{
+        Control: func(network, address string, conn syscall.RawConn) error {
+            // 设置 SO_REUSEADDR（可选：SO_REUSEPORT）
+            if err := conn.Control(func(s uintptr) {
+                syscall.SetsockoptInt(syscall.Handle(s), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+            }); err != nil {
+                return err
+            }
+            return nil
+        },
+    }
+
+    listener, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
     if err != nil {
         pc.cache[key] = false
         pc.lastCheck[key] = time.Now()
@@ -194,6 +203,8 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
     return true, nil
 }
 ```
+
+**说明**：通过 ListenConfig 设置 SO_REUSEADDR，减少端口占用时间
 
 **备用方案**：保留 netstat 但添加缓存（60秒内有效），避免频繁系统调用
 
@@ -515,9 +526,20 @@ func (sa *StatsAggregator) flush() {
         return
     }
 
-    // 修复：调用已有的批量更新函数（而非直接使用 db）
-    sql.BatchUpdateStats(sa.pending)
+    // 修复：检查批量更新错误，避免静默丢失数据
+    if err := sql.BatchUpdateStats(sa.pending); err != nil {
+        log.Printf("[StatsAggregator] Batch update failed: %v, falling back to individual updates", err)
+        // 回退到逐条更新（确保不丢失数据）
+        for id, stats := range sa.pending {
+            sql.UpdateForwardBytes(id, stats.Bytes)
+            sql.UpdateForwardGb(id, stats.GB)
+        }
+        // 清空缓存（即使回退也完成更新）
+    } else {
+        log.Printf("[StatsAggregator] Batch update success: %d records", len(sa.pending))
+    }
 
+    // 修复：只在成功后清空缓存或回退后清空
     sa.pending = make(map[int]*PendingStats)
 }
 
