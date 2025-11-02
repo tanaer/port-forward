@@ -178,16 +178,15 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
         }
     }
 
-    // 使用 ListenConfig 配置端口检查（支持 SO_REUSEADDR）
+    // 使用 ListenConfig 配置端口检查（跨平台 SO_REUSEADDR）
     lc := net.ListenConfig{
         Control: func(network, address string, conn syscall.RawConn) error {
-            // 设置 SO_REUSEADDR（可选：SO_REUSEPORT）
-            if err := conn.Control(func(s uintptr) {
-                syscall.SetsockoptInt(syscall.Handle(s), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-            }); err != nil {
-                return err
-            }
-            return nil
+            // 修复：使用跨平台的 SO_REUSEADDR 设置
+            return conn.Control(func(s uintptr) error {
+                // golang.org/x/sys/unix 在 Go 1.21+ 推荐使用
+                // 注意：需要 go get golang.org/x/sys/unix
+                return unix.SetsockoptInt(unix.Fd(int(s)), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+            })
         },
     }
 
@@ -517,6 +516,18 @@ func UpdateForwardGb(id int, gb uint64) error {
     return nil
 }
 
+// 2.5. 直接数据库更新（用于回退，避免死锁）
+func updateForwardDirect(id int, bytes uint64, gb uint64) error {
+    // 直接写入数据库，不经过聚合器（避免死锁）
+    tx := db.Begin()
+    if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+        bytes, gb, id).Error; err != nil {
+        tx.Rollback()
+        return err
+    }
+    return tx.Commit().Error
+}
+
 // 3. 内部批量更新（后台执行）
 func (sa *StatsAggregator) flush() {
     sa.mu.Lock()
@@ -529,17 +540,20 @@ func (sa *StatsAggregator) flush() {
     // 修复：检查批量更新错误，避免静默丢失数据
     if err := sql.BatchUpdateStats(sa.pending); err != nil {
         log.Printf("[StatsAggregator] Batch update failed: %v, falling back to individual updates", err)
-        // 回退到逐条更新（确保不丢失数据）
+        // 修复：使用直接更新函数，避免死锁
         for id, stats := range sa.pending {
-            sql.UpdateForwardBytes(id, stats.Bytes)
-            sql.UpdateForwardGb(id, stats.GB)
+            if err := updateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
+                log.Printf("[StatsAggregator] Direct update failed for ID %d: %v", id, err)
+                // 保留失败条目（不清空），供下次重试
+                // 注意：不执行 sa.pending = make(...) 以保留数据
+                return
+            }
         }
-        // 清空缓存（即使回退也完成更新）
     } else {
         log.Printf("[StatsAggregator] Batch update success: %d records", len(sa.pending))
     }
 
-    // 修复：只在成功后清空缓存或回退后清空
+    // 修复：只在成功或回退完成后清空缓存
     sa.pending = make(map[int]*PendingStats)
 }
 
