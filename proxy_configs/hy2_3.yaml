@@ -2,6 +2,7 @@ server: 160.187.110.11:443
 auth: 4Qeg9JucraszNjz2
 tls:
     sni: bing.com
+    insecure: true
 bandwidth:
     up: 200 mbps
     down: 200 mbps

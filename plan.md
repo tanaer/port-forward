@@ -90,6 +90,212 @@ func (stats *ConnectionStats) printStats() {
 2. **配置同步** - 节点间配置同步机制
 3. **负载均衡** - 简单的流量分发能力
 
+## API 规范约定（执行前必读）
+
+为确保所有开发人员遵循统一的API设计，避免实现歧义，特制定以下规范。
+
+### StatsAggregator 最终 API 定义
+
+**核心结构体**：
+```go
+type StatsAggregator struct {
+    mu      sync.RWMutex
+    pending map[int]*PendingStats  // 统一使用 PendingStats，而非 TrafficStats
+    ticker  *time.Ticker
+}
+
+type PendingStats struct {
+    Bytes uint64  // 统一命名：Bytes（而非 bytes）
+    GB    uint64  // 统一命名：GB（而非 Gigabyte）
+}
+```
+
+**关键方法**：
+```go
+// 添加统计数据（合并逻辑：Bytes/GB 累加）
+func (sa *StatsAggregator) Add(id int, bytes uint64, gb uint64) {
+    sa.mu.Lock()
+    defer sa.mu.Unlock()
+
+    if existing, ok := sa.pending[id]; ok {
+        // 累加现有值
+        existing.Bytes += bytes
+        existing.GB += gb
+    } else {
+        // 新建条目
+        sa.pending[id] = &PendingStats{Bytes: bytes, GB: gb}
+    }
+}
+
+// 批量刷新到数据库（带错误处理和回退机制）
+func (sa *StatsAggregator) flush() {
+    sa.mu.Lock()
+    defer sa.mu.Unlock()
+
+    if len(sa.pending) == 0 {
+        return
+    }
+
+    // 优先尝试批量更新
+    if err := sql.BatchUpdateStats(sa.pending); err != nil {
+        log.Printf("[StatsAggregator] Batch update failed: %v, falling back", err)
+        // 回退到逐个更新
+        for id, stats := range sa.pending {
+            if err := sql.UpdateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
+                log.Printf("[StatsAggregator] Direct update failed for ID %d: %v", id, err)
+                // 保留失败条目下次重试
+                return
+            }
+        }
+    }
+
+    // 成功后清空缓存
+    sa.pending = make(map[int]*PendingStats)
+}
+```
+
+**与 sql 包的协作接口**：
+```go
+// sql/batch.go（新建文件）
+func BatchUpdateStats(stats map[int]*PendingStats) error {
+    tx := db.Begin()
+    defer func() {
+        if r := recover(); r != nil {
+            tx.Rollback()
+            panic(r)
+        }
+    }()
+
+    for id, stats := range stats {
+        if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+            stats.Bytes, stats.GB, id).Error; err != nil {
+            tx.Rollback()
+            return err
+        }
+    }
+
+    return tx.Commit().Error
+}
+
+// sql/direct.go（新建文件）
+func UpdateForwardDirect(id int, bytes uint64, gb uint64) error {
+    tx := db.Begin()
+    if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+        bytes, gb, id).Error; err != nil {
+        tx.Rollback()
+        return err
+    }
+    return tx.Commit().Error
+}
+```
+
+**向后兼容适配层**：
+```go
+// forward/legacy.go（新增）
+var globalAggregator *StatsAggregator
+
+func UpdateForwardBytes(id int, bytes uint64) error {
+    globalAggregator.Add(id, bytes, 0)
+    return nil
+}
+
+func UpdateForwardGb(id int, gb uint64) error {
+    globalAggregator.Add(id, 0, gb)
+    return nil
+}
+
+// printStats 迁移步骤：
+// Step 1: 保持现有 UpdateForwardConfig() 调用
+// Step 2: 添加聚合器定期刷新（后台 goroutine）
+// Step 3: 完全替换为聚合器模式
+```
+
+### PortChecker 最终 API 定义
+
+```go
+type PortChecker struct {
+    mu        sync.Mutex
+    cache     map[string]bool      // 键格式："8080/tcp"、"8080/udp"
+    lastCheck map[string]time.Time // 每个键独立时间戳
+    cacheTTL  time.Duration        // 默认：60秒
+}
+
+func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) {
+    key := fmt.Sprintf("%d/%s", port, protocol)
+
+    pc.mu.Lock()
+    defer pc.mu.Unlock()
+
+    // 检查缓存有效性
+    if cached, exists := pc.cache[key]; exists {
+        if time.Since(pc.lastCheck[key]) < pc.cacheTTL {
+            return cached, nil
+        }
+    }
+
+    // 执行端口检查（SO_REUSEADDR）
+    lc := net.ListenConfig{
+        Control: func(network, address string, conn syscall.RawConn) error {
+            return conn.Control(func(s uintptr) error {
+                fd := int(s)
+                return unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+            })
+        },
+    }
+
+    listener, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf(":%d", port))
+    if err != nil {
+        pc.cache[key] = false
+        pc.lastCheck[key] = time.Now()
+        return false, nil
+    }
+    listener.Close()
+
+    pc.cache[key] = true
+    pc.lastCheck[key] = time.Now()
+    return true, nil
+}
+```
+
+### ConfigManager 最终 API 定义
+
+```go
+type ConfigManager struct {
+    stopChan    chan int  // 替代 conf.Ch，传递端口号（而非字符串 key）
+    subscribers []ConfigSubscriber
+    mu          sync.RWMutex
+}
+
+type ConfigSubscriber interface {
+    OnConfigUpdate(forwardID int) error
+}
+
+// 发送停止信号（兼容旧 conf.Ch 的使用方式）
+func (cm *ConfigManager) SendStopSignal(port int) error {
+    cm.stopChan <- port
+    return nil
+}
+
+// 优雅关闭（替代 conf.Wg.Wait）
+func (cm *ConfigManager) Shutdown(ctx context.Context) error {
+    close(cm.stopChan)
+    return nil
+}
+```
+
+### 迁移检查清单
+
+在开始 Phase 1 Week 1 之前，请确认：
+
+- [ ] StatsAggregator 使用 `PendingStats` 而非 `TrafficStats`
+- [ ] sql 包新增 `BatchUpdateStats()` 和 `UpdateForwardDirect()` 函数
+- [ ] 保留现有 `UpdateForwardBytes()` 和 `UpdateForwardGb()` 接口作为适配层
+- [ ] PortChecker 使用字符串键 `"port/protocol"` 格式
+- [ ] 所有新增文件已创建：sql/batch.go、sql/direct.go、forward/legacy.go
+- [ ] 编译通过且无未使用的导入
+
+---
+
 ## Phase 1: 性能优化与稳定性提升（v1.3.0）
 
 ### 目标
@@ -99,32 +305,17 @@ func (stats *ConnectionStats) printStats() {
 
 #### 1.1 优化流量统计机制
 **问题**：每 5 秒数据库写入风暴
-**解决方案**：
-```go
-// 新的批量更新机制
-type StatsAggregator struct {
-    stats      map[int]*TrafficStats
-    mu         sync.RWMutex
-    ticker     *time.Ticker
-    batchSize  int
-    batchTime  time.Duration
-}
+**解决方案**：详见 **API 规范约定** 章节
 
-// 批量更新，减少数据库压力
-func (sa *StatsAggregator) batchUpdate() {
-    sa.mu.Lock()
-    defer sa.mu.Unlock()
+**实施步骤**：
+1. 创建 `forward/legacy.go`，实现向后兼容的适配层
+2. 在 `sql/` 下新增 `batch.go` 和 `direct.go`
+3. 将 `printStats()` 的数据库写入替换为聚合器调用
+4. 添加后台 goroutine 每 30 秒执行一次 flush
 
-    if len(sa.stats) == 0 {
-        return
-    }
-
-    // 批量更新数据库
-    sql.BatchUpdateStats(sa.stats)
-    // 清空已更新数据
-    sa.stats = make(map[int]*TrafficStats)
-}
-```
+**预期效果**：
+- 数据库写入从每 5 秒 × N 次 → 每 30 秒 × 1 次（批量）
+- 写入频率降低 83%
 
 #### 1.2 改进连接管理
 **问题**：TCPConnections map 无界增长
@@ -478,14 +669,33 @@ goforward reload --config /etc/goforward/config.yaml
 
 ## 关键问题解答
 
-### sql.BatchUpdateStats 与 sql.UpdateForwardBytes/sql.UpdateForwardGb 的协作
-**现有调用点**：
-- `forward/printStats()` 每 5 秒调用 `sql.UpdateForwardConfig()` (bytes + gb)
-- `sql.UpdateForwardBytes()` 和 `sql.UpdateForwardGb()` 分离更新
+### sql 包新增函数定义
 
-**BatchUpdateStats 实现**：
+**文件结构**：
+```
+sql/
+├── sql.go          # 现有数据库操作
+├── batch.go        # 新增：批量更新函数
+└── direct.go       # 新增：直接更新函数（回退路径）
+```
+
+**batch.go**：
 ```go
-// sql 包中的批量更新函数
+package sql
+
+import (
+    "time"
+)
+
+// PendingStats 包装待更新的统计数据
+type PendingStats struct {
+    Bytes uint64
+    GB    uint64
+}
+
+// BatchUpdateStats 批量更新统计数据（优化路径）
+// 优势：单个事务，减少数据库压力
+// 失败处理：遇到错误立即回滚
 func BatchUpdateStats(stats map[int]*PendingStats) error {
     tx := db.Begin()
     defer func() {
@@ -507,78 +717,49 @@ func BatchUpdateStats(stats map[int]*PendingStats) error {
 }
 ```
 
-**协作方案**：
+**direct.go**：
 ```go
-// 1. 统一的统计聚合器
-type StatsAggregator struct {
-    mu      sync.RWMutex
-    pending map[int]*PendingStats  // 存储待更新的统计
-    ticker  *time.Ticker
+package sql
+
+import (
+    "time"
+)
+
+// UpdateForwardDirect 直接更新单个转发配置（回退路径）
+// 场景：批量更新失败时，逐个重试
+func UpdateForwardDirect(id int, bytes uint64, gb uint64) error {
+    tx := db.Begin()
+    if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+        bytes, gb, id).Error; err != nil {
+        tx.Rollback()
+        return err
+    }
+    return tx.Commit().Error
 }
 
-type PendingStats struct {
-    Bytes uint64
-    GB    uint64
-}
-
-// 2. 兼容现有接口（向后兼容）
-func UpdateForwardBytes(id int, bytes uint64) error {
-    aggregator.Add(id, bytes, 0)
+// CheckBatchUpdateHealth 批量更新健康检查
+// 定期调用，检查批量更新是否工作正常
+func CheckBatchUpdateHealth() error {
+    var count int
+    if err := db.Raw("SELECT COUNT(*) FROM connection_stats WHERE status = 0").Scan(&count).Error; err != nil {
+        return err
+    }
     return nil
 }
-
-func UpdateForwardGb(id int, gb uint64) error {
-    aggregator.Add(id, 0, gb)
-    return nil
-}
-
-// 2.5. 在 sql 包中的直接更新函数（导出函数）
-// 注意：此函数需在 sql 包中实现，使用 sql 包现有的 db 变量
-// 示例实现：
-// func UpdateForwardDirect(id int, bytes uint64, gb uint64) error {
-//     tx := db.Begin()
-//     if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
-//         bytes, gb, id).Error; err != nil {
-//         tx.Rollback()
-//         return err
-//     }
-//     return tx.Commit().Error
-// }
-
-// 3. 内部批量更新（后台执行）
-func (sa *StatsAggregator) flush() {
-    sa.mu.Lock()
-    defer sa.mu.Unlock()
-
-    if len(sa.pending) == 0 {
-        return
-    }
-
-    // 修复：检查批量更新错误，避免静默丢失数据
-    if err := sql.BatchUpdateStats(sa.pending); err != nil {
-        log.Printf("[StatsAggregator] Batch update failed: %v, falling back to individual updates", err)
-        // 修复：使用 sql 包的导出函数，避免死锁
-        for id, stats := range sa.pending {
-            if err := sql.UpdateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
-                log.Printf("[StatsAggregator] Direct update failed for ID %d: %v", id, err)
-                // 保留失败条目（不清空），供下次重试
-                // 注意：不执行 sa.pending = make(...) 以保留数据
-                return
-            }
-        }
-    } else {
-        log.Printf("[StatsAggregator] Batch update success: %d records", len(sa.pending))
-    }
-
-    // 修复：只在成功或回退完成后清空缓存
-    sa.pending = make(map[int]*PendingStats)
-}
-
-// 4. 平滑迁移策略
-// Phase 1 Week 1: 实现 StatsAggregator + UpdateForwardBytes/UpdateForwardGb 转发
-// Phase 1 Week 2: 修改 printStats() 直接调用聚合器而非 UpdateForwardConfig()
-// Phase 1 Week 3: 全量切换到批量更新，保留旧接口作为最终回退路径
 ```
+
+### 迁移时间表
+
+| 阶段 | 时间 | 操作 |
+|------|------|------|
+| Phase 1 Week 1 | Day 1-2 | 创建 `sql/batch.go` 和 `sql/direct.go` |
+| Phase 1 Week 1 | Day 3-4 | 实现 `forward/legacy.go` 适配层 |
+| Phase 1 Week 2 | Day 1-3 | 修改 `printStats()` 调用聚合器 |
+| Phase 1 Week 2 | Day 4-5 | 添加后台 flush goroutine（每 30 秒） |
+| Phase 1 Week 3 | Day 1-2 | 性能测试和调优 |
+| Phase 1 Week 3 | Day 3-5 | 清理旧的 UpdateForwardConfig 调用 |
+
+**回滚方案**：如批量更新出现严重问题，可在 5 分钟内回滚到原始 UpdateForwardConfig 模式
 
 ## Phase 4: 部署与运维优化（v1.6.0）
 
