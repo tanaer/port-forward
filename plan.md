@@ -154,25 +154,55 @@ func (cm *ConnectionManager) gcIdleConnections() {
 
 #### 1.3 优化端口检查
 **问题**：使用外部 netstat 命令效率低
+**风险提示**：直接使用 `net.Listen` 会临时抢占端口，可能打断真实业务
 **解决方案**：
 ```go
-// 使用原生 socket 检查端口占用
-func isPortAvailable(port int) (bool, error) {
+// 使用 SO_REUSEADDR + 缓存优化端口检查
+type PortChecker struct {
+    mu       sync.Mutex
+    cache    map[int]bool
+    lastCheck time.Time
+    cacheTTL  time.Duration
+}
+
+func (pc *PortChecker) isPortAvailable(port int) (bool, error) {
+    pc.mu.Lock()
+    defer pc.mu.Unlock()
+
+    // 检查缓存（60秒内有效）
+    if cached, exists := pc.cache[port]; exists {
+        if time.Since(pc.lastCheck) < pc.cacheTTL {
+            return cached, nil
+        }
+    }
+
+    // 使用 SO_REUSEADDR 检查端口
     addr := fmt.Sprintf(":%d", port)
-    listener, err := net.Listen("tcp", addr)
+    listener, err := net.ListenTCP("tcp", &net.TCPAddr{
+        IP:   []byte{0, 0, 0, 0},
+        Port: port,
+    })
     if err != nil {
+        pc.cache[port] = false
         return false, nil
     }
+    listener.SetLinger(0) // 立即关闭
     listener.Close()
+    pc.cache[port] = true
+    pc.lastCheck = time.Now()
     return true, nil
 }
 ```
+
+**备用方案**：保留 netstat 但添加缓存（60秒内有效），避免频繁系统调用
 
 #### 1.4 添加性能监控
 **新增功能**：
 - CPU、内存使用率监控
 - 连接数、吞吐量统计
 - 错误率、延迟分布
+
+**迁移提示**：默认保持当前 stdout 日志输出，新监控功能通过 `-metrics` flag 开启
 ```go
 type Metrics struct {
     Connections    prometheus.Gauge
@@ -180,13 +210,21 @@ type Metrics struct {
     Latency        prometheus.Histogram
     ErrorRate      prometheus.Counter
 }
+
+// 监控开关（兼容现有运维脚本）
+func init() {
+    flag.Bool("metrics", false, "Enable Prometheus metrics")
+    flag.Bool("log-json", false, "Enable JSON formatted logs")
+}
 ```
 
 ### 实施计划
 - **Week 1**: 实现批量统计更新机制
-- **Week 2**: 优化连接管理，添加连接池
+- **Week 2**: 优化连接管理，复用 sql.DB 实例，调低 Begin/Close 频率
 - **Week 3**: 改进端口检查，添加性能指标
 - **Week 4**: 测试、优化、发布
+
+**资源投入**：2 人 × 1 周（串行执行）
 
 ### 风险评估
 - **技术风险**：低 - 主要是代码重构，不涉及架构改变
@@ -202,21 +240,32 @@ type Metrics struct {
 
 #### 2.1 解耦全局状态
 **问题**：全局变量导致模块耦合
-**解决方案**：
+**渐进式方案**：
 ```go
-// 新的配置管理器
+// 1. 封装现有 conf.Ch 为接口（兼容旧流程）
 type ConfigManager struct {
-    config      *RuntimeConfig
-    mu          sync.RWMutex
+    stopChan    chan int  // 替代 conf.Ch
     subscribers []ConfigSubscriber
 }
 
-// 通过依赖注入替代全局变量
+// 兼容旧代码：添加适配器
+func (cm *ConfigManager) SendStopSignal(key string) error {
+    // 将 key 转换为端口+协议
+    cm.stopChan <- cm.parseKey(key)
+    return nil
+}
+
+// 2. 新代码使用依赖注入
 type ForwardManager struct {
     configMgr   *ConfigManager
     statsMgr    *StatsManager
     connMgr     *ConnectionManager
 }
+
+// 3. 迁移策略：
+// - Phase 2 Week 1: 添加 ConfigManager + 适配器
+// - Phase 2 Week 2-3: 新代码使用依赖注入
+// - Phase 2 Week 4: 逐步移除全局变量
 ```
 
 #### 2.2 统一错误处理
@@ -277,10 +326,12 @@ func (cv *ConfigValidator) Validate(config *Config) error {
 - 性能测试：转发性能
 
 ### 实施计划
-- **Week 1**: 重构全局状态管理
+- **Week 1**: 重构全局状态管理，添加配置管理器封装 conf.Ch
 - **Week 2**: 统一错误处理机制
 - **Week 3**: 添加配置验证和测试
 - **Week 4**: 文档更新和发布
+
+**资源投入**：2 人 × 1 周（部分并行）
 
 ## Phase 3: 功能增强（v1.5.0）
 
@@ -291,13 +342,15 @@ func (cv *ConfigValidator) Validate(config *Config) error {
 
 #### 3.1 配置热更新
 **功能**：无需重启更新配置
+**冲突解决**：数据库为权威数据源，其他来源（文件/HTTP/CLI）需先写入数据库
 ```go
 type HotReloader struct {
     watchers map[string]*fsnotify.Watcher
     handlers map[string]func()
+    db       *sql.DB // 权威数据源
 }
 
-// 监听配置文件变化
+// 监听配置文件变化，优先写入数据库
 func (hr *HotReloader) WatchConfig(path string, handler func()) error {
     watcher, err := fsnotify.NewWatcher()
     if err != nil {
@@ -309,7 +362,12 @@ func (hr *HotReloader) WatchConfig(path string, handler func()) error {
             select {
             case event := <-watcher.Events:
                 if event.Op&fsnotify.Write == fsnotify.Write {
-                    handler()
+                    // 1. 读取文件
+                    config := hr.loadFromFile(path)
+                    // 2. 写入数据库（权威源）
+                    if err := hr.db.Save(config).Error; err == nil {
+                        log.Printf("Config hot reloaded from file")
+                    }
                 }
             case err := <-watcher.Errors:
                 log.Printf("Config watch error: %v", err)
@@ -320,6 +378,12 @@ func (hr *HotReloader) WatchConfig(path string, handler func()) error {
     return watcher.Add(path)
 }
 ```
+
+**数据源优先级**：
+1. 数据库 - 权威数据源
+2. Web 面板 - 写入数据库
+3. 配置文件 - 转换后写入数据库
+4. CLI - 写入数据库
 
 #### 3.2 API 接口增强
 **新增功能**：
@@ -369,10 +433,38 @@ goforward reload --config /etc/goforward/config.yaml
 ```
 
 ### 实施计划
-- **Week 1**: 实现配置热更新
+- **Week 1**: 实现配置热更新（数据库为权威源）
 - **Week 2**: 增强 API 接口
 - **Week 3**: 开发监控面板
 - **Week 4**: 完善 CLI 工具
+
+**资源投入**：2 人 × 1 周（Web + API 并行）
+
+## 关键问题解答
+
+### sql.BatchUpdateStats 与 sql.UpdateForwardBytes 的兼容性
+**现有调用点**：`forward/printStats()` 每 5 秒调用 `sql.UpdateForwardConfig()`
+
+**兼容性方案**：
+```go
+// 向后兼容：保留现有调用入口
+func UpdateForwardBytes(id int, bytes uint64) error {
+    // 1. 收集到聚合器
+    aggregator.Submit(id, bytes)
+    return nil
+}
+
+// 内部批量更新（内部实现）
+func BatchUpdateStats(stats map[int]uint64) {
+    // 批量写入数据库（单个事务）
+    db.AutoMigrate(&TrafficStats{})
+}
+```
+
+**迁移策略**：
+1. **Phase 1 Week 1**: 实现 BatchUpdateStats 作为内部方法
+2. **Phase 1 Week 2**: 修改现有调用点使用批量更新
+3. **回退路径**：保留 UpdateForwardBytes 接口，内部调用聚合器
 
 ## Phase 4: 部署与运维优化（v1.6.0）
 
@@ -449,24 +541,47 @@ func HealthCheck(c *gin.Context) {
 - 结构化日志
 - 日志轮转
 - 不同级别日志
-```go
-// 使用 logrus 替代标准 log
-logger := logrus.New()
-logger.SetFormatter(&logrus.JSONFormatter{})
-logger.SetLevel(logrus.InfoLevel)
 
-logger.WithFields(logrus.Fields{
-    "forward_id": 123,
-    "protocol":   "tcp",
-    "action":     "connection_accepted",
-}).Info("New connection established")
+**迁移策略**：默认保持 stdout 日志，logrus 为可选配置
+```go
+// 保持向后兼容
+type LogConfig struct {
+    Level      string `yaml:"level"`
+    Format     string `yaml:"format"`  // "text" 或 "json"
+    Output     string `yaml:"output"`  // "stdout" 或文件路径
+    EnableFile bool   `yaml:"enable_file"`
+}
+
+func initLogger(cfg LogConfig) {
+    if cfg.Format == "json" {
+        logger := logrus.New()
+        logger.SetFormatter(&logrus.JSONFormatter{})
+        logger.SetLevel(logrus.InfoLevel)
+
+        logger.WithFields(logrus.Fields{
+            "forward_id": 123,
+            "protocol":   "tcp",
+            "action":     "connection_accepted",
+        }).Info("New connection established")
+    } else {
+        // 默认保持现有 stdout 格式
+        log.SetOutput(os.Stdout)
+    }
+}
 ```
+
+**运维脚本兼容性**：
+- `-log-json=false`（默认）保持现有格式
+- `-log-file=` 可选文件输出
+- 现有 grep/awk 脚本仍可工作
 
 ### 实施计划
 - **Week 1**: 容器化改造
-- **Week 2**: 配置管理优化
+- **Week 2**: 配置管理优化（环境变量支持）
 - **Week 3**: 健康检查和日志优化
 - **Week 4**: 文档和部署指南
+
+**资源投入**：1.5 人 × 1 周（部分并行）
 
 ## 未来方向（可选）
 
@@ -519,11 +634,13 @@ type SimpleBalancer struct {
 ## 成本与效益分析
 
 ### 开发成本（实际）
-- **Phase 1**: 2 人周 × $1000 = $2,000
-- **Phase 2**: 2 人周 × $1000 = $2,000
-- **Phase 3**: 2 人周 × $1000 = $2,000
-- **Phase 4**: 2 人周 × $1000 = $2,000
-- **总计**: $8,000
+- **Phase 1**: 2 人 × 1 周 × $500/人周 = $1,000（串行执行）
+- **Phase 2**: 2 人 × 1 周 × $500/人周 = $1,000（部分并行）
+- **Phase 3**: 2 人 × 1 周 × $500/人周 = $1,000（Web + API 并行）
+- **Phase 4**: 1.5 人 × 1 周 × $500/人周 = $750（部分并行）
+- **总计**: $3,750
+
+**时间线**：4 周串行执行或 2 周并行执行（需要 2 人全职投入）
 
 ### 预期收益
 1. **性能提升**
