@@ -156,6 +156,21 @@ func (cm *ConnectionManager) gcIdleConnections() {
 **问题**：使用外部 netstat 命令效率低
 **风险提示**：直接使用 `net.Listen` 会临时抢占端口，可能打断真实业务
 **解决方案**：
+
+**需要引入的包**：
+```go
+import (
+    "context"       // context.Background()
+    "fmt"           // fmt.Sprintf()
+    "net"           // net.ListenConfig
+    "sync"          // sync.Mutex
+    "syscall"       // syscall.RawConn
+    "time"          // time.Time, time.Since()
+    "golang.org/x/sys/unix"  // unix.SetsockoptInt, unix.SOL_SOCKET, unix.SO_REUSEADDR
+)
+```
+
+**完整实现**：
 ```go
 // 使用监听配置 + 缓存优化端口检查
 type PortChecker struct {
@@ -517,18 +532,18 @@ func UpdateForwardGb(id int, gb uint64) error {
     return nil
 }
 
-// 2.5. 直接数据库更新（用于回退，避免死锁）
-// 修复：将函数放到 sql 包中，直接使用现有的 db 变量
-func updateForwardDirect(id int, bytes uint64, gb uint64) error {
-    // sql 包中的直接更新函数（绕过聚合器）
-    tx := db.Begin()
-    if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
-        bytes, gb, id).Error; err != nil {
-        tx.Rollback()
-        return err
-    }
-    return tx.Commit().Error
-}
+// 2.5. 在 sql 包中的直接更新函数（导出函数）
+// 注意：此函数需在 sql 包中实现，使用 sql 包现有的 db 变量
+// 示例实现：
+// func UpdateForwardDirect(id int, bytes uint64, gb uint64) error {
+//     tx := db.Begin()
+//     if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+//         bytes, gb, id).Error; err != nil {
+//         tx.Rollback()
+//         return err
+//     }
+//     return tx.Commit().Error
+// }
 
 // 3. 内部批量更新（后台执行）
 func (sa *StatsAggregator) flush() {
@@ -542,9 +557,9 @@ func (sa *StatsAggregator) flush() {
     // 修复：检查批量更新错误，避免静默丢失数据
     if err := sql.BatchUpdateStats(sa.pending); err != nil {
         log.Printf("[StatsAggregator] Batch update failed: %v, falling back to individual updates", err)
-        // 修复：使用 sql 包中的直接更新函数，避免死锁
+        // 修复：使用 sql 包的导出函数，避免死锁
         for id, stats := range sa.pending {
-            if err := updateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
+            if err := sql.UpdateForwardDirect(id, stats.Bytes, stats.GB); err != nil {
                 log.Printf("[StatsAggregator] Direct update failed for ID %d: %v", id, err)
                 // 保留失败条目（不清空），供下次重试
                 // 注意：不执行 sa.pending = make(...) 以保留数据
