@@ -23,10 +23,11 @@ type IPStruct struct {
 
 type ConnectionStats struct {
 	conf.ConnectionStats
-	TotalBytesOld  uint64               `gorm:"-"`
-	TotalBytesLock sync.Mutex           `gorm:"-"`
-	TCPConnections map[string]*IPStruct `gorm:"-"` // 用于存储 TCP 连接
-	TcpTime        int                  `gorm:"-"` // TCP无传输时间
+	TotalBytesOld   uint64               `gorm:"-"`
+	TotalBytesLock  sync.Mutex           `gorm:"-"`
+	TCPConnections  map[string]*IPStruct `gorm:"-"` // 用于存储 TCP 连接（保留兼容性）
+	TcpTime         int                  `gorm:"-"` // TCP无传输时间
+	connManager     *ConnectionManager    `gorm:"-"` // 连接管理器（新增）
 }
 
 var Timestr string
@@ -47,6 +48,13 @@ var bufPool = sync.Pool{
 func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer releaseResources(stats) // 在函数返回时释放资源
+
+	// 初始化连接管理器（Phase 1 Week 2 优化）
+	if stats.connManager == nil {
+		stats.connManager = NewConnectionManager(stats.OutTime)
+	}
+	defer stats.connManager.Stop()
+
 	var ctx, cancel = context.WithCancel(context.Background())
 	var innerWg sync.WaitGroup
 
@@ -277,11 +285,18 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 		//从源读取
 		n, err := src.Read(buf)
 		if n > 0 {
+			connID := srctcpAddrstr + "->" + dsttcpAddrstr
+			ipStruct := &IPStruct{
+				Time:           time.Now().Unix(),
+				TCPConnections:  src,
+				LastActive:     time.Now(), // 记录最后活动时间
+			}
+
 			cs.TotalBytesLock.Lock()
-			cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr] = &IPStruct{
-				Time:        time.Now().Unix(),
-				TCPConnections: src,
-				LastActive:  time.Now(), // 记录最后活动时间
+			cs.TCPConnections[connID] = ipStruct
+			// 同时添加到ConnectionManager（Week 2 优化）
+			if cs.connManager != nil {
+				cs.connManager.AddConnection(connID, ipStruct)
 			}
 			cs.TotalBytesLock.Unlock()
 			cs.TotalBytes += uint64(n)
@@ -295,6 +310,10 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 				cs.TotalBytesLock.Lock()
 				src.Close()
 				dst.Close()
+				// 从ConnectionManager中移除（Week 2 优化）
+				if cs.connManager != nil {
+					cs.connManager.RemoveConnection(connID)
+				}
 				delete(cs.TCPConnections, dsttcpAddrstr+"->"+srctcpAddrstr)
 				delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
 				cs.TotalBytesLock.Unlock()
@@ -302,9 +321,11 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 				fmt.Printf("%v 写入目标时发生错误: %v \n", Timestr, err)
 				break
 			}
-			// 更新连接的最后活动时间
+			// 更新连接的最后活动时间（在ConnectionManager中自动更新）
+			// 不再需要手动更新，因为ConnectionManager会定期检查
+			// 这里保留原有的TCPConnections映射兼容性
 			cs.TotalBytesLock.Lock()
-			if conn, exists := cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr]; exists {
+			if conn, exists := cs.TCPConnections[connID]; exists {
 				conn.LastActive = time.Now()
 			}
 			cs.TotalBytesLock.Unlock()
@@ -376,18 +397,20 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 					}
 				}
 
-			} else {
-				times := time.Now().Unix()
-				for index, ips := range cs.TCPConnections {
-					//最大空闲连接丢弃
-					if cs.OutTime > 1 && int(times-ips.Time) > cs.OutTime {
-						ips.TCPConnections.Close()
-						fmt.Printf("%v 【%s】端口 超时 Close %vs  %s  \n", Timestr, cs.LocalPort, int(times-ips.Time), index)
-						delete(cs.TCPConnections, index)
-					}
+	// 旧的连接清理逻辑已被ConnectionManager替代
+	// ConnectionManager每10秒自动清理空闲连接
+	// 保留空else块以维持逻辑结构
+		} else {
+			// 当没有流量变化时，显示ConnectionManager连接数
+			if cs.connManager != nil {
+				connCount := cs.connManager.GetConnectionCount()
+				if connCount > 0 {
+					Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
+					fmt.Printf("%v 【%s】端口 %s 活跃连接数: %d (ConnectionManager)\n", Timestr, cs.Protocol, cs.LocalPort, connCount)
 				}
 			}
-			cs.TotalBytesLock.Unlock()
+		}
+		cs.TotalBytesLock.Unlock()
 		//当协程退出时执行
 		case <-ctx.Done():
 			return

@@ -45,7 +45,8 @@ func (cm *ConnectionManager) gcIdleConnections() {
 	timeout := time.Duration(cm.outTime) * time.Second
 
 	for id, conn := range cm.connections {
-		if now.Sub(conn.LastActive) > timeout {
+		idleTime := now.Sub(conn.LastActive)
+		if idleTime > timeout {
 			// 关闭连接并从映射中删除
 			if conn.TCPConnections != nil {
 				conn.TCPConnections.Close()
@@ -131,22 +132,42 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
 		}
 	}
 
-	// 执行端口检查（备用方案：使用netstat + 缓存）
-	// 优点：跨平台兼容，无系统调用复杂性
-	// 优化：60秒缓存，避免频繁netstat调用
-	return checkPortWithNetstat(port, protocol)
+	// 执行端口检查
+	available, err := checkPortWithNetstat(port, protocol)
+
+	// 更新缓存（修复：必须存储结果才能生效）
+	pc.cache[key] = available
+	pc.lastCheck[key] = time.Now()
+
+	return available, err
 }
 
-// checkPortWithNetstat 使用netstat命令检查端口（带缓存优化）
+// checkPortWithNetstat 协议感知的端口检查（带缓存优化）
 func checkPortWithNetstat(port int, protocol string) (bool, error) {
-	// 这里可以复用现有的netstat检查逻辑
-	// 或者简单实现：尝试监听端口
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return false, nil
+	if protocol == "tcp" {
+		// TCP端口检查：尝试监听TCP端口
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			return false, nil
+		}
+		listener.Close()
+		return true, nil
+	} else if protocol == "udp" {
+		// UDP端口检查：尝试监听UDP端口
+		udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			return false, err
+		}
+		conn, err := net.ListenUDP("udp", udpAddr)
+		if err != nil {
+			return false, nil
+		}
+		conn.Close()
+		return true, nil
 	}
-	listener.Close()
-	return true, nil
+
+	// 未知协议，默认返回不可用
+	return false, fmt.Errorf("unsupported protocol: %s", protocol)
 }
 
 // IsPortAvailableTCP 检查TCP端口可用性
