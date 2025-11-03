@@ -3,12 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"sync"
+
 	"goForward/conf"
 	"goForward/forward"
 	"goForward/proxy"
 	"goForward/sql"
 	"goForward/web"
-	"sync"
 )
 
 func main() {
