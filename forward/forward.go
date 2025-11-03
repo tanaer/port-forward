@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"goForward/conf"
-	"goForward/sql"
 	"io"
 	"net"
 	"os"
@@ -349,11 +348,11 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 				var gb uint64 = 1073741824
 				if cs.TotalBytes >= gb {
 					cs.TotalGigabyte = cs.TotalGigabyte + 1
-					sql.UpdateForwardGb(cs.Id, cs.TotalGigabyte)
+					UpdateForwardGb(cs.Id, cs.TotalGigabyte)  // 使用聚合器适配层
 					cs.TotalBytes = cs.TotalBytes - gb
 				}
 				cs.TotalBytesOld = cs.TotalBytes
-				sql.UpdateForwardBytes(cs.Id, cs.TotalBytes)
+				UpdateForwardBytes(cs.Id, cs.TotalBytes)  // 使用聚合器适配层
 
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 				fmt.Printf("%v 【%s】端口 %s 当前连接数: %d, 统计流量: %s\n", Timestr, cs.Protocol, cs.LocalPort, len(cs.TCPConnections), total)
