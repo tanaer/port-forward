@@ -7,16 +7,29 @@ import (
 	"goForward/conf"
 	"gorm.io/gorm"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // 定义数据库指针
 var db *gorm.DB
+
+// PortChecker 端口检查器（避免循环依赖，在sql包中实现）
+type PortChecker struct {
+	mu        sync.Mutex
+	cache     map[string]bool      // 键格式："8080/tcp"、"8080/udp"
+	lastCheck map[string]time.Time // 每个键独立时间戳
+	cacheTTL  time.Duration        // 默认：60秒
+}
+
+// 全局PortChecker实例
+var globalPortChecker *PortChecker
 
 func init() {
 	var err error
@@ -39,7 +52,63 @@ func init() {
 	db.AutoMigrate(&conf.IpBan{})
 	// 初始化代理相关表
 	InitProxyTables()
+
+	// 初始化全局PortChecker（Week 2 优化）
+	globalPortChecker = &PortChecker{
+		cache:     make(map[string]bool),
+		lastCheck: make(map[string]time.Time),
+		cacheTTL:  60 * time.Second,
+	}
 }
+
+// isPortAvailable 检查端口是否可用
+func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) {
+	key := fmt.Sprintf("%d/%s", port, protocol)
+
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+
+	// 检查缓存有效性
+	if cached, exists := pc.cache[key]; exists {
+		if time.Since(pc.lastCheck[key]) < pc.cacheTTL {
+			return cached, nil
+		}
+	}
+
+	// 执行端口检查
+	var available bool
+	if protocol == "tcp" {
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			available = false
+		} else {
+			listener.Close()
+			available = true
+		}
+	} else if protocol == "udp" {
+		udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			available = false
+		} else {
+			conn, err := net.ListenUDP("udp", udpAddr)
+			if err != nil {
+				available = false
+			} else {
+				conn.Close()
+				available = true
+			}
+		}
+	} else {
+		return false, fmt.Errorf("unsupported protocol: %s", protocol)
+	}
+
+	// 更新缓存
+	pc.cache[key] = available
+	pc.lastCheck[key] = time.Now()
+
+	return available, nil
+}
+
 
 // 获取转发列表
 func GetList() []conf.ConnectionStats {
@@ -158,8 +227,33 @@ func GetForwardByPortAndProtocol(localPort, protocol string) conf.ConnectionStat
 	return get
 }
 
-// checkPortWithNetstat 使用netstat命令检查端口是否启用
+// checkPortWithNetstat 使用PortChecker检查端口（Phase 1 Week 2 优化）
 func checkPortWithNetstat(port string, protocol string) bool {
+	// 使用优化后的PortChecker替代netstat外部进程调用
+	if globalPortChecker == nil {
+		// 回退到原始实现（防御性编程）
+		return checkPortWithNetstatLegacy(port, protocol)
+	}
+
+	// 转换字符串端口为整数
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		log.Printf("Invalid port number: %s, error: %v", port, err)
+		return false
+	}
+
+	available, err := globalPortChecker.isPortAvailable(portInt, protocol)
+	if err != nil {
+		log.Printf("Port check failed for %s/%s: %v", port, protocol, err)
+		return false
+	}
+
+	// PortChecker返回true表示端口可用，但我们希望返回true表示端口被占用
+	return !available
+}
+
+// checkPortWithNetstatLegacy 原始的netstat检查实现（回退路径）
+func checkPortWithNetstatLegacy(port string, protocol string) bool {
 	cmd := exec.Command("netstat", "-tuln")
 	output, err := cmd.Output()
 	if err != nil {

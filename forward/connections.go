@@ -14,6 +14,7 @@ type ConnectionManager struct {
 	connections map[string]*IPStruct // 连接映射
 	gcTicker    *time.Ticker         // 定期清理定时器
 	outTime     int                  // 空闲超时时间（秒）
+	onRemove    func(string)         // 连接移除回调，用于清理TCPConnections映射
 }
 
 // NewConnectionManager 创建新的连接管理器
@@ -21,6 +22,20 @@ func NewConnectionManager(outTime int) *ConnectionManager {
 	cm := &ConnectionManager{
 		connections: make(map[string]*IPStruct),
 		outTime:     outTime,
+	}
+	// 每10秒执行一次空闲连接清理
+	cm.gcTicker = time.NewTicker(10 * time.Second)
+	go cm.gcIdleConnectionsLoop()
+
+	return cm
+}
+
+// NewConnectionManagerWithCallback 创建带回调的连接管理器
+func NewConnectionManagerWithCallback(outTime int, onRemove func(string)) *ConnectionManager {
+	cm := &ConnectionManager{
+		connections: make(map[string]*IPStruct),
+		outTime:     outTime,
+		onRemove:    onRemove,
 	}
 	// 每10秒执行一次空闲连接清理
 	cm.gcTicker = time.NewTicker(10 * time.Second)
@@ -37,6 +52,7 @@ func (cm *ConnectionManager) gcIdleConnectionsLoop() {
 }
 
 // gcIdleConnections 清理空闲连接
+// 修复：必须同时清理ConnectionManager的connections映射和ConnectionStats的TCPConnections映射
 func (cm *ConnectionManager) gcIdleConnections() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -44,14 +60,28 @@ func (cm *ConnectionManager) gcIdleConnections() {
 	now := time.Now()
 	timeout := time.Duration(cm.outTime) * time.Second
 
+	// 需要清理的连接ID列表
+	var toDelete []string
+
 	for id, conn := range cm.connections {
 		idleTime := now.Sub(conn.LastActive)
 		if idleTime > timeout {
-			// 关闭连接并从映射中删除
-			if conn.TCPConnections != nil {
-				conn.TCPConnections.Close()
-			}
-			delete(cm.connections, id)
+			toDelete = append(toDelete, id)
+		}
+	}
+
+	// 清理过期的连接
+	for _, id := range toDelete {
+		conn := cm.connections[id]
+		// 关闭连接
+		if conn.TCPConnections != nil {
+			conn.TCPConnections.Close()
+		}
+		// 从ConnectionManager中删除
+		delete(cm.connections, id)
+		// 调用回调函数清理ConnectionStats的TCPConnections映射
+		if cm.onRemove != nil {
+			cm.onRemove(id)
 		}
 	}
 }

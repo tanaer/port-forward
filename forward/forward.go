@@ -25,9 +25,9 @@ type ConnectionStats struct {
 	conf.ConnectionStats
 	TotalBytesOld   uint64               `gorm:"-"`
 	TotalBytesLock  sync.Mutex           `gorm:"-"`
-	TCPConnections  map[string]*IPStruct `gorm:"-"` // 用于存储 TCP 连接（保留兼容性）
+	TCPConnections  map[string]*IPStruct `gorm:"-"` // 保留兼容性，但实际由ConnectionManager管理
 	TcpTime         int                  `gorm:"-"` // TCP无传输时间
-	connManager     *ConnectionManager    `gorm:"-"` // 连接管理器（新增）
+	connManager     *ConnectionManager    `gorm:"-"` // 连接管理器（权威数据源）
 }
 
 var Timestr string
@@ -51,7 +51,12 @@ func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 
 	// 初始化连接管理器（Phase 1 Week 2 优化）
 	if stats.connManager == nil {
-		stats.connManager = NewConnectionManager(stats.OutTime)
+		// 创建带回调的连接管理器，用于清理TCPConnections映射
+		stats.connManager = NewConnectionManagerWithCallback(stats.OutTime, func(connID string) {
+			stats.TotalBytesLock.Lock()
+			delete(stats.TCPConnections, connID)
+			stats.TotalBytesLock.Unlock()
+		})
 	}
 	defer stats.connManager.Stop()
 
@@ -387,13 +392,22 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 				UpdateForwardBytes(cs.Id, cs.TotalBytes)  // 使用聚合器适配层
 
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
-				fmt.Printf("%v 【%s】端口 %s 当前连接数: %d, 统计流量: %s\n", Timestr, cs.Protocol, cs.LocalPort, len(cs.TCPConnections), total)
+				// 使用ConnectionManager作为权威数据源（Week 2 优化）
+				connCount := len(cs.TCPConnections)
+				if cs.connManager != nil {
+					connCount = cs.connManager.GetConnectionCount()
+				}
+				fmt.Printf("%v 【%s】端口 %s 当前连接数: %d, 统计流量: %s\n", Timestr, cs.Protocol, cs.LocalPort, connCount, total)
 				if conf.Debug {
-					i := 1
-					for index, _ := range cs.TCPConnections {
-						// cs.RemotePort cs.RemoteAddr
-						fmt.Printf("%v 【%s】端口 %v、  %s  \n", Timestr, cs.LocalPort, i, index)
-						i++
+					// 优先使用ConnectionManager的数据，如果可用则显示
+					if cs.connManager != nil {
+						fmt.Printf("%v 【%s】端口 %v 活跃连接 (ConnectionManager)  \n", Timestr, cs.LocalPort, connCount)
+					} else {
+						i := 1
+						for index, _ := range cs.TCPConnections {
+							fmt.Printf("%v 【%s】端口 %v、  %s  \n", Timestr, cs.LocalPort, i, index)
+							i++
+						}
 					}
 				}
 
