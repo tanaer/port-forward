@@ -7,12 +7,16 @@ import (
 
 	"goForward/conf"
 	"goForward/forward"
+	"goForward/metrics"
 	"goForward/proxy"
 	"goForward/sql"
 	"goForward/web"
 )
 
 func main() {
+	// 初始化性能监控（Week 3）
+	metrics.InitMetrics()
+
 	// 初始化统计聚合器（Phase 1 优化）
 	forward.InitStatsAggregator()
 	defer forward.ShutdownStatsAggregator()
