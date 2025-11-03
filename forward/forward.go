@@ -16,8 +16,9 @@ import (
 )
 
 type IPStruct struct {
-	Time           int64    `gorm:"-"`
-	TCPConnections net.Conn `gorm:"-"`
+	Time           int64     `gorm:"-"`              // Unix时间戳
+	TCPConnections net.Conn  `gorm:"-"`              // TCP连接
+	LastActive     time.Time `gorm:"-"`              // 最后活动时间（新增）
 }
 
 type ConnectionStats struct {
@@ -277,7 +278,11 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 		n, err := src.Read(buf)
 		if n > 0 {
 			cs.TotalBytesLock.Lock()
-			cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr] = &IPStruct{Time: time.Now().Unix(), TCPConnections: src}
+			cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr] = &IPStruct{
+				Time:        time.Now().Unix(),
+				TCPConnections: src,
+				LastActive:  time.Now(), // 记录最后活动时间
+			}
 			cs.TotalBytesLock.Unlock()
 			cs.TotalBytes += uint64(n)
 
@@ -297,6 +302,12 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 				fmt.Printf("%v 写入目标时发生错误: %v \n", Timestr, err)
 				break
 			}
+			// 更新连接的最后活动时间
+			cs.TotalBytesLock.Lock()
+			if conn, exists := cs.TCPConnections[srctcpAddrstr+"->"+dsttcpAddrstr]; exists {
+				conn.LastActive = time.Now()
+			}
+			cs.TotalBytesLock.Unlock()
 		}
 
 		if err == io.EOF {
