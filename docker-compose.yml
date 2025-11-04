@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  goforward:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goforward
+    ports:
+      - "8889:8889"  # Web管理端口
+    environment:
+      - WEB_PORT=8889
+      - DEBUG=false
+    volumes:
+      - ./data:/home/goforward/data
+      - ./config:/home/goforward/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8889/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - goforward-network
+
+  # 可选：添加数据库备份服务
+  backup:
+    image: alpine:latest
+    container_name: goforward-backup
+    volumes:
+      - ./data:/data:ro
+      - ./backups:/backups
+    command: >
+      sh -c "while true; do
+        tar czf /backups/goforward-backup-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .;
+        echo Backup completed at $(date);
+        find /backups -name '*.tar.gz' -mtime +7 -delete;
+        sleep 86400;
+      done"
+    restart: unless-stopped
+    networks:
+      - goforward-network
+    profiles:
+      - backup
+
+networks:
+  goforward-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
+  config:
+    driver: local
+  backups:
+    driver: local

@@ -3,17 +3,24 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"goForward/conf"
 	"goForward/forward"
 	"goForward/metrics"
 	"goForward/proxy"
 	"goForward/sql"
+	"goForward/version"
 	"goForward/web"
 )
 
 func main() {
+	// 显示启动信息
+	fmt.Printf("goForward %s 启动中...\n", version.GetVersion())
+	fmt.Printf("启动时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+
 	// 初始化性能监控（Week 3）
 	metrics.InitMetrics()
 
@@ -101,8 +108,18 @@ func loadActiveProxies() {
 }
 
 func init() {
+	// 添加版本标志
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
+
 	flag.StringVar(&conf.WebPort, "port", "8889", "Web Port")
 	flag.StringVar(&conf.WebPass, "pass", "", "Web Password")
 	flag.BoolVar(&conf.Debug, "debug", false, "Print connection")
 	flag.Parse()
+
+	// 如果请求显示版本，显示后退出
+	if showVersion {
+		version.ShowVersionAndExit()
+		os.Exit(0)
+	}
 }

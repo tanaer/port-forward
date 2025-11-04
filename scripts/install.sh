@@ -1,6 +1,6 @@
 #!/bin/bash
-# Hysteria2 一键安装脚本
-# 版本: 2.0
+# goForward 一键安装脚本
+# 版本: v1.6.0
 
 set -e
 
@@ -11,9 +11,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 脚本URL
-SCRIPT_URL="https://raw.githubusercontent.com/tanaer/port-forward/master/scripts/hysteria2-install.py"
-SCRIPT_NAME="hysteria2-install.py"
+# 版本信息
+VERSION="v1.6.0"
+INSTALL_DIR="/opt/goforward"
+SERVICE_NAME="goforward"
 
 # 打印信息
 print_info() {
