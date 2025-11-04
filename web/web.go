@@ -13,7 +13,6 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	"goForward/assets"
 	"goForward/conf"
 	"goForward/sql"
 	"goForward/utils"
@@ -37,7 +36,11 @@ func Run() {
 			return template.JS(b)
 		},
 	}
-	r.SetHTMLTemplate(template.Must(template.New("").Funcs(funcMap).ParseFS(assets.Templates, "templates/*")))
+
+	// 从文件系统读取模板（移除embed依赖）
+	templates := template.New("")
+	tmpl := template.Must(templates.Funcs(funcMap).ParseGlob("assets/templates/*.tmpl"))
+	r.SetHTMLTemplate(tmpl)
 
 	// 注册代理管理路由
 	RegisterProxyRoutes(r)
