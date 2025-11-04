@@ -14,6 +14,7 @@ import (
 	"goForward/proxy/vmess"
 	"goForward/proxy/xray"
 	"goForward/sql"
+	"goForward/version"
 )
 
 // RegisterProxyRoutes 注册代理相关路由
@@ -23,6 +24,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		c.HTML(http.StatusOK, "proxy_list.tmpl", gin.H{
 			"proxyList": sql.GetProxyList(),
 			"stats":     sql.GetProxyStats(),
+			"version":   version.Version,
 		})
 	})
 
@@ -30,6 +32,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 	r.GET("/proxy/add", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "proxy_add.tmpl", gin.H{
 			"realityDomains": xray.GetRealityDomainList(),
+			"version":        version.Version,
 		})
 	})
 
@@ -245,6 +248,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		c.HTML(http.StatusOK, "proxy_edit.tmpl", gin.H{
 			"proxy":          proxyConfig,
 			"realityDomains": xray.GetRealityDomainList(),
+			"version":        version.Version,
 		})
 	})
 

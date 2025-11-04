@@ -17,6 +17,7 @@ import (
 	"goForward/conf"
 	"goForward/sql"
 	"goForward/utils"
+	"goForward/version"
 )
 
 func Run() {
@@ -47,6 +48,7 @@ func Run() {
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.tmpl", gin.H{
 			"forwardList": sql.GetForwardList(),
+			"version":     version.Version,
 		})
 	})
 	r.GET("/ban", func(c *gin.Context) {
