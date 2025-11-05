@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BIN_DEFAULT="./goForward"
+BIN_DEFAULT="./goforward"
 BIN="${GOFORWARD_BIN:-$BIN_DEFAULT}"
 PORT="${GOFORWARD_PORT:-8889}"
 PASS="${GOFORWARD_PASS:-qq123456}"
