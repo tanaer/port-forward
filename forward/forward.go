@@ -271,6 +271,9 @@ func (cs *ConnectionStats) forwardUDPMessage(localConn *net.UDPConn, remoteAddr 
 	if err != nil {
 		fmt.Println("写入目标时发生错误:", err)
 	}
+
+	// 修复BUG: 更新流量统计（UDP转发也需要统计）
+	cs.TotalBytes += uint64(len(message))
 }
 
 func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
