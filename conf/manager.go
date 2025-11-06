@@ -13,7 +13,7 @@ type ConfigSubscriber interface {
 // ConfigManager 配置管理器，替代全局变量
 // 设计目标：减少全局状态，依赖注入替代全局变量
 type ConfigManager struct {
-	stopChan        chan string              // 替代 conf.Ch
+	stopChan        chan string              // 替代 conf.Ch（保持双向以兼容旧代码）
 	runningManagers map[string]contextManager // 替代 conf.Wg
 	mu              sync.RWMutex
 
@@ -50,19 +50,18 @@ func NewConfigManager() *ConfigManager {
 // SendStopSignal 发送停止信号（兼容旧 conf.Ch 的使用方式）
 // 渐进式迁移：保留旧接口，内部使用新的ConfigManager
 func (cm *ConfigManager) SendStopSignal(key string) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
+	// 简化实现：直接发送，不做复杂检查（兼容旧代码的简单使用方式）
 	select {
 	case cm.stopChan <- key:
 		return nil
 	default:
+		// 通道满时，静默丢弃（与旧实现一致）
 		return nil
 	}
 }
 
-// StopChan 获取停止通道
-func (cm *ConfigManager) StopChan() <-chan string {
+// StopChan 获取停止通道（双向以支持旧代码的传递模式）
+func (cm *ConfigManager) StopChan() chan string {
 	return cm.stopChan
 }
 

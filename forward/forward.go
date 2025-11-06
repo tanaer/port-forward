@@ -267,13 +267,21 @@ func (cs *ConnectionStats) forwardUDPMessage(localConn *net.UDPConn, remoteAddr 
 	// 组合消息长度和实际消息
 	data := append(length, message...)
 
-	_, err := localConn.WriteToUDP(data, remoteAddr)
+	// 修复：写入正确的目标地址（RemoteAddr:RemotePort），而非客户端地址
+	targetAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", cs.RemoteAddr, cs.RemotePort))
 	if err != nil {
-		fmt.Println("写入目标时发生错误:", err)
+		fmt.Println("解析目标地址错误:", err)
+		return
 	}
 
-	// 修复BUG: 更新流量统计（UDP转发也需要统计）
-	cs.TotalBytes += uint64(len(message))
+	_, err = localConn.WriteToUDP(data, targetAddr)
+	if err != nil {
+		fmt.Println("写入目标时发生错误:", err)
+		return
+	}
+
+	// 注意：不再统计发送流量，避免重复计数
+	// 接收流量已在 handleUDPConnection 中统计
 }
 
 func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
@@ -378,6 +386,10 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 				if cs.Protocol == "tcp" {
 					cs.TcpTime = 0
 				}
+
+				// 计算增量流量（而非总流量），避免指数增长
+				increment := cs.TotalBytes - cs.TotalBytesOld
+
 				var total string
 				if cs.TotalBytes > 0 && float64(cs.TotalBytes)/(1024*1024) < 0.5 {
 					total = strconv.FormatFloat(float64(cs.TotalBytes)/(1024), 'f', 2, 64) + "KB"
@@ -392,7 +404,7 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 					cs.TotalBytes = cs.TotalBytes - gb
 				}
 				cs.TotalBytesOld = cs.TotalBytes
-				UpdateForwardBytes(cs.Id, cs.TotalBytes)  // 使用聚合器适配层
+				UpdateForwardBytes(cs.Id, increment)  // 修复：传递增量，而非总流量
 
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 				// 使用ConnectionManager作为权威数据源（Week 2 优化）

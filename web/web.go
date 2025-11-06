@@ -16,6 +16,7 @@ import (
 	"goForward/conf"
 	"goForward/sql"
 	"goForward/utils"
+	"goForward/validator"
 	"goForward/version"
 )
 
@@ -26,6 +27,11 @@ func Run() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	// 添加自定义中间件
+	r.Use(ErrorHandler())
+	r.Use(RecoverHandler())
+
 	store := cookie.NewStore([]byte("secret"))
 	r.Use(sessions.Sessions("goForward", store))
 	r.Use(checkCookieMiddleware)
@@ -96,6 +102,17 @@ func Run() {
 					OutTime:    outTimeInt,
 					Protocol:   proto,
 				}
+
+				// 验证配置
+				v := validator.NewConfigValidator()
+				if err := v.Validate(&f); err != nil {
+					c.HTML(200, "msg.tmpl", gin.H{
+						"msg": fmt.Sprintf("配置验证失败: %v", err),
+						"suc": false,
+					})
+					return
+				}
+
 				if utils.AddForward(f) {
 					success = append(success, strings.ToUpper(proto))
 				} else {
@@ -185,6 +202,17 @@ func Run() {
 			Remark:     c.PostForm("remark"),
 			OutTime:    outTimeInt,
 		}
+
+		// 验证配置
+		v := validator.NewConfigValidator()
+		if err := v.Validate(&update); err != nil {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": fmt.Sprintf("配置验证失败: %v", err),
+				"suc": false,
+			})
+			return
+		}
+
 		if ok, msg := utils.UpdateForwardGroup(update, protocols); ok {
 			c.HTML(200, "msg.tmpl", gin.H{
 				"msg": "更新成功",
