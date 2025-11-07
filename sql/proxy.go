@@ -218,7 +218,8 @@ func GetProxyStats() map[string]interface{} {
 	db.Model(&conf.ProxyConfig{}).Where("status = 0").Count(&active)
 
 	var totalTraffic uint64
-	db.Model(&conf.ProxyConfig{}).Select("SUM(total_bytes)").Scan(&totalTraffic)
+	// 修复：查询total_gigabyte的SUM，而不是total_bytes
+	db.Model(&conf.ProxyConfig{}).Select("SUM(total_gigabyte)").Scan(&totalTraffic)
 
 	return map[string]interface{}{
 		"total":         total,
