@@ -22,6 +22,8 @@ type Bridge struct {
 	socks5Port    int  // Hysteria2 SOCKS5端口
 	running       bool
 	mu            sync.Mutex
+	// 流量监控器
+	trafficMonitor *TrafficMonitor
 }
 
 // NewBridge 创建代理桥接
@@ -34,11 +36,12 @@ func NewBridge(id int, socks5Port int) *Bridge {
 	}
 
 	return &Bridge{
-		id:         id,
-		xrayConfig: filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)),
-		hy2Config:  filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id)),
-		socks5Port: socks5Port,
-		running:    false,
+		id:              id,
+		xrayConfig:      filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)),
+		hy2Config:       filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id)),
+		socks5Port:      socks5Port,
+		running:         false,
+		trafficMonitor:  NewTrafficMonitor(),
 	}
 }
 
@@ -75,6 +78,10 @@ func (b *Bridge) Start() error {
 
 	b.running = true
 	fmt.Printf("[Bridge-%d] 代理桥接已启动\n", b.id)
+
+	// 启动流量监控
+	b.trafficMonitor.Start()
+
 	return nil
 }
 
@@ -118,6 +125,11 @@ func (b *Bridge) Stop() error {
 		if err := b.hy2Client.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("停止Hysteria2失败: %v", err))
 		}
+	}
+
+	// 停止流量监控
+	if b.trafficMonitor != nil {
+		b.trafficMonitor.Stop()
 	}
 
 	b.running = false
@@ -216,6 +228,10 @@ func (bm *BridgeManager) RemoveBridge(id int) error {
 				return err
 			}
 		}
+		// 停止流量监控
+		if bridge.trafficMonitor != nil {
+			bridge.trafficMonitor.Stop()
+		}
 		delete(bm.bridges, id)
 	}
 
@@ -232,6 +248,10 @@ func (bm *BridgeManager) StopAll() {
 			if err := bridge.Stop(); err != nil {
 				fmt.Printf("[Bridge-%d] 停止失败: %v\n", id, err)
 			}
+		}
+		// 停止流量监控
+		if bridge.trafficMonitor != nil {
+			bridge.trafficMonitor.Stop()
 		}
 	}
 }
