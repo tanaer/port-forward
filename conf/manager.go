@@ -49,15 +49,12 @@ func NewConfigManager() *ConfigManager {
 
 // SendStopSignal 发送停止信号（兼容旧 conf.Ch 的使用方式）
 // 渐进式迁移：保留旧接口，内部使用新的ConfigManager
+// 注意：这是阻塞发送，与原始 conf.Ch <- key 语义一致
 func (cm *ConfigManager) SendStopSignal(key string) error {
-	// 简化实现：直接发送，不做复杂检查（兼容旧代码的简单使用方式）
-	select {
-	case cm.stopChan <- key:
-		return nil
-	default:
-		// 通道满时，静默丢弃（与旧实现一致）
-		return nil
-	}
+	// 修复：使用阻塞发送，确保信号送达receiver
+	// 原始代码使用 conf.Ch <- key（无select），这里保持相同语义
+	cm.stopChan <- key
+	return nil
 }
 
 // StopChan 获取停止通道（双向以支持旧代码的传递模式）

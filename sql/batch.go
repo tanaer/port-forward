@@ -21,7 +21,8 @@ func BatchUpdateStats(stats map[int]*PendingStats) error {
 	}()
 
 	for id, ps := range stats {
-		if err := tx.Exec("UPDATE connection_stats SET total_bytes = ?, total_gigabyte = ? WHERE id = ?",
+		// 修复：使用累加而非覆盖，确保增量正确累积到总量
+		if err := tx.Exec("UPDATE connection_stats SET total_bytes = total_bytes + ?, total_gigabyte = total_gigabyte + ? WHERE id = ?",
 			ps.Bytes, ps.GB, id).Error; err != nil {
 			log.Printf("[BatchUpdateStats] Update failed for ID %d: %v", id, err)
 			tx.Rollback()
