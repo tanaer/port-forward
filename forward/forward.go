@@ -399,9 +399,12 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 				//统计更换单位
 				var gb uint64 = 1073741824
 				if cs.TotalBytes >= gb {
-					cs.TotalGigabyte = cs.TotalGigabyte + 1
-					UpdateForwardGb(cs.Id, cs.TotalGigabyte)  // 使用聚合器适配层
-					cs.TotalBytes = cs.TotalBytes - gb
+					// 修复：计算本次跨过的GB数（delta），而非传递累计值
+					// 避免指数增长：1+2+3+... → 应该传递恒定的增量
+					deltaGB := cs.TotalBytes / gb
+					cs.TotalGigabyte = cs.TotalGigabyte + deltaGB
+					UpdateForwardGb(cs.Id, deltaGB)  // 修复：传递增量，而非累计值
+					cs.TotalBytes = cs.TotalBytes % gb  // 取余数保留不足1GB的部分
 				}
 				cs.TotalBytesOld = cs.TotalBytes
 				UpdateForwardBytes(cs.Id, increment)  // 修复：传递增量，而非总流量
