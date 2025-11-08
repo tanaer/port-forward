@@ -1,0 +1,11 @@
+{
+  "id": 1,
+  "localPort": "9999",
+  "remotePort": "9999",
+  "remoteAddr": "127.0.0.1",
+  "protocol": "tcp",
+  "outTime": 30,
+  "whitelist": "192.168.1.0/24;10.0.0.0/8",
+  "blacklist": "",
+  "remark": "示例TCP转发配置 - 可编辑此文件进行热更新"
+}

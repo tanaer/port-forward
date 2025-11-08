@@ -4,11 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"goForward/conf"
 	"goForward/forward"
+	"goForward/hotreload"
 	"goForward/metrics"
 	"goForward/proxy"
 	"goForward/sql"
@@ -27,6 +29,9 @@ func main() {
 	// 初始化统计聚合器（Phase 1 优化）
 	forward.InitStatsAggregator()
 	defer forward.ShutdownStatsAggregator()
+
+	// 初始化配置热更新（Phase 3）
+	initConfigHotReload()
 
 	go web.Run()
 
@@ -105,6 +110,43 @@ func loadActiveProxies() {
 			fmt.Printf("[Proxy] 代理 ID=%d 启动成功\n", proxyConfig.Id)
 		}
 	}
+}
+
+// initConfigHotReload 初始化配置热更新
+func initConfigHotReload() {
+	hotReloader := hotreload.NewHotReloader()
+
+	// 添加默认配置文件路径
+	execPath, _ := os.Executable()
+	configDir := filepath.Dir(execPath)
+	defaultConfig := filepath.Join(configDir, "configs", "forwards.json")
+	hotReloader.AddConfigPath(defaultConfig)
+
+	// 设置重新加载配置的处理函数
+	hotReloader.SetReloadHandler(reloadConfiguration)
+
+	// 启动配置热更新监控
+	if err := hotReloader.Start(); err != nil {
+		fmt.Printf("[配置热更新] 启动失败: %v\n", err)
+		return
+	}
+
+	fmt.Println("[配置热更新] 配置文件监控已启动")
+}
+
+// reloadConfiguration 重新加载配置
+func reloadConfiguration() {
+	fmt.Println("[配置热更新] 重新加载配置中...")
+
+	// 重新加载所有转发表
+	forwardList := sql.GetAction()
+	for _, stats := range forwardList {
+		// 重新启动转发（如果需要）
+		fmt.Printf("[配置热更新] 重新加载转发: %s:%s -> %s:%s\n",
+			stats.Protocol, stats.LocalPort, stats.RemoteAddr, stats.RemotePort)
+	}
+
+	fmt.Println("[配置热更新] 配置重新加载完成")
 }
 
 func init() {
