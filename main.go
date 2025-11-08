@@ -119,7 +119,20 @@ func initConfigHotReload() {
 	// 添加默认配置文件路径
 	execPath, _ := os.Executable()
 	configDir := filepath.Dir(execPath)
-	defaultConfig := filepath.Join(configDir, "configs", "forwards.json")
+	configsDir := filepath.Join(configDir, "configs")
+	defaultConfig := filepath.Join(configsDir, "forwards.json")
+
+	// 确保配置目录存在
+	if err := os.MkdirAll(configsDir, 0755); err != nil {
+		fmt.Printf("[配置热更新] 创建配置目录失败: %v\n", err)
+		return
+	}
+
+	// 如果配置文件不存在，创建一个示例配置
+	if _, err := os.Stat(defaultConfig); os.IsNotExist(err) {
+		createExampleConfig(defaultConfig)
+	}
+
 	hotReloader.AddConfigPath(defaultConfig)
 
 	// 设置重新加载配置的处理函数
@@ -132,6 +145,26 @@ func initConfigHotReload() {
 	}
 
 	fmt.Println("[配置热更新] 配置文件监控已启动")
+}
+
+// createExampleConfig 创建示例配置文件
+func createExampleConfig(configPath string) {
+	exampleConfig := `{
+  "localPort": "9999",
+  "remotePort": "9999",
+  "remoteAddr": "127.0.0.1",
+  "protocol": "tcp",
+  "outTime": 30,
+  "whitelist": "192.168.1.0/24",
+  "blacklist": "",
+  "remark": "示例TCP转发配置 - 可编辑此文件进行热更新"
+}`
+
+	if err := os.WriteFile(configPath, []byte(exampleConfig), 0644); err != nil {
+		fmt.Printf("[配置热更新] 创建示例配置失败: %v\n", err)
+	} else {
+		fmt.Printf("[配置热更新] 已创建示例配置文件: %s\n", configPath)
+	}
 }
 
 // reloadConfiguration 重新加载配置
