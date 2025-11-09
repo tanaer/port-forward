@@ -191,7 +191,7 @@ func generateOutbounds(cfg VLESSRealityConfig) []OutboundConfig {
 		}
 
 		// 如果提供了用户名和密码，添加认证信息
-		if cfg.Socks5User != "" || cfg.Socks5Password != "" {
+		if cfg.Socks5User != "" && cfg.Socks5Password != "" {
 			serverConfig["users"] = []map[string]interface{}{
 				{
 					"user": cfg.Socks5User,
