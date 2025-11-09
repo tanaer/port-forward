@@ -20,16 +20,16 @@ type VersionInfo struct {
 
 var (
 	// Version 应用版本（通过构建时注入���
-	Version = "v1.6.0"
+	Version = "v1.7.0"
 
 	// BuildTime 构建时间（通过构建时注入）
-	BuildTime = "2025-01-03 12:00:00"
+	BuildTime = "2025-11-09 20:00:00"
 
 	// GitCommit Git提交ID（通过构建时注入）
 	GitCommit = "unknown"
 
 	// BuildDescription 构建描述
-	BuildDescription = "Phase 1 性能优化完成版本"
+	BuildDescription = "Phase 3 功能增强完成版本 - API接口增强 + 监控面板"
 )
 
 // GetVersion 获取完整版本信息
