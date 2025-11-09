@@ -775,7 +775,7 @@ func getProxyListAPI(c *gin.Context) {
 		} else if p.OutboundType == "vmess" {
 			serverAddr = fmt.Sprintf("%s:%d", p.VmessServer, p.VmessPort)
 		} else if p.OutboundType == "hysteria2" {
-			serverAddr = fmt.Sprintf("%s:%d", p.Hy2Server, p.Hy2Port)
+			serverAddr = fmt.Sprintf("%s:%s", p.Hy2Server, p.Hy2Port)
 		}
 
 		apiList = append(apiList, ProxyAPI{
