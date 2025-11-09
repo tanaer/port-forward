@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"goForward/cli"
 	"goForward/conf"
 	"goForward/forward"
 	"goForward/hotreload"
@@ -193,9 +196,31 @@ func init() {
 	var showVersion bool
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
 
+	// Web服务配置
 	flag.StringVar(&conf.WebPort, "port", "8889", "Web Port")
 	flag.StringVar(&conf.WebPass, "pass", "", "Web Password")
 	flag.BoolVar(&conf.Debug, "debug", false, "Print connection")
+
+	// 导入配置命令
+	var importConfigPath string
+	var createExampleConfigPath string
+	flag.StringVar(&importConfigPath, "import-config", "", "Import configuration from file (JSON/YAML format)")
+	flag.StringVar(&createExampleConfigPath, "create-example-config", "", "Create example configuration file")
+
+	// 批量操作命令
+	var batchStartIds string
+	var batchStopIds string
+	var batchDeleteIds string
+	var batchStatusIds string
+	flag.StringVar(&batchStartIds, "batch-start", "", "Batch start proxies (comma-separated IDs or ranges like 1-5)")
+	flag.StringVar(&batchStopIds, "batch-stop", "", "Batch stop proxies (comma-separated IDs or ranges like 1-5)")
+	flag.StringVar(&batchDeleteIds, "batch-delete", "", "Batch delete proxies (comma-separated IDs or ranges like 1-5)")
+	flag.StringVar(&batchStatusIds, "batch-status", "", "Batch query proxy status (comma-separated IDs or ranges like 1-5)")
+
+	// 性能诊断命令
+	var diagnosePerformance bool
+	flag.BoolVar(&diagnosePerformance, "diagnose", false, "Run performance diagnosis (port usage, proxy configs, network connectivity)")
+
 	flag.Parse()
 
 	// 如果请求显示版本，显示后退出
@@ -203,4 +228,111 @@ func init() {
 		version.ShowVersionAndExit()
 		os.Exit(0)
 	}
+
+	// 处理导入配置命令
+	if importConfigPath != "" {
+		fmt.Println("=== goForward 导入配置工具 ===")
+		if err := cli.ImportFromFile(importConfigPath); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 导入配置失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("✅ 导入配置完成")
+		os.Exit(0)
+	}
+
+	// 创建示例配置文件
+	if createExampleConfigPath != "" {
+		fmt.Println("=== goForward 示例配置生成器 ===")
+		if err := cli.CreateExampleConfig(createExampleConfigPath); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 创建示例配置失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✅ 示例配置文件已创建: %s\n", createExampleConfigPath)
+		fmt.Println("\n文件格式说明:")
+		fmt.Println("- 修改此文件可批量导入转发表和代理配置")
+		fmt.Println("- 支持同时定义 forwards 和 proxies")
+		fmt.Println("- 使用 -import-config 导入此配置文件")
+		os.Exit(0)
+	}
+
+	// 批量操作命令
+	if batchStartIds != "" {
+		fmt.Println("=== goForward 批量启动工具 ===")
+		args := strings.Split(batchStartIds, ",")
+		if err := cli.BatchStart(args); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 批量启动失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if batchStopIds != "" {
+		fmt.Println("=== goForward 批量停止工具 ===")
+		args := strings.Split(batchStopIds, ",")
+		if err := cli.BatchStop(args); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 批量停止失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if batchDeleteIds != "" {
+		fmt.Println("=== goForward 批量删除工具 ===")
+		args := strings.Split(batchDeleteIds, ",")
+		if err := cli.BatchDelete(args); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 批量删除失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if batchStatusIds != "" {
+		fmt.Println("=== goForward 批量状态查询工具 ===")
+		args := strings.Split(batchStatusIds, ",")
+		if err := cli.BatchStatus(args); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 批量状态查询失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// 性能诊断命令
+	if diagnosePerformance {
+		if err := cli.DiagnosePerformance(); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 性能诊断失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// 验证端口格式
+	if !isValidPort(conf.WebPort) {
+		fmt.Fprintf(os.Stderr, "错误: 无效的Web端口 '%s'\n", conf.WebPort)
+		os.Exit(1)
+	}
+}
+
+// isValidPort 验证端口号
+func isValidPort(portStr string) bool {
+	if portStr == "" {
+		return false
+	}
+	// 支持端口范围格式，如 "8000-9000"
+	if strings.Contains(portStr, "-") {
+		parts := strings.Split(portStr, "-")
+		if len(parts) != 2 {
+			return false
+		}
+		return isValidPortNumber(parts[0]) && isValidPortNumber(parts[1])
+	}
+	return isValidPortNumber(portStr)
+}
+
+// isValidPortNumber 验证单个端口号
+func isValidPortNumber(portStr string) bool {
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return false
+	}
+	return port > 0 && port <= 65535
 }

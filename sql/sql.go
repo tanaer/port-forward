@@ -364,6 +364,35 @@ func AddForward(newForward conf.ConnectionStats) int {
 	return newForward.Id
 }
 
+// GetProxyConfigById 根据ID获取代理配置（供CLI使用）
+func GetProxyConfigById(id int) (conf.ProxyConfig, error) {
+	var config conf.ProxyConfig
+	if err := db.Where("id = ?", id).First(&config).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return config, fmt.Errorf("代理配置不存在: ID=%d", id)
+		}
+		return config, err
+	}
+	return config, nil
+}
+
+// AddProxyConfig 添加代理配置
+func AddProxyConfig(newConfig conf.ProxyConfig) error {
+	// 预处理
+	newConfig.Name = strings.TrimSpace(newConfig.Name)
+	newConfig.Remark = strings.TrimSpace(newConfig.Remark)
+	newConfig.Socks5Addr = strings.TrimSpace(newConfig.Socks5Addr)
+	newConfig.Socks5User = strings.TrimSpace(newConfig.Socks5User)
+	newConfig.Socks5Password = strings.TrimSpace(newConfig.Socks5Password)
+
+	// 使用AddProxy函数，包装返回类型
+	id := AddProxy(newConfig)
+	if id == 0 {
+		return fmt.Errorf("添加代理配置失败")
+	}
+	return nil
+}
+
 // 更新转发
 func UpdateForwardConfig(updated conf.ConnectionStats) bool {
 	updated.RemoteAddr = rmSpaces(updated.RemoteAddr)
