@@ -116,10 +116,15 @@ func loadActiveProxies() {
 func initConfigHotReload() {
 	hotReloader := hotreload.NewHotReloader()
 
-	// 添加默认配置文件路径
-	execPath, _ := os.Executable()
-	configDir := filepath.Dir(execPath)
-	configsDir := filepath.Join(configDir, "configs")
+	// 使用当前工作目录而非可执行文件路径
+	// 这确保开发时（go run .）和部署时都能正确监控配置文件
+	workDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("[配置热更新] 获取工作目录失败: %v\n", err)
+		return
+	}
+
+	configsDir := filepath.Join(workDir, "configs")
 	defaultConfig := filepath.Join(configsDir, "forwards.json")
 
 	// 确保配置目录存在
@@ -128,7 +133,7 @@ func initConfigHotReload() {
 		return
 	}
 
-	// 如果配置文件不存在，创建一个示例配置
+	// 如果配置文件不存在，创建一个示例配置（使用ID=1）
 	if _, err := os.Stat(defaultConfig); os.IsNotExist(err) {
 		createExampleConfig(defaultConfig)
 	}
@@ -144,12 +149,13 @@ func initConfigHotReload() {
 		return
 	}
 
-	fmt.Println("[配置热更新] 配置文件监控已启动")
+	fmt.Printf("[配置热更新] 正在监控配置文件: %s\n", defaultConfig)
 }
 
 // createExampleConfig 创建示例配置文件
 func createExampleConfig(configPath string) {
 	exampleConfig := `{
+  "id": 1,
   "localPort": "9999",
   "remotePort": "9999",
   "remoteAddr": "127.0.0.1",

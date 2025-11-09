@@ -339,3 +339,23 @@ func ImportForwardDefinitions(defs []ImportDefinition) ImportSummary {
 	}
 	return summary
 }
+
+// RestartForward 重启指定转发（用于配置热更新）
+// 先停止旧的转发器，然后重新启动新的配置
+func RestartForward(f conf.ConnectionStats) bool {
+	// 先停止旧的转发器
+	if strings.Contains(f.LocalPort, ",") {
+		localPorts := strings.Split(f.LocalPort, ",")
+		for _, localPort := range localPorts {
+			conf.Ch <- localPort + f.Protocol
+		}
+	} else {
+		conf.Ch <- f.LocalPort + f.Protocol
+	}
+
+	// 等待转发器完全停止
+	time.Sleep(100 * time.Millisecond)
+
+	// 重新启动转发器
+	return AddForward(f)
+}

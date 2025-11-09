@@ -120,8 +120,12 @@ func (hr *HotReloader) watchConfig(configPath string) error {
 
 // shouldProcessEvent 判断是否应该处理该事件
 func (hr *HotReloader) shouldProcessEvent(event fsnotify.Event, configPath string) bool {
-	// 只处理写入事件
-	if event.Op&fsnotify.Write != fsnotify.Write {
+	// 处理多种文件保存方式：
+	// - 直接写入：Write事件
+	// - 编辑器保存（写临时文件然后重命名）：Create/Rename事件
+	// - 文件权限变化：Chmod事件
+	isRelevantEvent := event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Chmod) != 0
+	if !isRelevantEvent {
 		return false
 	}
 
@@ -178,16 +182,24 @@ func (hr *HotReloader) loadAndUpdateConfig(configPath string) error {
 		return fmt.Errorf("配置验证失败: %w", err)
 	}
 
-	// 写入数据库（权威数据源）
+	// 写入数据库（权威数据源）并启动转发器
 	if config.Id > 0 {
 		// 更新现有配置
 		if ok, msg := utils.UpdateForward(*config); !ok {
 			return fmt.Errorf("更新配置失败: %s", msg)
 		}
+		// 重新启动转发器以应用新配置
+		if !utils.RestartForward(*config) {
+			return fmt.Errorf("重启转发器失败")
+		}
 	} else {
 		// 添加新配置
 		if id := sql.AddForward(*config); id == 0 {
 			return fmt.Errorf("添加配置到数据库失败")
+		}
+		// 启动新转发器
+		if !utils.AddForward(*config) {
+			return fmt.Errorf("启动转发器失败")
 		}
 	}
 

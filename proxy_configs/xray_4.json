@@ -1,0 +1,74 @@
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 47323,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "flow": "xtls-rprx-vision",
+            "id": "4267b50d-1236-4538-92df-6d5aa74375a4"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.oracle.com:443",
+          "privateKey": "ReRj4qi32PZBLTGb4y2BaADPjw_sYdNPJsG1IAmEj1I",
+          "serverNames": [
+            "www.oracle.com"
+          ],
+          "shortIds": [
+            "caa597d143603164"
+          ],
+          "show": false
+        }
+      },
+      "tag": "vless-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "103.129.162.224",
+            "port": 10808,
+            "users": [
+              {
+                "pass": "E2Y8y6V8P4F9",
+                "user": "v1G9P5U2h8q4"
+              }
+            ]
+          }
+        ]
+      },
+      "tag": "socks-out"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "outboundTag": "socks-out"
+      }
+    ]
+  }
+}
