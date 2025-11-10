@@ -23,7 +23,7 @@ func BatchStart(args []string) error {
 	successCount := 0
 	failCount := 0
 
-	fmt.Println("\n=== 批量启动代理 ===")
+	fmt.Println("=== 批量启动代理 ===")
 	for i, id := range ids {
 		if err := startProxy(id); err != nil {
 			fmt.Printf("[%d/%d] 启动失败 ID=%d - %v\n", i+1, len(ids), id, err)
@@ -52,7 +52,7 @@ func BatchStop(args []string) error {
 	successCount := 0
 	failCount := 0
 
-	fmt.Println("\n=== 批量停止代理 ===")
+	fmt.Println("=== 批量停止代理 ===")
 	for i, id := range ids {
 		if err := stopProxy(id); err != nil {
 			fmt.Printf("[%d/%d] 停止失败 ID=%d - %v\n", i+1, len(ids), id, err)
@@ -81,7 +81,7 @@ func BatchDelete(args []string) error {
 	successCount := 0
 	failCount := 0
 
-	fmt.Println("\n=== 批量删除代理 ===")
+	fmt.Println("=== 批量删除代理 ===")
 	for i, id := range ids {
 		if err := deleteProxy(id); err != nil {
 			fmt.Printf("[%d/%d] 删除失败 ID=%d - %v\n", i+1, len(ids), id, err)
@@ -107,7 +107,7 @@ func BatchStatus(args []string) error {
 		return fmt.Errorf("解析ID失败: %v", err)
 	}
 
-	fmt.Println("\n=== 批量查询代理状态 ===")
+	fmt.Println("=== 批量查询代理状态 ===")
 	fmt.Println("ID\t状态\t名称\t入站端口\t出站类型")
 	fmt.Println(strings.Repeat("-", 60))
 
@@ -136,20 +136,23 @@ func BatchStatus(args []string) error {
 
 // startProxy 启动单个代理
 func startProxy(id int) error {
-	// 停止现有代理实例
 	pm := proxy.GetProxyManager()
+
+	// 先停止现有代理实例
 	if err := pm.StopProxy(id); err != nil {
 		// 忽略停止失败（可能未运行）
 	}
 
-	// 更新数据库状态
-	if !sql.UpdateProxyStatus(id, 0) {
-		return fmt.Errorf("更新数据库状态失败")
-	}
-
-	// 启动代理
+	// 先启动代理，成功后再更新状态
 	if err := pm.StartProxy(id); err != nil {
 		return fmt.Errorf("启动代理失败: %v", err)
+	}
+
+	// 只有启动成功后才更新数据库状态
+	if !sql.UpdateProxyStatus(id, 0) {
+		// 如果状态更新失败，尝试停止已启动的代理
+		pm.StopProxy(id)
+		return fmt.Errorf("更新数据库状态失败")
 	}
 
 	return nil

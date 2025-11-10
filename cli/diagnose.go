@@ -12,7 +12,7 @@ import (
 
 // DiagnosePerformance 性能诊断
 func DiagnosePerformance() error {
-	fmt.Println("\n=== goForward 性能诊断工具 ===\n")
+	fmt.Println("=== goForward 性能诊断工具 ===")
 
 	// 1. 系统端口诊断
 	if err := diagnosePorts(); err != nil {
@@ -34,7 +34,7 @@ func DiagnosePerformance() error {
 		fmt.Printf("❌ 网络诊断失败: %v\n", err)
 	}
 
-	fmt.Println("\n=== 性能诊断完成 ===")
+	fmt.Println("=== 性能诊断完成 ===")
 	return nil
 }
 
@@ -81,7 +81,7 @@ func diagnosePorts() error {
 
 // diagnoseProxyConfigs 诊断代理配置
 func diagnoseProxyConfigs() error {
-	fmt.Println("\n2. 代理配置诊断")
+	fmt.Println("2. 代理配置诊断")
 	fmt.Println(strings.Repeat("-", 50))
 
 	proxyList := sql.GetProxyList()
@@ -142,7 +142,7 @@ func diagnoseDatabase() error {
 
 // diagnoseNetwork 诊断网络连通性
 func diagnoseNetwork() error {
-	fmt.Println("\n4. 网络连通性诊断")
+	fmt.Println("4. 网络连通性诊断")
 	fmt.Println(strings.Repeat("-", 50))
 
 	proxyList := sql.GetActiveProxies()

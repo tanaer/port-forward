@@ -102,7 +102,7 @@ func importForwards(forwards []ForwardConfig) error {
 	successCount := 0
 	failCount := 0
 
-	fmt.Println("\n=== 开始导入转发表配置 ===")
+	fmt.Println("=== 开始导入转发表配置 ===")
 	for i, fwd := range forwards {
 		// 验证配置
 		if err := validateForwardConfig(&fwd); err != nil {
@@ -145,7 +145,7 @@ func importProxies(proxies []ProxyConfigImport) error {
 	successCount := 0
 	failCount := 0
 
-	fmt.Println("\n=== 开始导入代理配置 ===")
+	fmt.Println("=== 开始导入代理配置 ===")
 	for i, proxy := range proxies {
 		// 验证配置
 		if err := validateProxyConfig(&proxy); err != nil {
