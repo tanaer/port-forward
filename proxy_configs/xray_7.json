@@ -1,0 +1,74 @@
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 38042,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "flow": "xtls-rprx-vision",
+            "id": "3b7a31a2-992b-4053-a995-e606b5c2d71b"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.tesla.com:443",
+          "privateKey": "T5ImTaBYSSPwMQ_5u2b_LRxCXWxaS_fK3JGn5voCKik",
+          "serverNames": [
+            "www.tesla.com"
+          ],
+          "shortIds": [
+            "72b2059abfb67d34"
+          ],
+          "show": false
+        }
+      },
+      "tag": "vless-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "sg.ipdodo.cloud",
+            "port": 10804,
+            "users": [
+              {
+                "pass": "d663672c",
+                "user": "v1_1759828755-sh-66450312622080"
+              }
+            ]
+          }
+        ]
+      },
+      "tag": "socks-out"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "outboundTag": "socks-out"
+      }
+    ]
+  }
+}

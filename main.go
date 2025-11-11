@@ -221,6 +221,13 @@ func init() {
 	var diagnosePerformance bool
 	flag.BoolVar(&diagnosePerformance, "diagnose", false, "Run performance diagnosis (port usage, proxy configs, network connectivity)")
 
+	// API服务器地址（用于CLI与主服务通信）
+	var apiServerAddr string
+	flag.StringVar(&apiServerAddr, "server", "http://localhost:8889", "API server address for CLI tools")
+
+	// API访问令牌（用于CLI访问API）
+	flag.StringVar(&conf.APIToken, "api-token", "", "API access token for CLI tools (required for API access when set)")
+
 	flag.Parse()
 
 	// 如果请求显示版本，显示后退出
@@ -237,6 +244,7 @@ func init() {
 			os.Exit(1)
 		}
 		fmt.Println("✅ 导入配置完成")
+		fmt.Println("注意: 导入的配置需要重启goForward服务才能生效")
 		os.Exit(0)
 	}
 
@@ -259,7 +267,7 @@ func init() {
 	if batchStartIds != "" {
 		fmt.Println("=== goForward 批量启动工具 ===")
 		args := strings.Split(batchStartIds, ",")
-		if err := cli.BatchStart(args); err != nil {
+		if err := cli.BatchStart(args, apiServerAddr, conf.APIToken); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 批量启动失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -269,7 +277,7 @@ func init() {
 	if batchStopIds != "" {
 		fmt.Println("=== goForward 批量停止工具 ===")
 		args := strings.Split(batchStopIds, ",")
-		if err := cli.BatchStop(args); err != nil {
+		if err := cli.BatchStop(args, apiServerAddr, conf.APIToken); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 批量停止失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -279,7 +287,7 @@ func init() {
 	if batchDeleteIds != "" {
 		fmt.Println("=== goForward 批量删除工具 ===")
 		args := strings.Split(batchDeleteIds, ",")
-		if err := cli.BatchDelete(args); err != nil {
+		if err := cli.BatchDelete(args, apiServerAddr, conf.APIToken); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 批量删除失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -289,7 +297,7 @@ func init() {
 	if batchStatusIds != "" {
 		fmt.Println("=== goForward 批量状态查询工具 ===")
 		args := strings.Split(batchStatusIds, ",")
-		if err := cli.BatchStatus(args); err != nil {
+		if err := cli.BatchStatus(args, apiServerAddr, conf.APIToken); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 批量状态查询失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -298,7 +306,7 @@ func init() {
 
 	// 性能诊断命令
 	if diagnosePerformance {
-		if err := cli.DiagnosePerformance(); err != nil {
+		if err := cli.DiagnosePerformance(apiServerAddr, conf.APIToken); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 性能诊断失败: %v\n", err)
 			os.Exit(1)
 		}

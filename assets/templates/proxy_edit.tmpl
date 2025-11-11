@@ -9,6 +9,46 @@
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #333; margin-bottom: 10px; }
+
+        /* 统一导航栏样式 */
+        .top-nav {
+            background: white;
+            padding: 15px 30px;
+            margin: -30px -30px 30px -30px;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 2px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .top-nav a {
+            display: inline-block;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .top-nav a.active {
+            background: #007bff;
+            color: white;
+        }
+        .top-nav a:not(.active) {
+            background: #f8f9fa;
+            color: #333;
+        }
+        .top-nav a:not(.active):hover {
+            background: #e9ecef;
+        }
+        .top-nav .logo {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+            margin-right: 20px;
+            padding-right: 20px;
+            border-right: 2px solid #e9ecef;
+        }
+
         .nav { margin-bottom: 30px; }
         .nav a { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; }
         .nav a:hover { background: #5a6268; }
@@ -30,11 +70,19 @@
 </head>
 <body>
     <div class="container">
+        <!-- 统一顶部导航栏 -->
+        <div class="top-nav">
+            <div class="logo">🚀 goForward</div>
+            <a href="/">📡 端口隧道</a>
+            <a href="/proxy" class="active">🔐 代理转发</a>
+            <a href="/environment">⚙️ 环境配置</a>
+        </div>
+
         <h1>✏️ 编辑代理配置</h1>
         <p style="color: #666; margin-bottom: 20px;">{{.proxy.Name}}</p>
 
         <div class="nav">
-            <a href="/proxy">← 返回列表</a>
+            <a href="/proxy">← 返回代理列表</a>
         </div>
 
         <form method="POST" action="/proxy/edit/{{.proxy.Id}}">
@@ -64,7 +112,10 @@
                     <div class="col">
                         <div class="form-group">
                             <label>UUID *</label>
-                            <input type="text" name="uuid" value="{{.proxy.UUID}}" required>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" name="uuid" id="uuid" value="{{.proxy.UUID}}" required style="flex: 1;">
+                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('uuid', 'UUID')" style="padding: 8px 15px;">📋 复制</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -87,20 +138,29 @@
                     <div class="col">
                         <div class="form-group">
                             <label>私钥 *</label>
-                            <input type="text" name="privateKey" value="{{.proxy.PrivateKey}}" required>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" name="privateKey" id="privateKey" value="{{.proxy.PrivateKey}}" required style="flex: 1;">
+                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('privateKey', '私钥')" style="padding: 8px 15px;">📋 复制</button>
+                            </div>
                         </div>
                     </div>
                     <div class="col">
                         <div class="form-group">
                             <label>公钥 *</label>
-                            <input type="text" name="publicKey" value="{{.proxy.PublicKey}}" required>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" name="publicKey" id="publicKey" value="{{.proxy.PublicKey}}" required style="flex: 1;">
+                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('publicKey', '公钥')" style="padding: 8px 15px;">📋 复制</button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Short ID *</label>
-                    <input type="text" name="shortId" value="{{.proxy.ShortId}}" required>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" name="shortId" id="shortId" value="{{.proxy.ShortId}}" required style="flex: 1;">
+                        <button type="button" class="btn btn-secondary" onclick="copyToClipboard('shortId', 'Short ID')" style="padding: 8px 15px;">📋 复制</button>
+                    </div>
                 </div>
             </div>
 
@@ -166,7 +226,10 @@
 
                 <div class="form-group">
                     <label>密码 *</label>
-                    <input type="text" name="hy2Password" id="hy2Password" value="{{.proxy.Hy2Password}}" required>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" name="hy2Password" id="hy2Password" value="{{.proxy.Hy2Password}}" required style="flex: 1;">
+                        <button type="button" class="btn btn-secondary" onclick="copyToClipboard('hy2Password', 'Hysteria2密码')" style="padding: 8px 15px;">📋 复制</button>
+                    </div>
                 </div>
 
                 <div class="row">
@@ -288,7 +351,10 @@
 
                     <div class="form-group">
                         <label>UUID *</label>
-                        <input type="text" name="vmessUUID" id="vmessUUID" value="{{.proxy.VmessUUID}}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" name="vmessUUID" id="vmessUUID" value="{{.proxy.VmessUUID}}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="flex: 1;">
+                            <button type="button" class="btn btn-secondary" onclick="copyToClipboard('vmessUUID', 'VMess UUID')" style="padding: 8px 15px;">📋 复制</button>
+                        </div>
                     </div>
 
                     <div class="row">
@@ -492,6 +558,38 @@
             }
         }
 
+        // 通用的复制功能
+        function copyToClipboard(elementId, fieldName) {
+            const element = document.getElementById(elementId);
+            if (!element) {
+                alert('❌ 未找到字段: ' + fieldName);
+                return;
+            }
+
+            const text = element.value;
+            if (!text) {
+                alert('❌ ' + fieldName + ' 为空，无法复制');
+                return;
+            }
+
+            // 尝试使用现代 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopySuccess(fieldName);
+                }).catch(err => {
+                    fallbackCopy(text, fieldName);
+                });
+            } else {
+                fallbackCopy(text, fieldName);
+            }
+        }
+
+        // 显示复制成功消息
+        function showCopySuccess(fieldName) {
+            const msg = `✅ ${fieldName}已复制到剪贴板！`;
+            alert(msg);
+        }
+
         // 复制 Hysteria2 安装命令
         function copyHy2InstallCmd() {
             const cmd = 'curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash';
@@ -501,15 +599,15 @@
                 navigator.clipboard.writeText(cmd).then(() => {
                     alert('✅ 安装命令已复制到剪贴板！\n\n在服务器上以 root 权限执行此命令即可安装 Hysteria2');
                 }).catch(err => {
-                    fallbackCopy(cmd);
+                    fallbackCopy(cmd, '安装命令');
                 });
             } else {
-                fallbackCopy(cmd);
+                fallbackCopy(cmd, '安装命令');
             }
         }
 
         // 降级方案：使用传统方法复制
-        function fallbackCopy(text) {
+        function fallbackCopy(text, fieldName) {
             const textArea = document.createElement('textarea');
             textArea.value = text;
             textArea.style.position = 'fixed';
@@ -521,9 +619,17 @@
 
             try {
                 document.execCommand('copy');
-                alert('✅ 安装命令已复制到剪贴板！\n\n在服务器上以 root 权限执行此命令即可安装 Hysteria2');
+                if (fieldName) {
+                    alert(`✅ ${fieldName}已复制到剪贴板！`);
+                } else {
+                    alert('✅ 内容已复制到剪贴板！');
+                }
             } catch (err) {
-                alert('❌ 复制失败，请手动复制命令：\n\ncurl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash');
+                if (fieldName) {
+                    alert(`❌ 复制失败，请手动复制${fieldName}：\n\n${text}`);
+                } else {
+                    alert('❌ 复制失败，请手动复制内容');
+                }
             }
 
             document.body.removeChild(textArea);

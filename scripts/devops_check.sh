@@ -57,8 +57,10 @@ LOG_FILE="${LOG_DIR}/${TIMESTAMP}_${ISSUE_KEY}.log"
   go test ./...
   echo
 
-  echo ">> go build ./..."
-  go build ./...
+  echo ">> go build -o goForward ."
+  go build -o goForward .
+  echo "生成的可执行文件:"
+  ls -lh goForward
   echo
 
   echo "=== 检查完成 ==="

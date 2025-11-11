@@ -5,19 +5,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forward</title>
+    <title>端口隧道 - goForward</title>
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: auto;
-            max-width: 960px;
-            background-color: #f8f9fa;
-            font-size: 16px;
-            padding: 20px;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 10px; }
 
-        h2 {
-            color: #343a40;
+        /* 统一导航栏样式 */
+        .top-nav {
+            background: white;
+            padding: 15px 30px;
+            margin: -30px -30px 30px -30px;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 2px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .top-nav a {
+            display: inline-block;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .top-nav a.active {
+            background: #007bff;
+            color: white;
+        }
+        .top-nav a:not(.active) {
+            background: #f8f9fa;
+            color: #333;
+        }
+        .top-nav a:not(.active):hover {
+            background: #e9ecef;
+        }
+        .top-nav .logo {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+            margin-right: 20px;
+            padding-right: 20px;
+            border-right: 2px solid #e9ecef;
         }
 
         .table-container {
@@ -123,14 +154,21 @@
 </head>
 
 <body>
-    <h2>🔧 端口隧道</h2>
-    <div style="margin-bottom: 20px;">
-        <a href="/proxy" class="but" style="background-color: #007bff; text-decoration: none;">🚀 代理转发</a>
-        <a href="/environment" class="but" style="background-color: #17a2b8; text-decoration: none; margin-left: 10px;">⚙️ 环境配置</a>
-    </div>
-    <div class="toolbar">
-        <button type="button" id="copySelected">复制选中</button>
-        <button type="button" id="copyAll">复制全部</button>
+    <div class="container">
+        <!-- 统一顶部导航栏 -->
+        <div class="top-nav">
+            <div class="logo">🚀 goForward</div>
+            <a href="/" class="active">📡 端口隧道</a>
+            <a href="/proxy">🔐 代理转发</a>
+            <a href="/environment">⚙️ 环境配置</a>
+        </div>
+
+        <h1>📡 端口隧道</h1>
+        <p style="color: #666; margin-bottom: 20px;">TCP/UDP 端口转发与流量统计</p>
+
+        <div class="toolbar">
+            <button type="button" id="copySelected">复制选中</button>
+            <button type="button" id="copyAll">复制全部</button>
         <button type="button" class="secondary" id="importClipboard">导入剪切板</button>
     </div>
     <div class="table-container">
@@ -305,6 +343,7 @@
     <footer style="text-align: center; margin-top: 40px; padding: 20px 0; color: #6c757d; border-top: 1px solid #dee2e6;">
         <p style="margin: 0; font-size: 14px;">goForward v1.7.0 | 高性能端口转发工具</p>
     </footer>
+    </div>
 </body>
 </html>
 <!-- END -->

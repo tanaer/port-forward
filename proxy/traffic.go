@@ -55,7 +55,13 @@ func (tm *TrafficMonitor) Stop() {
 	if tm.ticker != nil {
 		tm.ticker.Stop()
 	}
-	close(tm.stopChan)
+	// 安全关闭通道，避免重复关闭
+	select {
+	case <-tm.stopChan:
+		// 通道已关闭
+	default:
+		close(tm.stopChan)
+	}
 	fmt.Println("[TrafficMonitor] 流量监控已停止")
 }
 

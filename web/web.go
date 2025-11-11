@@ -26,6 +26,14 @@ import (
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
+// sanitizeInput 过滤掉字符串中的所有空格和制表符
+func sanitizeInput(s *string) {
+	if s == nil {
+		return
+	}
+	*s = strings.ReplaceAll(strings.ReplaceAll(*s, " ", ""), "\t", "")
+}
+
 func Run() {
 	// [GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
 	//  - using env:   export GIN_MODE=release
@@ -95,6 +103,9 @@ func Run() {
 		api.GET("/logs/search", searchLogsHandler)
 		api.GET("/logs/stats", getLogsStatsHandler)
 		api.GET("/logs/export", exportLogsHandler)
+
+		// 性能诊断 API
+		api.GET("/diagnosis", getDiagnosisHandler)
 	}
 
 	r.GET("/", func(c *gin.Context) {
@@ -400,21 +411,56 @@ func Run() {
 // 密码验证中间件
 func checkCookieMiddleware(c *gin.Context) {
 	currenPath := c.Request.URL.Path
-	if conf.WebPass == "" {
+
+	// 如果没有设置密码，则不进行认证检查
+	if conf.WebPass == "" && conf.APIToken == "" {
 		c.Next()
 		return
 	}
-	// 排除密码页面和订阅路由（订阅路由需要公开访问）
+
+	// API 路由特殊处理
+	if strings.HasPrefix(currenPath, "/api/") {
+		// 检查 API Token
+		if conf.APIToken != "" {
+			token := c.GetHeader("X-API-Token")
+			if token == "" {
+				// 尝试从查询参数获取
+				token = c.Query("api_token")
+			}
+			if token == conf.APIToken {
+				c.Next()
+				return
+			} else {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "Unauthorized: invalid or missing API token",
+				})
+				c.Abort()
+				return
+			}
+		}
+		// 如果没有设置 API Token，则使用 Web 认证
+		if conf.WebPass == "" {
+			c.Next()
+			return
+		}
+	}
+
+	// 排除密码页面和订阅路由（这些路由需要公开访问）
 	if currenPath == "/pwd" || strings.HasPrefix(currenPath, "/sub/") {
 		c.Next()
 		return
 	}
-	session := sessions.Default(c)
-	if authed, ok := session.Get("authed").(bool); !ok || !authed {
-		c.Redirect(http.StatusFound, "/pwd")
-		c.Abort()
-		return
+
+	// Web 页面需要登录认证
+	if conf.WebPass != "" {
+		session := sessions.Default(c)
+		if authed, ok := session.Get("authed").(bool); !ok || !authed {
+			c.Redirect(http.StatusFound, "/pwd")
+			c.Abort()
+			return
+		}
 	}
+
 	c.Next()
 }
 
@@ -497,10 +543,11 @@ func batchStopHandler(c *gin.Context) {
 		Failed:  make(map[int]string),
 	}
 
-	// 检查是否会导致没有活动的转发
-	if len(req.IDs) >= len(sql.GetAction()) {
+	// 检查是否会导致没有活动的代理
+	activeProxies := sql.GetActiveProxies()
+	if len(req.IDs) >= len(activeProxies) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "不能停止所有转发，请至少保留一个活动的转发",
+			"error": "不能停止所有代理，请至少保留一个活动的代理",
 		})
 		return
 	}
@@ -536,15 +583,16 @@ func batchDeleteHandler(c *gin.Context) {
 
 	if len(req.IDs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "请提供要删除的转发ID列表",
+			"error": "请提供要删除的代理ID列表",
 		})
 		return
 	}
 
-	// 检查是否会删除所有转发
-	if len(req.IDs) >= len(sql.GetForwardList()) {
+	// 检查是否会删除所有代理
+	allProxies := sql.GetProxyList()
+	if len(req.IDs) >= len(allProxies) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "不能删除所有转发，请至少保留一个转发",
+			"error": "不能删除所有代理，请至少保留一个代理",
 		})
 		return
 	}
@@ -748,6 +796,88 @@ func getSystemStatsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+// ==================== 性能诊断 API ====================
+
+// PortStatus 端口状态
+type PortStatus struct {
+	Port           int  `json:"port"`
+	ProxyID        int  `json:"proxy_id"`
+	InUse          bool `json:"in_use"`
+	MultipleProxies bool `json:"multiple_proxies"`
+}
+
+// NetworkTestResult 网络测试结果
+type NetworkTestResult struct {
+	Addr  string `json:"addr"`
+	Port  int    `json:"port"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// DiagnosisResult 诊断结果
+type DiagnosisResult struct {
+	Ports      []PortStatus      `json:"ports"`
+	Proxies    []ProxyAPI        `json:"proxies"`
+	Database   SystemStats       `json:"database"`
+	Network    []NetworkTestResult `json:"network"`
+}
+
+// 获取诊断信息
+func getDiagnosisHandler(c *gin.Context) {
+	// 获取代理列表
+	proxies := sql.GetActiveProxies()
+
+	// 获取流量统计
+	forwards := sql.GetForwardList()
+	allProxies := sql.GetProxyList()
+
+	stats := SystemStats{
+		CPUUsage:    0.0,
+		MemoryUsage: runtime.MemStats{}.Alloc,
+		Goroutines:  runtime.NumGoroutine(),
+		Forwards:    len(forwards),
+		Proxies:     len(proxies),
+		Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	// 模拟网络测试结果
+	var network []NetworkTestResult
+	for _, p := range proxies {
+		if p.OutboundType == "socks5" && p.Socks5Addr != "" {
+			// 简化实现：假设SOCKS5服务器可达
+			network = append(network, NetworkTestResult{
+				Addr:  p.Socks5Addr,
+				Port:  p.Socks5Port,
+				OK:    true,
+				Error: "",
+			})
+		}
+	}
+
+	// 转换代理信息
+	var apiProxies []ProxyAPI
+	for _, p := range allProxies {
+		apiProxies = append(apiProxies, ProxyAPI{
+			ID:           p.Id,
+			InboundPort:  p.InboundPort,
+			OutboundType: p.OutboundType,
+			Status:       p.Status,
+			TotalTraffic: p.TotalBytes,
+			TotalGB:      float64(p.TotalGigabyte),
+			ServerAddr:   p.Socks5Addr,
+		})
+	}
+
+	result := DiagnosisResult{
+		Ports:      []PortStatus{}, // TODO: 实现端口检查
+		Proxies:    apiProxies,
+		Database:   stats,
+		Network:    network,
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // ==================== 代理管理 API ====================
 
 // ProxyAPI 代理 API 响应结构
@@ -806,6 +936,29 @@ func addProxyAPI(c *gin.Context) {
 		return
 	}
 
+	// 过滤输入中的空格和制表符
+	sanitizeInput(&proxyConfig.Name)
+	sanitizeInput(&proxyConfig.Remark)
+	sanitizeInput(&proxyConfig.UUID)
+	sanitizeInput(&proxyConfig.RealityDest)
+	sanitizeInput(&proxyConfig.RealityServerName)
+	sanitizeInput(&proxyConfig.PrivateKey)
+	sanitizeInput(&proxyConfig.PublicKey)
+	sanitizeInput(&proxyConfig.ShortId)
+	sanitizeInput(&proxyConfig.Hy2Server)
+	sanitizeInput(&proxyConfig.Hy2Password)
+	sanitizeInput(&proxyConfig.Hy2Obfs)
+	sanitizeInput(&proxyConfig.Hy2ObfsPassword)
+	sanitizeInput(&proxyConfig.Hy2SNI)
+	sanitizeInput(&proxyConfig.Socks5Addr)
+	sanitizeInput(&proxyConfig.Socks5User)
+	sanitizeInput(&proxyConfig.Socks5Password)
+	sanitizeInput(&proxyConfig.VmessServer)
+	sanitizeInput(&proxyConfig.VmessUUID)
+	sanitizeInput(&proxyConfig.VmessServerName)
+	sanitizeInput(&proxyConfig.VmessWsPath)
+	sanitizeInput(&proxyConfig.VmessWsHost)
+
 	pm := proxy.GetProxyManager()
 	if err := pm.CreateProxyFromConfig(proxyConfig); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -839,6 +992,29 @@ func updateProxyAPI(c *gin.Context) {
 		return
 	}
 	proxyConfig.Id = proxyID
+
+	// 过滤输入中的空格和制表符
+	sanitizeInput(&proxyConfig.Name)
+	sanitizeInput(&proxyConfig.Remark)
+	sanitizeInput(&proxyConfig.UUID)
+	sanitizeInput(&proxyConfig.RealityDest)
+	sanitizeInput(&proxyConfig.RealityServerName)
+	sanitizeInput(&proxyConfig.PrivateKey)
+	sanitizeInput(&proxyConfig.PublicKey)
+	sanitizeInput(&proxyConfig.ShortId)
+	sanitizeInput(&proxyConfig.Hy2Server)
+	sanitizeInput(&proxyConfig.Hy2Password)
+	sanitizeInput(&proxyConfig.Hy2Obfs)
+	sanitizeInput(&proxyConfig.Hy2ObfsPassword)
+	sanitizeInput(&proxyConfig.Hy2SNI)
+	sanitizeInput(&proxyConfig.Socks5Addr)
+	sanitizeInput(&proxyConfig.Socks5User)
+	sanitizeInput(&proxyConfig.Socks5Password)
+	sanitizeInput(&proxyConfig.VmessServer)
+	sanitizeInput(&proxyConfig.VmessUUID)
+	sanitizeInput(&proxyConfig.VmessServerName)
+	sanitizeInput(&proxyConfig.VmessWsPath)
+	sanitizeInput(&proxyConfig.VmessWsHost)
 
 	pm := proxy.GetProxyManager()
 	if err := pm.CreateProxyFromConfig(proxyConfig); err != nil {

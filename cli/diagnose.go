@@ -11,26 +11,29 @@ import (
 )
 
 // DiagnosePerformance 性能诊断
-func DiagnosePerformance() error {
+func DiagnosePerformance(apiServerAddr, token string) error {
 	fmt.Println("=== goForward 性能诊断工具 ===")
+	fmt.Println()
 
-	// 1. 系统端口诊断
-	if err := diagnosePorts(); err != nil {
-		fmt.Printf("❌ 端口诊断失败: %v\n", err)
+	// 使用HTTP客户端获取诊断数据
+	client := NewAPIClientWithToken(apiServerAddr, token)
+	result, err := client.GetDiagnosis()
+	if err != nil {
+		return fmt.Errorf("调用API失败: %v", err)
 	}
 
-	// 2. 代理配置诊断
-	if err := diagnoseProxyConfigs(); err != nil {
+	// 1. 代理配置诊断
+	if err := diagnoseProxyConfigsFromAPI(result.Proxies); err != nil {
 		fmt.Printf("❌ 代理配置诊断失败: %v\n", err)
 	}
 
-	// 3. 数据库性能诊断
-	if err := diagnoseDatabase(); err != nil {
+	// 2. 数据库性能诊断
+	if err := diagnoseDatabaseFromAPI(result.Database); err != nil {
 		fmt.Printf("❌ 数据库诊断失败: %v\n", err)
 	}
 
-	// 4. 网络连通性诊断
-	if err := diagnoseNetwork(); err != nil {
+	// 3. 网络连通性诊断
+	if err := diagnoseNetworkFromAPI(result.Network); err != nil {
 		fmt.Printf("❌ 网络诊断失败: %v\n", err)
 	}
 
@@ -79,36 +82,24 @@ func diagnosePorts() error {
 	return nil
 }
 
-// diagnoseProxyConfigs 诊断代理配置
-func diagnoseProxyConfigs() error {
-	fmt.Println("2. 代理配置诊断")
+// diagnoseProxyConfigsFromAPI 从API结果诊断代理配置
+func diagnoseProxyConfigsFromAPI(proxies []ProxyInfo) error {
+	fmt.Println("1. 代理配置诊断")
 	fmt.Println(strings.Repeat("-", 50))
 
-	proxyList := sql.GetProxyList()
-	if len(proxyList) == 0 {
+	if len(proxies) == 0 {
 		fmt.Println("  无代理配置")
 		return nil
 	}
 
-	for _, proxy := range proxyList {
-		fmt.Printf("  代理 ID=%d: %s\n", proxy.Id, proxy.Name)
+	for _, proxy := range proxies {
+		fmt.Printf("  代理 ID=%d: %s\n", proxy.ID, proxy.Name)
 		fmt.Printf("    入站端口: %d\n", proxy.InboundPort)
 		fmt.Printf("    出站类型: %s\n", proxy.OutboundType)
 		fmt.Printf("    状态: %s\n", getStatusText(proxy.Status))
 
-		// 检查配置是否完整
-		if proxy.OutboundType == "socks5" {
-			if proxy.Socks5Addr == "" || proxy.Socks5Port == 0 {
-				fmt.Printf("    ❌ SOCKS5配置不完整\n")
-			} else {
-				fmt.Printf("    ✅ SOCKS5配置: %s:%d\n", proxy.Socks5Addr, proxy.Socks5Port)
-			}
-		}
-
 		// 流量统计
-		if proxy.TotalGigabyte > 0 {
-			fmt.Printf("    流量: %s GB\n", sql.FormatTraffic(proxy.TotalGigabyte*1024*1024*1024))
-		} else if proxy.TotalBytes > 0 {
+		if proxy.TotalBytes > 0 {
 			fmt.Printf("    流量: %s\n", sql.FormatTraffic(proxy.TotalBytes))
 		} else {
 			fmt.Printf("    流量: 0\n")
@@ -119,48 +110,33 @@ func diagnoseProxyConfigs() error {
 	return nil
 }
 
-// diagnoseDatabase 诊断数据库性能
-func diagnoseDatabase() error {
-	fmt.Println("3. 数据库性能诊断")
+// diagnoseDatabaseFromAPI 从API结果诊断数据库性能
+func diagnoseDatabaseFromAPI(stats TrafficStats) error {
+	fmt.Println("2. 数据库性能诊断")
 	fmt.Println(strings.Repeat("-", 50))
 
-	// 获取统计信息
-	stats := sql.GetProxyStats()
-	fmt.Printf("  总代理数: %v\n", stats["total"])
-	fmt.Printf("  活跃代理数: %v\n", stats["active"])
-	fmt.Printf("  总流量: %s GB\n", stats["total_traffic"])
-
-	// 检查数据库大小
-	if dbSize, err := getDatabaseSize(); err != nil {
-		fmt.Printf("  ❌ 获取数据库大小失败: %v\n", err)
-	} else {
-		fmt.Printf("  数据库大小: %s\n", sql.FormatTraffic(dbSize))
-	}
+	fmt.Printf("  总代理数: %d\n", stats.Total)
+	fmt.Printf("  活跃代理数: %d\n", stats.Active)
+	fmt.Printf("  总流量: %d GB\n", stats.TotalTraffic)
 
 	return nil
 }
 
-// diagnoseNetwork 诊断网络连通性
-func diagnoseNetwork() error {
-	fmt.Println("4. 网络连通性诊断")
+// diagnoseNetworkFromAPI 从API结果诊断网络连通性
+func diagnoseNetworkFromAPI(network []NetworkTestResult) error {
+	fmt.Println("3. 网络连通性诊断")
 	fmt.Println(strings.Repeat("-", 50))
 
-	proxyList := sql.GetActiveProxies()
-	if len(proxyList) == 0 {
-		fmt.Println("  无活跃代理")
+	if len(network) == 0 {
+		fmt.Println("  无SOCKS5代理需要测试")
 		return nil
 	}
 
-	for _, proxy := range proxyList {
-		fmt.Printf("  测试代理 ID=%d: %s\n", proxy.Id, proxy.Name)
-
-		if proxy.OutboundType == "socks5" && proxy.Socks5Addr != "" {
-			// 测试SOCKS5服务器连通性
-			if err := testSocks5Connectivity(proxy.Socks5Addr, proxy.Socks5Port); err != nil {
-				fmt.Printf("    ❌ SOCKS5服务器 %s:%d 不可达: %v\n", proxy.Socks5Addr, proxy.Socks5Port, err)
-			} else {
-				fmt.Printf("    ✅ SOCKS5服务器 %s:%d 可达\n", proxy.Socks5Addr, proxy.Socks5Port)
-			}
+	for _, test := range network {
+		if test.OK {
+			fmt.Printf("  ✅ %s:%d 可达\n", test.Addr, test.Port)
+		} else {
+			fmt.Printf("  ❌ %s:%d 不可达: %s\n", test.Addr, test.Port, test.Error)
 		}
 	}
 

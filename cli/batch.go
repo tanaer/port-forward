@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"goForward/proxy"
-	"goForward/sql"
 )
 
 // BatchStart 批量启动
-func BatchStart(args []string) error {
+func BatchStart(args []string, apiServerAddr, token string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("请提供要启动的ID列表")
 	}
@@ -20,26 +17,39 @@ func BatchStart(args []string) error {
 		return fmt.Errorf("解析ID失败: %v", err)
 	}
 
-	successCount := 0
-	failCount := 0
+	// 使用HTTP客户端
+	client := NewAPIClientWithToken(apiServerAddr, token)
+	result, err := client.BatchStart(ids)
+	if err != nil {
+		return fmt.Errorf("调用API失败: %v", err)
+	}
 
 	fmt.Println("=== 批量启动代理 ===")
-	for i, id := range ids {
-		if err := startProxy(id); err != nil {
-			fmt.Printf("[%d/%d] 启动失败 ID=%d - %v\n", i+1, len(ids), id, err)
-			failCount++
+	for _, id := range ids {
+		success := false
+		for _, successID := range result.Success {
+			if id == successID {
+				success = true
+				break
+			}
+		}
+		if success {
+			fmt.Printf("ID=%d 启动成功\n", id)
 		} else {
-			fmt.Printf("[%d/%d] 启动成功 ID=%d\n", i+1, len(ids), id)
-			successCount++
+			msg := result.Failed[id]
+			fmt.Printf("ID=%d 启动失败 - %s\n", id, msg)
 		}
 	}
 
-	fmt.Printf("\n批量启动完成: 成功 %d 个，失败 %d 个\n", successCount, failCount)
+	fmt.Printf("\n批量启动完成: 成功 %d 个，失败 %d 个\n", len(result.Success), len(result.Failed))
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
 	return nil
 }
 
 // BatchStop 批量停止
-func BatchStop(args []string) error {
+func BatchStop(args []string, apiServerAddr, token string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("请提供要停止的ID列表")
 	}
@@ -49,26 +59,39 @@ func BatchStop(args []string) error {
 		return fmt.Errorf("解析ID失败: %v", err)
 	}
 
-	successCount := 0
-	failCount := 0
+	// 使用HTTP客户端
+	client := NewAPIClientWithToken(apiServerAddr, token)
+	result, err := client.BatchStop(ids)
+	if err != nil {
+		return fmt.Errorf("调用API失败: %v", err)
+	}
 
 	fmt.Println("=== 批量停止代理 ===")
-	for i, id := range ids {
-		if err := stopProxy(id); err != nil {
-			fmt.Printf("[%d/%d] 停止失败 ID=%d - %v\n", i+1, len(ids), id, err)
-			failCount++
+	for _, id := range ids {
+		success := false
+		for _, successID := range result.Success {
+			if id == successID {
+				success = true
+				break
+			}
+		}
+		if success {
+			fmt.Printf("ID=%d 停止成功\n", id)
 		} else {
-			fmt.Printf("[%d/%d] 停止成功 ID=%d\n", i+1, len(ids), id)
-			successCount++
+			msg := result.Failed[id]
+			fmt.Printf("ID=%d 停止失败 - %s\n", id, msg)
 		}
 	}
 
-	fmt.Printf("\n批量停止完成: 成功 %d 个，失败 %d 个\n", successCount, failCount)
+	fmt.Printf("\n批量停止完成: 成功 %d 个，失败 %d 个\n", len(result.Success), len(result.Failed))
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
 	return nil
 }
 
 // BatchDelete 批量删除
-func BatchDelete(args []string) error {
+func BatchDelete(args []string, apiServerAddr, token string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("请提供要删除的ID列表")
 	}
@@ -78,26 +101,39 @@ func BatchDelete(args []string) error {
 		return fmt.Errorf("解析ID失败: %v", err)
 	}
 
-	successCount := 0
-	failCount := 0
+	// 使用HTTP客户端
+	client := NewAPIClientWithToken(apiServerAddr, token)
+	result, err := client.BatchDelete(ids)
+	if err != nil {
+		return fmt.Errorf("调用API失败: %v", err)
+	}
 
 	fmt.Println("=== 批量删除代理 ===")
-	for i, id := range ids {
-		if err := deleteProxy(id); err != nil {
-			fmt.Printf("[%d/%d] 删除失败 ID=%d - %v\n", i+1, len(ids), id, err)
-			failCount++
+	for _, id := range ids {
+		success := false
+		for _, successID := range result.Success {
+			if id == successID {
+				success = true
+				break
+			}
+		}
+		if success {
+			fmt.Printf("ID=%d 删除成功\n", id)
 		} else {
-			fmt.Printf("[%d/%d] 删除成功 ID=%d\n", i+1, len(ids), id)
-			successCount++
+			msg := result.Failed[id]
+			fmt.Printf("ID=%d 删除失败 - %s\n", id, msg)
 		}
 	}
 
-	fmt.Printf("\n批量删除完成: 成功 %d 个，失败 %d 个\n", successCount, failCount)
+	fmt.Printf("\n批量删除完成: 成功 %d 个，失败 %d 个\n", len(result.Success), len(result.Failed))
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
 	return nil
 }
 
 // BatchStatus 批量查询状态
-func BatchStatus(args []string) error {
+func BatchStatus(args []string, apiServerAddr, token string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("请提供要查询的ID列表")
 	}
@@ -107,82 +143,52 @@ func BatchStatus(args []string) error {
 		return fmt.Errorf("解析ID失败: %v", err)
 	}
 
+	// 使用HTTP客户端获取代理列表
+	client := NewAPIClientWithToken(apiServerAddr, token)
+	proxies, err := client.GetProxyList()
+	if err != nil {
+		return fmt.Errorf("调用API失败: %v", err)
+	}
+
+	// 过滤出查询的ID
+	var statuses []ProxyInfo
+	idSet := make(map[int]bool)
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	for _, proxy := range proxies {
+		if idSet[proxy.ID] {
+			statuses = append(statuses, proxy)
+		}
+	}
+
 	fmt.Println("=== 批量查询代理状态 ===")
 	fmt.Println("ID\t状态\t名称\t入站端口\t出站类型")
 	fmt.Println(strings.Repeat("-", 60))
 
-	for _, id := range ids {
-		proxyConfig, err := sql.GetProxyConfigById(id)
-		if err != nil {
-			fmt.Printf("%d\t❌ 错误\t%s\n", id, err)
-			continue
-		}
-
+	for _, proxy := range statuses {
 		status := "已停止"
-		if proxyConfig.Status == 0 {
+		if proxy.Status == 0 {
 			status = "运行中"
 		}
 
-		fmt.Printf("%d\t%s\t%s\t%d\t%s\n",
-			proxyConfig.Id,
+		traffic := ""
+		if proxy.TotalBytes > 0 {
+			traffic = fmt.Sprintf(" (流量: %s)", formatTraffic(proxy.TotalBytes))
+		}
+
+		fmt.Printf("%d\t%s\t%s\t%d\t%s%s\n",
+			proxy.ID,
 			status,
-			proxyConfig.Name,
-			proxyConfig.InboundPort,
-			proxyConfig.OutboundType)
+			proxy.Name,
+			proxy.InboundPort,
+			proxy.OutboundType,
+			traffic)
 	}
 
-	return nil
-}
-
-// startProxy 启动单个代理
-func startProxy(id int) error {
-	pm := proxy.GetProxyManager()
-
-	// 先停止现有代理实例
-	if err := pm.StopProxy(id); err != nil {
-		// 忽略停止失败（可能未运行）
-	}
-
-	// 先启动代理，成功后再更新状态
-	if err := pm.StartProxy(id); err != nil {
-		return fmt.Errorf("启动代理失败: %v", err)
-	}
-
-	// 只有启动成功后才更新数据库状态
-	if !sql.UpdateProxyStatus(id, 0) {
-		// 如果状态更新失败，尝试停止已启动的代理
-		pm.StopProxy(id)
-		return fmt.Errorf("更新数据库状态失败")
-	}
-
-	return nil
-}
-
-// stopProxy 停止单个代理
-func stopProxy(id int) error {
-	pm := proxy.GetProxyManager()
-	if err := pm.StopProxy(id); err != nil {
-		return fmt.Errorf("停止代理失败: %v", err)
-	}
-
-	// 更新数据库状态
-	if !sql.UpdateProxyStatus(id, 1) {
-		return fmt.Errorf("更新数据库状态失败")
-	}
-
-	return nil
-}
-
-// deleteProxy 删除单个代理
-func deleteProxy(id int) error {
-	pm := proxy.GetProxyManager()
-	if err := pm.StopProxy(id); err != nil {
-		// 忽略停止失败
-	}
-
-	// 从数据库删除
-	if !sql.DeleteProxy(id) {
-		return fmt.Errorf("删除数据库记录失败")
+	if len(statuses) == 0 {
+		fmt.Println("未找到匹配的代理配置")
 	}
 
 	return nil
@@ -240,4 +246,27 @@ func parseIDs(args []string) ([]int, error) {
 	}
 
 	return ids, nil
+}
+
+// formatTraffic 格式化流量显示
+func formatTraffic(bytes uint64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+		TB = GB * 1024
+	)
+
+	switch {
+	case bytes >= TB:
+		return fmt.Sprintf("%.2f TB", float64(bytes)/float64(TB))
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.2f KB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }

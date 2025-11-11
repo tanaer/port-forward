@@ -39,4 +39,7 @@ var WebPort string
 // Web管理面板密码
 var WebPass string
 
+// API访问令牌（用于CLI工具通过API访问）
+var APIToken string
+
 var Debug bool
