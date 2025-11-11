@@ -153,11 +153,14 @@ UI accepts comma-separated local ports (e.g., `80,443,3306`). `sql.GetList()` ex
 - **实现输入过滤功能**: 添加 `sanitizeInput()` 函数自动过滤空格和制表符 (`web/web.go:29-35`)
 - **修复编译脚本**: 更新 `scripts/devops_check.sh` 使用 `go build -o goForward .` 生成二进制文件
 - **UI统一**: 统一所有页面 `.top-nav` 导航栏样式
+- **修复页面版本号显示**: 将模板中硬编码版本号替换为动态变量
+  - `assets/templates/proxy_list.tmpl:297` - 使用 `{{.version}}` 模板变量
+  - `assets/templates/index.tmpl:344` - 使用 `{{.version}}` 模板变量
 - **关键文件**:
   - `version/version.go` - 更新版本信息
   - `web/web.go` - 输入过滤逻辑
   - `scripts/devops_check.sh` - 编译命令修复
-  - `assets/templates/*.tmpl` - 导航栏样式统一
+  - `assets/templates/*.tmpl` - 导航栏样式统一和版本号动态化
   - `proxy_configs/xray_7.json` - SOCKS5配置修复
 
 #### v1.7.0 (2025-11-09) - Phase 3 功能增强版本
