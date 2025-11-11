@@ -134,3 +134,33 @@ UI accepts comma-separated local ports (e.g., `80,443,3306`). `sql.GetList()` ex
 - **Database Location**: `goForward.db` is created in the same directory as the binary (determined by `os.Executable()`)
 - **Concurrent Safety**: All access to `TCPConnections` map and `TotalBytes` is protected by `TotalBytesLock`
 - **Channel Semantics**: `conf.Ch` uses a pass-through pattern where unmatched stop signals are re-sent to avoid blocking
+
+## 版本管理 (Version Management)
+
+### 版本号规则
+- **主版本号**: v1.7.x.x - 重大功能更新
+- **功能更新**: v1.7.1.0 - 新功能发布
+- **BUG修复**: v1.7.0.x - 缺陷修复
+- **示例**:
+  - v1.7.0 → v1.7.0.1 (BUG修复)
+  - v1.7.0.1 → v1.7.1.0 (新功能)
+  - v1.7.1.0 → v1.7.1.1 (BUG修复)
+
+### 版本历史记录
+
+#### v1.7.0.1 (2025-11-11) - BUG修复版本
+- **修复代理7 SOCKS5认证问题**: 移除配置文件中用户名尾部制表符 (`proxy_configs/xray_7.json:48`)
+- **实现输入过滤功能**: 添加 `sanitizeInput()` 函数自动过滤空格和制表符 (`web/web.go:29-35`)
+- **修复编译脚本**: 更新 `scripts/devops_check.sh` 使用 `go build -o goForward .` 生成二进制文件
+- **UI统一**: 统一所有页面 `.top-nav` 导航栏样式
+- **关键文件**:
+  - `version/version.go` - 更新版本信息
+  - `web/web.go` - 输入过滤逻辑
+  - `scripts/devops_check.sh` - 编译命令修复
+  - `assets/templates/*.tmpl` - 导航栏样式统一
+  - `proxy_configs/xray_7.json` - SOCKS5配置修复
+
+#### v1.7.0 (2025-11-09) - Phase 3 功能增强版本
+- 完整功能增强和API接口增强
+- 监控面板完善
+- 详细架构和开发模式文档
