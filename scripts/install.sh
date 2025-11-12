@@ -16,6 +16,11 @@ VERSION="v1.6.0"
 INSTALL_DIR="/opt/goforward"
 SERVICE_NAME="goforward"
 
+# 脚本路径（使用本地脚本）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="hysteria2.py"
+SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
+
 # 打印信息
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -127,30 +132,18 @@ install_python() {
     fi
 }
 
-# 下载脚本
-download_script() {
-    print_info "下载安装脚本..."
+# 检查本地脚本
+check_script() {
+    print_info "检查安装脚本..."
 
-    # 尝试使用 curl
-    if command -v curl &> /dev/null; then
-        if curl -fsSL "$SCRIPT_URL" -o "/tmp/$SCRIPT_NAME"; then
-            print_success "脚本下载成功"
-            chmod +x "/tmp/$SCRIPT_NAME"
-            return 0
-        fi
+    if [ ! -f "$SCRIPT_PATH" ]; then
+        print_error "未找到安装脚本: $SCRIPT_PATH"
+        print_info "请确保 hysteria2.py 在 scripts/ 目录中"
+        exit 1
     fi
 
-    # 尝试使用 wget
-    if command -v wget &> /dev/null; then
-        if wget -q "$SCRIPT_URL" -O "/tmp/$SCRIPT_NAME"; then
-            print_success "脚本下载成功"
-            chmod +x "/tmp/$SCRIPT_NAME"
-            return 0
-        fi
-    fi
-
-    print_error "脚本下载失败，请检查网络连接"
-    exit 1
+    print_success "找到安装脚本: $SCRIPT_NAME"
+    chmod +x "$SCRIPT_PATH"
 }
 
 # 运行安装脚本
@@ -159,7 +152,7 @@ run_script() {
     echo ""
 
     # 自动运行模式，无需交互
-    python3 "/tmp/$SCRIPT_NAME" --auto
+    python3 "$SCRIPT_PATH" --auto
 }
 
 # 清理
@@ -177,7 +170,7 @@ main() {
     check_system
     check_network
     install_python
-    download_script
+    check_script
 
     echo ""
     print_success "准备完成，即将启动安装向导..."
