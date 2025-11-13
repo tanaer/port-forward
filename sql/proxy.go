@@ -145,8 +145,8 @@ func GetSubscriptionByToken(token string) conf.Subscription {
 func AddSubscription(sub conf.Subscription) int {
 	// 检查是否已存在
 	var existing conf.Subscription
-	db.Model(&conf.Subscription{}).Where("proxy_id = ?", sub.ProxyId).First(&existing)
-	if existing.Id > 0 {
+	result := db.Model(&conf.Subscription{}).Where("proxy_id = ?", sub.ProxyId).First(&existing)
+	if result.Error == nil && existing.Id > 0 {
 		// 更新token
 		db.Model(&conf.Subscription{}).Where("id = ?", existing.Id).Update("access_token", sub.AccessToken)
 		return existing.Id
