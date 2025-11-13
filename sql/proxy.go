@@ -137,7 +137,11 @@ func GetSubscription(proxyId int) conf.Subscription {
 // GetSubscriptionByToken 通过token获取订阅
 func GetSubscriptionByToken(token string) conf.Subscription {
 	var sub conf.Subscription
-	db.Model(&conf.Subscription{}).Where("access_token = ?", token).First(&sub)
+	result := db.Model(&conf.Subscription{}).Where("access_token = ?", token).First(&sub)
+	if result.Error != nil {
+		// 记录不存在，返回空结构体
+		return conf.Subscription{}
+	}
 	return sub
 }
 
@@ -218,7 +222,11 @@ func CheckHy2Socks5PortAvailable(port int, excludeId int) bool {
 // GetProxyByPort 根据端口获取代理配置
 func GetProxyByPort(port int) conf.ProxyConfig {
 	var proxy conf.ProxyConfig
-	db.Model(&conf.ProxyConfig{}).Where("inbound_port = ?", port).First(&proxy)
+	result := db.Model(&conf.ProxyConfig{}).Where("inbound_port = ?", port).First(&proxy)
+	if result.Error != nil {
+		// 记录不存在，返回空结构体
+		return conf.ProxyConfig{}
+	}
 	return proxy
 }
 
