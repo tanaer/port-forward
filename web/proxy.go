@@ -93,6 +93,54 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		})
 	})
 
+	// 导出代理配置
+	r.POST("/proxy/export", func(c *gin.Context) {
+		idsStr := c.PostForm("ids")
+		var ids []int
+		if idsStr != "" {
+			// 解析ID列表 (逗号分隔)
+			for _, idStr := range strings.Split(idsStr, ",") {
+				id, _ := strconv.Atoi(strings.TrimSpace(idStr))
+				if id > 0 {
+					ids = append(ids, id)
+				}
+			}
+		}
+
+		jsonData, err := proxy.ExportProxies(ids)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 返回JSON文件下载
+		c.Header("Content-Disposition", "attachment; filename=proxies_export.json")
+		c.Data(200, "application/json", []byte(jsonData))
+	})
+
+	// 导入代理配置
+	r.POST("/proxy/import", func(c *gin.Context) {
+		jsonData := c.PostForm("config")
+		if jsonData == "" {
+			c.JSON(400, gin.H{"error": "配置数据不能为空"})
+			return
+		}
+
+		importedIds, err := proxy.ImportProxies(jsonData)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"count":   len(importedIds),
+			"ids":     importedIds,
+		})
+	})
+
+	// 测试代理出站连接（使用现有的 /proxy/test/:id 路由）
+
 	// 解析 VMess 订阅
 	r.POST("/proxy/parse-vmess", func(c *gin.Context) {
 		subUrl := strings.TrimSpace(c.PostForm("subscription"))
@@ -147,13 +195,23 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			downMbps = 100
 		}
 		if socks5Port == 0 {
-			socks5Port = 10808
+			// Hysteria2的SOCKS5端口：从10808开始分配，避免冲突
+			socks5Port = proxy.GetRandomAvailablePortFromRange(10808, 10808+10000)
 		}
 
-		// 检查端口是否可用
+		// 检查入站端口是否可用
 		if !sql.CheckProxyPortAvailable(port, 0) {
 			c.HTML(200, "msg.tmpl", gin.H{
 				"msg": fmt.Sprintf("端口 %d 已被占用", port),
+				"suc": false,
+			})
+			return
+		}
+
+		// 检查SOCKS5端口是否被其他Hysteria2占用
+		if outboundType == "hysteria2" && !sql.CheckHy2Socks5PortAvailable(socks5Port, 0) {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": fmt.Sprintf("SOCKS5端口 %d 已被其他Hysteria2代理占用", socks5Port),
 				"suc": false,
 			})
 			return
@@ -278,10 +336,24 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			outboundType = "hysteria2"
 		}
 
-		// 检查端口是否可用
+		// Hysteria2自动分配SOCKS5端口
+		if outboundType == "hysteria2" && socks5Port == 0 {
+			socks5Port = proxy.GetRandomAvailablePortFromRange(10808, 10808+10000)
+		}
+
+		// 检查入站端口是否可用
 		if port != existing.InboundPort && !sql.CheckProxyPortAvailable(port, id) {
 			c.HTML(200, "msg.tmpl", gin.H{
 				"msg": fmt.Sprintf("端口 %d 已被占用", port),
+				"suc": false,
+			})
+			return
+		}
+
+		// 检查SOCKS5端口是否被其他Hysteria2占用
+		if outboundType == "hysteria2" && socks5Port != existing.Hy2Socks5Port && !sql.CheckHy2Socks5PortAvailable(socks5Port, id) {
+			c.HTML(200, "msg.tmpl", gin.H{
+				"msg": fmt.Sprintf("SOCKS5端口 %d 已被其他Hysteria2代理占用", socks5Port),
 				"suc": false,
 			})
 			return
@@ -527,7 +599,8 @@ func RegisterProxyRoutes(r *gin.Engine) {
 
 		switch proxyConfig.OutboundType {
 		case "hysteria2":
-			result = proxy.TestHysteria2Connection(proxyConfig.Hy2Server, proxyConfig.Hy2Port)
+			// Hysteria2通过本地SOCKS5代理测试出站
+			result = proxy.TestHysteria2Connection("127.0.0.1", proxyConfig.Hy2Socks5Port)
 		case "vmess":
 			result = proxy.TestVMessConnection(proxyConfig.VmessServer, proxyConfig.VmessPort)
 		case "socks5":

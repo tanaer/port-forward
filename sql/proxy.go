@@ -204,6 +204,17 @@ func CheckProxyPortAvailable(port int, excludeId int) bool {
 	return count == 0
 }
 
+// CheckHy2Socks5PortAvailable 检查Hysteria2 SOCKS5端口是否可用
+func CheckHy2Socks5PortAvailable(port int, excludeId int) bool {
+	var count int64
+	query := db.Model(&conf.ProxyConfig{}).Where("outbound_type = ? AND hy2_socks5_port = ? AND status = 0", "hysteria2", port)
+	if excludeId > 0 {
+		query = query.Where("id != ?", excludeId)
+	}
+	query.Count(&count)
+	return count == 0
+}
+
 // GetProxyByPort 根据端口获取代理配置
 func GetProxyByPort(port int) conf.ProxyConfig {
 	var proxy conf.ProxyConfig

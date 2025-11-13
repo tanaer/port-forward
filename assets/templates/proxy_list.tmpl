@@ -94,6 +94,8 @@
         <div class="nav">
             <a href="/proxy/add">➕ 添加代理</a>
             <a href="javascript:void(0)" onclick="showHy2Install()" style="background: #28a745;">🚀 快速安装Hysteria2</a>
+            <a href="javascript:void(0)" onclick="exportSelected()" style="background: #17a2b8;">📤 导出配置</a>
+            <a href="javascript:void(0)" onclick="showImportModal()" style="background: #6f42c1;">📥 导入配置</a>
         </div>
 
         <div class="stats">
@@ -114,6 +116,7 @@
         <table>
             <thead>
                 <tr>
+                    <th><input type="checkbox" id="selectAll" onchange="toggleAll()"></th>
                     <th>ID</th>
                     <th>名称</th>
                     <th>入站端口</th>
@@ -121,7 +124,7 @@
                     <th>Reality域名</th>
                     <th>出站服务器</th>
                     <th>状态</th>
-                    <th>延迟</th>
+                    <th>RTT</th>
                     <th>流量</th>
                     <th>操作</th>
                 </tr>
@@ -129,6 +132,7 @@
             <tbody>
                 {{range .proxyList}}
                 <tr>
+                    <td><input type="checkbox" name="proxyIds" value="{{.Id}}" onchange="updateSelectAll()"></td>
                     <td>{{.Id}}</td>
                     <td><strong>{{.Name}}</strong><br><small style="color: #666;">{{.Remark}}</small></td>
                     <td>{{.InboundPort}}</td>
@@ -163,7 +167,7 @@
                     </td>
                     <td>{{.TotalGigabyte}} GB</td>
                     <td class="actions">
-                        <a href="javascript:void(0)" onclick="testProxy({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
+                        <a href="javascript:void(0)" onclick="testOutbound({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>
                         <a href="/proxy/subscription/{{.Id}}" class="btn-info">订阅</a>
                         {{if eq .Status 0}}
@@ -176,7 +180,7 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="10" style="text-align: center; padding: 40px; color: #999;">
+                    <td colspan="11" style="text-align: center; padding: 40px; color: #999;">
                         暂无代理配置，<a href="/proxy/add" style="color: #007bff;">点击添加</a>
                     </td>
                 </tr>
@@ -291,6 +295,213 @@ curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/mast
                 console.error('Failed to copy:', err);
             });
         }
+
+        // 全选/取消全选
+        function toggleAll() {
+            const selectAll = document.getElementById('selectAll');
+            const proxyIds = document.querySelectorAll('input[name="proxyIds"]');
+            proxyIds.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        // 更新全选状态
+        function updateSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const proxyIds = document.querySelectorAll('input[name="proxyIds"]');
+            const checkedIds = document.querySelectorAll('input[name="proxyIds"]:checked');
+
+            if (checkedIds.length === 0) {
+                selectAll.indeterminate = false;
+                selectAll.checked = false;
+            } else if (checkedIds.length === proxyIds.length) {
+                selectAll.indeterminate = false;
+                selectAll.checked = true;
+            } else {
+                selectAll.indeterminate = true;
+                selectAll.checked = false;
+            }
+        }
+
+        // 导出选中的代理
+        async function exportSelected() {
+            const checkedIds = document.querySelectorAll('input[name="proxyIds"]:checked');
+
+            if (checkedIds.length === 0) {
+                if (!confirm('未选择任何代理，将导出所有配置。确定继续吗？')) {
+                    return;
+                }
+            }
+
+            try {
+                const formData = new FormData();
+                if (checkedIds.length > 0) {
+                    const ids = Array.from(checkedIds).map(cb => cb.value).join(',');
+                    formData.append('ids', ids);
+                }
+
+                const response = await fetch('/proxy/export', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert('导出失败: ' + error.error);
+                    return;
+                }
+
+                // 获取JSON数据并触发下载
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'proxies_export.json';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+                alert('导出成功！');
+            } catch (error) {
+                alert('导出出错: ' + error.message);
+            }
+        }
+
+        // 显示导入对话框
+        function showImportModal() {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <h2 style="margin: 0 0 20px 0; color: #333;">📥 导入代理配置</h2>
+                    <p style="color: #666; margin-bottom: 20px;">从JSON配置文件导入代理配置</p>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333;">选择JSON文件：</label>
+                        <input type="file" id="importFile" accept=".json" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px;">
+                    </div>
+
+                    <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                        <p style="margin: 0; font-size: 14px; color: #856404;">
+                            <strong>⚠️ 注意事项：</strong><br>
+                            • 导入的代理将自动添加到系统中<br>
+                            • 如果ID冲突，系统会自动分配新的ID<br>
+                            • 导入后代理将自动启动
+                        </p>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button onclick="this.closest('div[style*=position]').remove()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">取消</button>
+                        <button onclick="importConfig()" style="padding: 10px 20px; background: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 导入</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        // 执行导入操作
+        async function importConfig() {
+            const fileInput = document.getElementById('importFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('请选择一个JSON文件');
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const formData = new FormData();
+                formData.append('config', text);
+
+                const response = await fetch('/proxy/import', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    alert('导入失败: ' + result.error);
+                    return;
+                }
+
+                alert(`导入成功！共导入 ${result.count} 个代理`);
+
+                // 关闭对话框并刷新页面
+                document.querySelector('div[style*="position: fixed"]').remove();
+                location.reload();
+            } catch (error) {
+                alert('导入出错: ' + error.message);
+            }
+        }
+
+        // 测试出站连接
+        async function testOutbound(id) {
+            const testBtn = document.getElementById('test-btn-' + id);
+            const latencyEl = document.getElementById('latency-' + id);
+
+            // 显示测试中状态
+            latencyEl.textContent = '测试中...';
+            latencyEl.className = 'latency testing';
+            testBtn.textContent = '测试中';
+            testBtn.style.opacity = '0.6';
+            testBtn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/proxy/test/' + id);
+                const result = await response.json();
+
+                if (result.success) {
+                    // 更新RTT列
+                    latencyEl.textContent = result.rtt;
+
+                    // 根据延迟设置颜色
+                    const ms = result.latency / 1000000; // 纳秒转毫秒
+                    if (ms < 100) {
+                        latencyEl.className = 'latency good';
+                    } else if (ms < 300) {
+                        latencyEl.className = 'latency medium';
+                    } else {
+                        latencyEl.className = 'latency bad';
+                    }
+                } else {
+                    // 更新RTT列显示失败
+                    latencyEl.textContent = '失败';
+                    latencyEl.className = 'latency bad';
+                }
+            } catch (error) {
+                // 更新RTT列显示错误
+                latencyEl.textContent = '错误';
+                latencyEl.className = 'latency bad';
+            } finally {
+                // 恢复按钮状态
+                testBtn.textContent = '测试';
+                testBtn.style.opacity = '1';
+                testBtn.style.pointerEvents = 'auto';
+            }
+        }
+
     </script>
 
     <footer style="text-align: center; margin-top: 40px; padding: 20px 0; color: #6c757d; border-top: 1px solid #dee2e6;">

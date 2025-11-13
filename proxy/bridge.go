@@ -3,7 +3,6 @@ package proxy
 import (
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -28,8 +27,7 @@ type Bridge struct {
 
 // NewBridge 创建代理桥接
 func NewBridge(id int, socks5Port int) *Bridge {
-	execPath, _ := os.Executable()
-	baseDir := filepath.Join(filepath.Dir(execPath), "proxy_configs")
+	baseDir := filepath.Join(".", "proxy_configs")
 
 	if socks5Port == 0 {
 		socks5Port = 10808 // 默认端口
@@ -54,25 +52,38 @@ func (b *Bridge) Start() error {
 		return fmt.Errorf("桥接已在运行")
 	}
 
-	// 先启动Hysteria2客户端（提供SOCKS5服务）
-	b.hy2Client = hysteria.NewClient(b.hy2Config)
-	if err := b.hy2Client.Start(); err != nil {
-		return fmt.Errorf("启动Hysteria2失败: %v", err)
+	// 检查Hysteria2是否已由Hysteria2Manager管理
+	hy2Manager := hysteria.GetGlobalManager()
+	if hy2Manager.IsRunning(b.id) {
+		// Hysteria2已由管理器启动，等待SOCKS5端口就绪
+		fmt.Printf("[Bridge-%d] Hysteria2实例已由管理器管理，等待SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
+		if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
+			return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
+		}
+		fmt.Printf("[Bridge-%d] Hysteria2 SOCKS5端口(%d)已就绪\n", b.id, b.socks5Port)
+	} else {
+		// 启动独立的Hysteria2客户端（提供SOCKS5服务）
+		b.hy2Client = hysteria.NewClient(b.hy2Config)
+		if err := b.hy2Client.Start(); err != nil {
+			return fmt.Errorf("启动Hysteria2失败: %v", err)
+		}
+
+		// 等待Hysteria2的SOCKS5端口就绪
+		fmt.Printf("[Bridge-%d] 等待Hysteria2 SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
+		if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
+			b.hy2Client.Stop()
+			return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
+		}
+		fmt.Printf("[Bridge-%d] Hysteria2 SOCKS5端口(%d)已就绪\n", b.id, b.socks5Port)
 	}
 
-	// 等待Hysteria2的SOCKS5端口就绪
-	fmt.Printf("[Bridge-%d] 等待Hysteria2 SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
-	if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
-		b.hy2Client.Stop()
-		return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
-	}
-	fmt.Printf("[Bridge-%d] Hysteria2 SOCKS5端口(%d)已就绪\n", b.id, b.socks5Port)
-
-	// 再启动Xray（连接到Hysteria2的SOCKS5）
+	// 启动Xray（连接到Hysteria2的SOCKS5）
 	b.xrayManager = xray.NewManager(b.xrayConfig)
 	if err := b.xrayManager.Start(); err != nil {
-		// 如果Xray启动失败，停止Hysteria2
-		b.hy2Client.Stop()
+		// 如果Xray启动失败，停止Hysteria2（仅当Hysteria2由Bridge管理时）
+		if b.hy2Client != nil {
+			b.hy2Client.Stop()
+		}
 		return fmt.Errorf("启动Xray失败: %v", err)
 	}
 
@@ -120,10 +131,14 @@ func (b *Bridge) Stop() error {
 		}
 	}
 
-	// 再停止Hysteria2
-	if b.hy2Client != nil {
-		if err := b.hy2Client.Stop(); err != nil {
-			errs = append(errs, fmt.Errorf("停止Hysteria2失败: %v", err))
+	// 检查Hysteria2是否由Hysteria2Manager管理
+	hy2Manager := hysteria.GetGlobalManager()
+	if !hy2Manager.IsRunning(b.id) {
+		// Hysteria2由Bridge管理，需要停止
+		if b.hy2Client != nil {
+			if err := b.hy2Client.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("停止Hysteria2失败: %v", err))
+			}
 		}
 	}
 

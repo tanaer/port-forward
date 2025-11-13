@@ -271,7 +271,8 @@
                     <div class="col">
                         <div class="form-group">
                             <label>SOCKS5端口</label>
-                            <input type="number" name="hy2Socks5Port" value="{{.proxy.Hy2Socks5Port}}">
+                            <input type="number" name="hy2Socks5Port" value="{{.proxy.Hy2Socks5Port}}" placeholder="留空自动分配">
+                            <div class="help-text">留空或填0自动分配可用端口</div>
                         </div>
                     </div>
                 </div>
@@ -309,7 +310,7 @@
                         <div class="col">
                             <div class="form-group">
                                 <label>密码</label>
-                                <input type="password" name="socks5Password" value="{{.proxy.Socks5Password}}" placeholder="可选，如需认证请填写">
+                                <input type="text" name="socks5Password" value="{{.proxy.Socks5Password}}" placeholder="可选，如需认证请填写">
                                 <div class="help-text">如果 SOCKS5 服务器需要认证，请填写密码</div>
                             </div>
                         </div>
