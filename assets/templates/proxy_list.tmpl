@@ -96,6 +96,8 @@
             <a href="javascript:void(0)" onclick="showHy2Install()" style="background: #28a745;">🚀 快速安装Hysteria2</a>
             <a href="javascript:void(0)" onclick="exportSelected()" style="background: #17a2b8;">📤 导出配置</a>
             <a href="javascript:void(0)" onclick="showImportModal()" style="background: #6f42c1;">📥 导入配置</a>
+            <a href="javascript:void(0)" onclick="batchRestart()" style="background: #fd7e14;">🔄 批量重启全部代理</a>
+            <a href="javascript:void(0)" onclick="batchInit()" style="background: #dc3545;">🛠️ 一键重建运行环境</a>
         </div>
 
         <div class="stats">
@@ -453,6 +455,65 @@ curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/mast
                 location.reload();
             } catch (error) {
                 alert('导入出错: ' + error.message);
+            }
+        }
+
+        // 批量重启全部代理
+        async function batchRestart() {
+            if (!confirm('确定要重启所有代理吗？\n\n此操作会：\n• 重新生成所有配置文件\n• 重启所有运行的代理\n• 停止未运行的代理（然后重新启动）')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/proxy/batch-restart', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    alert('重启失败: ' + result.error);
+                    return;
+                }
+
+                alert(`批量重启完成！\n成功: ${result.success}\n失败: ${result.failed}\n总代理数: ${result.total}`);
+                location.reload();
+            } catch (error) {
+                alert('重启出错: ' + error.message);
+            }
+        }
+
+        // 一键重建运行环境
+        async function batchInit() {
+            if (!confirm('确定要重建运行环境吗？\n\n此操作会：\n• 重新生成所有代理的配置文件\n• 检查依赖安装情况\n• 重新启动所有代理\n• 适合迁移到新服务器后使用\n\n⚠️ 如果代理正在运行，会先停止再启动')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/proxy/batch-init', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    alert('重建失败: ' + result.error);
+                    return;
+                }
+
+                let message = `一键重建完成！\n\n`;
+                message += `总代理数: ${result.total}\n`;
+                message += `重建成功: ${result.success}\n`;
+                message += `重建失败: ${result.failed}\n\n`;
+
+                if (result.warnings && result.warnings.length > 0) {
+                    message += `警告信息:\n${result.warnings.join('\n')}`;
+                }
+
+                alert(message);
+                location.reload();
+            } catch (error) {
+                alert('重建出错: ' + error.message);
             }
         }
 

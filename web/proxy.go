@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"goForward/conf"
@@ -136,6 +137,95 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			"success": true,
 			"count":   len(importedIds),
 			"ids":     importedIds,
+		})
+	})
+
+	// 批量重启全部代理
+	r.POST("/proxy/batch-restart", func(c *gin.Context) {
+		// 获取所有代理
+		proxies := sql.GetProxyList()
+
+		if len(proxies) == 0 {
+			c.JSON(400, gin.H{"error": "没有找到代理配置"})
+			return
+		}
+
+		success := 0
+		failed := 0
+		var failures []string
+
+		proxyManager := proxy.GetProxyManager()
+
+		for _, proxyConfig := range proxies {
+			// 先停止代理
+			if err := proxyManager.StopProxy(proxyConfig.Id); err != nil {
+				fmt.Printf("[批量重启] 停止代理 %d 失败: %v\n", proxyConfig.Id, err)
+			}
+
+			// 等待一秒
+			time.Sleep(1 * time.Second)
+
+			// 重新启动代理
+			if err := proxyManager.StartProxy(proxyConfig.Id); err != nil {
+				failed++
+				failures = append(failures, fmt.Sprintf("代理 %d (%s): %v", proxyConfig.Id, proxyConfig.Name, err))
+			} else {
+				success++
+			}
+		}
+
+		c.JSON(200, gin.H{
+			"total":   len(proxies),
+			"success": success,
+			"failed":  failed,
+			"details": failures,
+		})
+	})
+
+	// 一键重建运行环境
+	r.POST("/proxy/batch-init", func(c *gin.Context) {
+		// 获取所有代理
+		proxies := sql.GetProxyList()
+
+		if len(proxies) == 0 {
+			c.JSON(400, gin.H{"error": "没有找到代理配置"})
+			return
+		}
+
+		success := 0
+		failed := 0
+		var failures []string
+		var warnings []string
+
+		proxyManager := proxy.GetProxyManager()
+
+		// 检查依赖 - 可执行文件检查会在启动代理时自动进行
+		// 这里不需要提前检查，只在失败时返回错误信息
+
+		for _, proxyConfig := range proxies {
+			// 停止代理（如果正在运行）
+			if err := proxyManager.StopProxy(proxyConfig.Id); err != nil {
+				fmt.Printf("[一键重建] 停止代理 %d 失败: %v\n", proxyConfig.Id, err)
+			}
+
+			// 等待一秒
+			time.Sleep(1 * time.Second)
+
+			// 重新创建配置文件并启动代理
+			if err := proxyManager.RestartProxy(proxyConfig.Id); err != nil {
+				failed++
+				failures = append(failures, fmt.Sprintf("代理 %d (%s): %v", proxyConfig.Id, proxyConfig.Name, err))
+			} else {
+				success++
+			}
+		}
+
+		c.JSON(200, gin.H{
+			"total":    len(proxies),
+			"success":  success,
+			"failed":   failed,
+			"details":  failures,
+			"warnings": warnings,
 		})
 	})
 
