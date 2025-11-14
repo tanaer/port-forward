@@ -137,21 +137,29 @@ func (pm *ProxyManager) StopProxy(id int) error {
 		return fmt.Errorf("代理配置不存在")
 	}
 
+	// 检查代理是否正在运行
+	bridgeManager := GetBridgeManager()
+	bridge, exists := bridgeManager.GetBridge(id)
+
 	// 如果是Hysteria2出站，使用Hysteria2Manager停止
 	if cfg.OutboundType == "hysteria2" {
 		hy2Manager := hysteria.GetGlobalManager()
-		if err := hy2Manager.Stop(id); err != nil {
-			fmt.Printf("[Proxy] 停止Hysteria2实例失败: %v\n", err)
+		if hy2Manager.IsRunning(id) {
+			if err := hy2Manager.Stop(id); err != nil {
+				fmt.Printf("[Proxy] 停止Hysteria2实例失败: %v\n", err)
+			}
+		} else {
+			fmt.Printf("[Proxy] Hysteria2实例 %d 未运行，跳过停止\n", id)
 		}
 	}
 
 	// 停止桥接
-	bridgeManager := GetBridgeManager()
-	bridge, exists := bridgeManager.GetBridge(id)
 	if exists {
 		if err := bridge.Stop(); err != nil {
 			return fmt.Errorf("停止代理失败: %v", err)
 		}
+	} else {
+		fmt.Printf("[Proxy] 桥接 %d 未运行，跳过停止\n", id)
 	}
 
 	// 更新状态

@@ -460,61 +460,184 @@ curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/mast
 
         // 批量重启全部代理
         async function batchRestart() {
-            if (!confirm('确定要重启所有代理吗？\n\n此操作会：\n• 重新生成所有配置文件\n• 重启所有运行的代理\n• 停止未运行的代理（然后重新启动）')) {
+            if (!confirm('确定要重启所有代理吗？\n\n此操作会：\n• 停止所有运行的代理\n• 重新启动所有代理\n• 重新生成配置文件\n\n⚠️ 期间代理服务会短暂中断')) {
                 return;
             }
 
+            // 创建进度对话框
+            const progressModal = showProgressModal('🔄 批量重启全部代理', [
+                '停止所有代理...',
+                '等待进程清理...',
+                '重新生成配置文件...',
+                '启动所有代理...',
+                '完成！'
+            ]);
+
             try {
+                // 显示第一步
+                updateProgressStep(progressModal, 0);
+
                 const response = await fetch('/proxy/batch-restart', {
                     method: 'POST'
                 });
 
                 const result = await response.json();
 
+                // 显示完成步骤
+                updateProgressStep(progressModal, 4);
+
                 if (!response.ok) {
+                    hideProgressModal(progressModal);
                     alert('重启失败: ' + result.error);
                     return;
                 }
 
-                alert(`批量重启完成！\n成功: ${result.success}\n失败: ${result.failed}\n总代理数: ${result.total}`);
-                location.reload();
+                // 显示结果
+                setTimeout(() => {
+                    hideProgressModal(progressModal);
+                    alert(`✅ 批量重启完成！\n\n成功重启: ${result.success} 个\n重启失败: ${result.failed} 个\n总代理数: ${result.total}\n\n${result.details && result.details.length > 0 ? '\n失败详情:\n' + result.details.join('\n') : ''}`);
+                    location.reload();
+                }, 500);
+
             } catch (error) {
+                hideProgressModal(progressModal);
                 alert('重启出错: ' + error.message);
             }
         }
 
         // 一键重建运行环境
         async function batchInit() {
-            if (!confirm('确定要重建运行环境吗？\n\n此操作会：\n• 重新生成所有代理的配置文件\n• 检查依赖安装情况\n• 重新启动所有代理\n• 适合迁移到新服务器后使用\n\n⚠️ 如果代理正在运行，会先停止再启动')) {
+            if (!confirm('确定要重建运行环境吗？\n\n此操作会：\n• 停止所有代理\n• 重新生成所有配置文件\n• 重新启动所有代理\n• 适合迁移到新服务器后使用\n\n⚠️ 如果代理正在运行，会先停止再启动')) {
                 return;
             }
 
+            // 创建进度对话框
+            const progressModal = showProgressModal('🛠️ 一键重建运行环境', [
+                '检查代理配置...',
+                '停止所有代理...',
+                '等待进程清理...',
+                '重新生成配置文件...',
+                '启动所有代理...',
+                '完成！'
+            ]);
+
             try {
+                // 显示第一步
+                updateProgressStep(progressModal, 0);
+
                 const response = await fetch('/proxy/batch-init', {
                     method: 'POST'
                 });
 
                 const result = await response.json();
 
+                // 显示完成步骤
+                updateProgressStep(progressModal, 5);
+
                 if (!response.ok) {
+                    hideProgressModal(progressModal);
                     alert('重建失败: ' + result.error);
                     return;
                 }
 
-                let message = `一键重建完成！\n\n`;
-                message += `总代理数: ${result.total}\n`;
-                message += `重建成功: ${result.success}\n`;
-                message += `重建失败: ${result.failed}\n\n`;
+                // 显示结果
+                setTimeout(() => {
+                    hideProgressModal(progressModal);
+                    let message = `✅ 一键重建完成！\n\n`;
+                    message += `总代理数: ${result.total}\n`;
+                    message += `重建成功: ${result.success} 个\n`;
+                    message += `重建失败: ${result.failed} 个\n\n`;
+                    message += `${result.details && result.details.length > 0 ? '失败详情:\n' + result.details.join('\n') + '\n\n' : ''}`;
+                    message += `${result.warnings && result.warnings.length > 0 ? '⚠️ 警告��息:\n' + result.warnings.join('\n') : ''}`;
+                    alert(message);
+                    location.reload();
+                }, 500);
 
-                if (result.warnings && result.warnings.length > 0) {
-                    message += `警告信息:\n${result.warnings.join('\n')}`;
-                }
-
-                alert(message);
-                location.reload();
             } catch (error) {
+                hideProgressModal(progressModal);
                 alert('重建出错: ' + error.message);
             }
+        }
+
+        // 显示进度对话框
+        function showProgressModal(title, steps) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.6);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 9999;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; padding: 40px; border-radius: 12px; max-width: 500px; width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.4);">
+                    <h2 style="margin: 0 0 30px 0; color: #333; font-size: 20px;">${title}</h2>
+                    <div id="progressSteps" style="margin-bottom: 30px;"></div>
+                    <div style="text-align: center; color: #666; font-size: 14px;">请稍候，正在执行中...</div>
+                </div>
+            `;
+
+            // 渲染步骤
+            const stepsDiv = modal.querySelector('#progressSteps');
+            steps.forEach((step, index) => {
+                const stepDiv = document.createElement('div');
+                stepDiv.id = `progress-step-${index}`;
+                stepDiv.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 15px;
+                    padding: 12px 15px;
+                    border-radius: 8px;
+                    background: #f8f9fa;
+                    border-left: 4px solid #dee2e6;
+                `;
+                stepDiv.innerHTML = `
+                    <span style="width: 24px; height: 24px; border-radius: 50%; background: #dee2e6; color: white; display: inline-flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 12px; font-weight: bold;">${index + 1}</span>
+                    <span style="color: #666;">${step}</span>
+                `;
+                stepsDiv.appendChild(stepDiv);
+            });
+
+            document.body.appendChild(modal);
+            return modal;
+        }
+
+        // 更新进度步骤
+        function updateProgressStep(modal, stepIndex) {
+            const stepDiv = modal.querySelector(`#progress-step-${stepIndex}`);
+            if (stepDiv) {
+                stepDiv.style.background = '#e3f2fd';
+                stepDiv.style.borderLeftColor = '#2196f3';
+                stepDiv.querySelector('span:first-child').style.background = '#2196f3';
+            }
+
+            // 隐藏进度步骤并显示完成状态
+            if (stepIndex >= 0) {
+                const allSteps = modal.querySelectorAll('[id^="progress-step-"]');
+                allSteps.forEach((step, index) => {
+                    if (index < stepIndex) {
+                        step.style.background = '#e8f5e9';
+                        step.style.borderLeftColor = '#4caf50';
+                        step.querySelector('span:first-child').style.background = '#4caf50';
+                        step.querySelector('span:first-child').innerHTML = '✓';
+                    } else if (index === stepIndex) {
+                        step.style.background = '#fff3e0';
+                        step.style.borderLeftColor = '#ff9800';
+                        step.querySelector('span:first-child').style.background = '#ff9800';
+                    }
+                });
+            }
+        }
+
+        // 隐藏进度对话框
+        function hideProgressModal(modal) {
+            modal.remove();
         }
 
         // 测试出站连接
