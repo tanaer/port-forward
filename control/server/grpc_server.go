@@ -32,11 +32,19 @@ type ControlServer struct {
 	// Token管理器
 	tokenManager *TokenManager
 
+	// WebSocket中心
+	wsHub WebSocketHub
+
 	// 节点健康检查定时器
 	healthCheckTicker *time.Ticker
 
 	// 互斥锁
 	mu sync.Mutex
+}
+
+// WebSocketHub WebSocket中心接口
+type WebSocketHub interface {
+	Broadcast(data interface{})
 }
 
 // NodeRegistry 节点注册表
@@ -66,8 +74,13 @@ type TokenManager struct {
 	mu     sync.RWMutex
 }
 
-// NewControlServer 创建新的控制服务器
+// NewControlServer 创建新的控制服务器（无WebSocket）
 func NewControlServer() *ControlServer {
+	return NewControlServerWithWebSocket(nil)
+}
+
+// NewControlServerWithWebSocket 创建带WebSocket的控制服务器
+func NewControlServerWithWebSocket(wsHub WebSocketHub) *ControlServer {
 	server := &ControlServer{
 		nodeRegistry: &NodeRegistry{
 			nodes: make(map[string]*NodeInfo),
@@ -78,6 +91,7 @@ func NewControlServer() *ControlServer {
 		tokenManager: &TokenManager{
 			tokens: make(map[string]string),
 		},
+		wsHub:             wsHub,
 		healthCheckTicker: time.NewTicker(30 * time.Second),
 	}
 
@@ -166,6 +180,11 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 
 	log.Printf("[控制端] 节点注册成功: %s, Token=%s", nodeInfo.NodeId, controlToken)
 
+	// 通过WebSocket广播新节点
+	if s.wsHub != nil {
+		s.broadcastNodeUpdate("node_registered", nodeInfo.NodeId)
+	}
+
 	return &pb.RegisterResponse{
 		Success:      true,
 		Message:      "节点注册成功",
@@ -189,7 +208,7 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 
 		// 检查CPU使用率
 		if req.Health.CpuPercent > 90 {
-			log.Printf("[控制端] 警告: 节点 %s CPU使用率过高: %d%%", nodeID, req.Health.CpuPercent)
+			log.Printf("[控制��] 警告: 节点 %s CPU使用率过高: %d%%", nodeID, req.Health.CpuPercent)
 		}
 
 		// 检查内存使用率
@@ -202,7 +221,7 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 			log.Printf("[控制端] 警告: 节点 %s 磁盘使用率过高: %d%%", nodeID, req.Health.DiskPercent)
 		}
 
-		// 更新节点心跳时间
+		// 更新节点心跳时间和状态
 		s.nodeRegistry.mu.Lock()
 		if node, exists := s.nodeRegistry.nodes[nodeID]; exists {
 			node.LastHeartbeat = time.Now()
@@ -212,6 +231,11 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 			node.Health = req.Health
 		}
 		s.nodeRegistry.mu.Unlock()
+
+		// 通过WebSocket广播节点状态更新
+		if s.wsHub != nil {
+			s.broadcastNodeUpdate("heartbeat", nodeID)
+		}
 
 		// 发送心跳响应
 		resp := &pb.HeartbeatResponse{
@@ -433,6 +457,7 @@ func (s *ControlServer) checkNodeHealth() {
 	defer s.nodeRegistry.mu.Unlock()
 
 	for nodeID, node := range s.nodeRegistry.nodes {
+		oldStatus := node.Status
 		if now.Sub(node.LastHeartbeat) > timeout {
 			if node.Status != "inactive" {
 				node.Status = "inactive"
@@ -440,6 +465,11 @@ func (s *ControlServer) checkNodeHealth() {
 
 				// 发出告警
 				log.Printf("[控制端] 🚨 告警: 节点 %s 失联，请检查节点状态", nodeID)
+
+				// 广播节点失联
+				if s.wsHub != nil && oldStatus != "inactive" {
+					go s.broadcastNodeUpdate("node_inactive", nodeID)
+				}
 			}
 		} else {
 			// 检查健康指标
@@ -506,4 +536,41 @@ func (s *ControlServer) RemoveConfig(configID int32) {
 	defer s.configManager.mu.Unlock()
 	delete(s.configManager.configs, configID)
 	log.Printf("[控制端] 配置已删除: ID=%d", configID)
+}
+
+// broadcastNodeUpdate 广播节点更新
+func (s *ControlServer) broadcastNodeUpdate(eventType, nodeID string) {
+	if s.wsHub == nil {
+		return
+	}
+
+	// 获取最新节点状态
+	s.nodeRegistry.mu.RLock()
+	node, exists := s.nodeRegistry.nodes[nodeID]
+	s.nodeRegistry.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// 构建广播数据
+	data := map[string]interface{}{
+		"event":      eventType,
+		"node_id":    nodeID,
+		"status":     node.Status,
+		"hostname":   node.Info.Hostname,
+		"ip_address": node.Info.IpAddress,
+		"last_seen":  node.LastHeartbeat.Unix(),
+	}
+
+	if node.Health != nil {
+		data["health"] = map[string]interface{}{
+			"cpu_percent":    node.Health.CpuPercent,
+			"memory_percent": node.Health.MemoryPercent,
+			"disk_percent":   node.Health.DiskPercent,
+		}
+	}
+
+	// 广播消息
+	s.wsHub.Broadcast(data)
 }
