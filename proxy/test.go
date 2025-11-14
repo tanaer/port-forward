@@ -107,7 +107,12 @@ func TestVMessConnection(server string, port int) *TestResult {
 
 	// 计算延迟
 	result.Latency = time.Since(start)
-	result.RTT = fmt.Sprintf("%dms", result.Latency.Milliseconds())
+	ms := float64(result.Latency.Microseconds()) / 1000.0
+	if ms < 1 {
+		result.RTT = fmt.Sprintf("%.2fms", ms)
+	} else {
+		result.RTT = fmt.Sprintf("%.0fms", ms)
+	}
 
 	if err != nil {
 		result.Success = false
@@ -136,7 +141,12 @@ func TestSOCKS5Connection(addr string, port int) *TestResult {
 
 	// 计算延迟
 	result.Latency = time.Since(start)
-	result.RTT = fmt.Sprintf("%dms", result.Latency.Milliseconds())
+	ms := float64(result.Latency.Microseconds()) / 1000.0
+	if ms < 1 {
+		result.RTT = fmt.Sprintf("%.2fms", ms)
+	} else {
+		result.RTT = fmt.Sprintf("%.0fms", ms)
+	}
 
 	if err != nil {
 		result.Success = false
