@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "goForward/proto"
+	"goForward/control/store"
 )
 
 // ControlServer 实现ControlService接口
@@ -31,6 +32,9 @@ type ControlServer struct {
 
 	// Token管理器
 	tokenManager *TokenManager
+
+	// 数据存储层
+	store *store.Store
 
 	// WebSocket中心
 	wsHub WebSocketHub
@@ -75,12 +79,12 @@ type TokenManager struct {
 }
 
 // NewControlServer 创建新的控制服务器（无WebSocket）
-func NewControlServer() *ControlServer {
-	return NewControlServerWithWebSocket(nil)
+func NewControlServer(store *store.Store) *ControlServer {
+	return NewControlServerWithWebSocket(store, nil)
 }
 
 // NewControlServerWithWebSocket 创建带WebSocket的控制服务器
-func NewControlServerWithWebSocket(wsHub WebSocketHub) *ControlServer {
+func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *ControlServer {
 	server := &ControlServer{
 		nodeRegistry: &NodeRegistry{
 			nodes: make(map[string]*NodeInfo),
@@ -91,6 +95,7 @@ func NewControlServerWithWebSocket(wsHub WebSocketHub) *ControlServer {
 		tokenManager: &TokenManager{
 			tokens: make(map[string]string),
 		},
+		store:             store,
 		wsHub:             wsHub,
 		healthCheckTicker: time.NewTicker(30 * time.Second),
 	}
@@ -98,7 +103,15 @@ func NewControlServerWithWebSocket(wsHub WebSocketHub) *ControlServer {
 	// 启动健康检查goroutine
 	go server.healthCheck()
 
+	// 加载数据库中的节点数据
+	server.loadNodesFromDatabase()
+
 	return server
+}
+
+// NewControlServerFull 创建完整的控制服务器（带数据库和WebSocket）
+func NewControlServerFull(store *store.Store, wsHub WebSocketHub) *ControlServer {
+	return NewControlServerWithWebSocket(store, wsHub)
 }
 
 // generateToken 生成Token
@@ -168,6 +181,30 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 	// 生成控制令牌
 	controlToken := s.generateToken(nodeInfo.NodeId)
 
+	// 保存到数据库
+	if s.store != nil {
+		nodeRecord := &store.NodeRecord{
+			NodeID:       nodeInfo.NodeId,
+			Hostname:     nodeInfo.Hostname,
+			IPAddress:    nodeInfo.IpAddress,
+			Version:      nodeInfo.Version,
+			Status:       "active",
+			ControlToken: controlToken,
+		}
+
+		// 如果节点已存在，先删除
+		if existingNode, _ := s.store.NodeDAO().GetNodeByID(nodeInfo.NodeId); existingNode != nil {
+			if err := s.store.NodeDAO().DeleteNode(nodeInfo.NodeId); err != nil {
+				log.Printf("[控制端] 删除旧节点记录失败: %v", err)
+			}
+		}
+
+		// 创建新节点记录
+		if err := s.store.NodeDAO().CreateNode(nodeRecord); err != nil {
+			log.Printf("[控制端] 保存节点到数据库失败: %v", err)
+		}
+	}
+
 	// 注册节点
 	s.nodeRegistry.mu.Lock()
 	s.nodeRegistry.nodes[nodeInfo.NodeId] = &NodeInfo{
@@ -208,17 +245,48 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 
 		// 检查CPU使用率
 		if req.Health.CpuPercent > 90 {
-			log.Printf("[控制��] 警告: 节点 %s CPU使用率过高: %d%%", nodeID, req.Health.CpuPercent)
+			log.Printf("[控制端] 警告: 节点 %s CPU使用率过高: %d%%", nodeID, req.Health.CpuPercent)
+
+			// 记录健康告警日志
+			if s.store != nil {
+				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+					NodeID:    nodeID,
+					LogType:   "health_warning",
+					Message:   fmt.Sprintf("CPU使用率过高: %d%%", req.Health.CpuPercent),
+					Data:      fmt.Sprintf(`{"cpu_percent": %d}`, req.Health.CpuPercent),
+					CreatedAt: time.Now().Unix(),
+				})
+			}
 		}
 
 		// 检查内存使用率
 		if req.Health.MemoryPercent > 90 {
 			log.Printf("[控制端] 警告: 节点 %s 内存使用率过高: %d%%", nodeID, req.Health.MemoryPercent)
+
+			if s.store != nil {
+				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+					NodeID:    nodeID,
+					LogType:   "health_warning",
+					Message:   fmt.Sprintf("内存使用率过高: %d%%", req.Health.MemoryPercent),
+					Data:      fmt.Sprintf(`{"memory_percent": %d}`, req.Health.MemoryPercent),
+					CreatedAt: time.Now().Unix(),
+				})
+			}
 		}
 
 		// 检查磁盘使用率
 		if req.Health.DiskPercent > 90 {
 			log.Printf("[控制端] 警告: 节点 %s 磁盘使用率过高: %d%%", nodeID, req.Health.DiskPercent)
+
+			if s.store != nil {
+				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+					NodeID:    nodeID,
+					LogType:   "health_warning",
+					Message:   fmt.Sprintf("磁盘使用率过高: %d%%", req.Health.DiskPercent),
+					Data:      fmt.Sprintf(`{"disk_percent": %d}`, req.Health.DiskPercent),
+					CreatedAt: time.Now().Unix(),
+				})
+			}
 		}
 
 		// 更新节点心跳时间和状态
@@ -231,6 +299,22 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 			node.Health = req.Health
 		}
 		s.nodeRegistry.mu.Unlock()
+
+		// 更新数据库
+		if s.store != nil {
+			// 更新节点状态
+			s.store.NodeDAO().UpdateNodeStatus(nodeID, "active")
+
+			// 记录心跳日志
+			s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+				NodeID:    nodeID,
+				LogType:   "heartbeat",
+				Message:   "心跳保活",
+				Data:      fmt.Sprintf(`{"cpu_percent": %d, "memory_percent": %d, "disk_percent": %d, "active_connections": %d}`,
+					req.Health.CpuPercent, req.Health.MemoryPercent, req.Health.DiskPercent, req.Health.ActiveConnections),
+				CreatedAt: time.Now().Unix(),
+			})
+		}
 
 		// 通过WebSocket广播节点状态更新
 		if s.wsHub != nil {
@@ -498,6 +582,46 @@ func (s *ControlServer) GetNodes() map[string]*NodeInfo {
 		result[k] = v
 	}
 	return result
+}
+
+// loadNodesFromDatabase 从数据库加载节点数据
+func (s *ControlServer) loadNodesFromDatabase() {
+	if s.store == nil {
+		log.Println("[控制端] 未配置数据存储，跳过节点数据加载")
+		return
+	}
+
+	nodes, err := s.store.NodeDAO().GetAllNodes()
+	if err != nil {
+		log.Printf("[控制端] 从数据库加载节点数据失败: %v", err)
+		return
+	}
+
+	log.Printf("[控制端] 从数据库加载 %d 个节点", len(nodes))
+
+	for _, node := range nodes {
+		s.nodeRegistry.mu.Lock()
+		s.nodeRegistry.nodes[node.NodeID] = &NodeInfo{
+			Info: &pb.NodeInfo{
+				NodeId:      node.NodeID,
+				Hostname:    node.Hostname,
+				IpAddress:   node.IPAddress,
+				Version:     node.Version,
+			},
+			LastHeartbeat: time.Unix(node.UpdatedAt, 0),
+			Status:        node.Status,
+			ControlToken:  node.ControlToken,
+			Health: &pb.NodeHealth{
+				CpuPercent:      0,
+				MemoryPercent:   0,
+				DiskPercent:     0,
+				ActiveConnections: 0,
+			},
+		}
+		s.nodeRegistry.mu.Unlock()
+	}
+
+	log.Printf("[控制端] 节点数据加载完成，共 %d 个节点", len(nodes))
 }
 
 // GetNodeStatus 获取单个节点状态

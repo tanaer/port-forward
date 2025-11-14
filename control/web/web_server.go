@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"goForward/control/server"
+	"goForward/control/store"
 )
 
 // WebServer Web管理界面服务器
@@ -43,7 +44,7 @@ func NewWebServer(controlSrv *server.ControlServer) *WebServer {
 }
 
 // NewWebServerWithControlServer 创建Web服务器并集成控制服务器
-func NewWebServerWithControlServer() (*WebServer, *server.ControlServer) {
+func NewWebServerWithControlServer(store *store.Store) (*WebServer, *server.ControlServer) {
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
 
@@ -53,7 +54,7 @@ func NewWebServerWithControlServer() (*WebServer, *server.ControlServer) {
 	wsHub := NewWebSocketHub()
 
 	// 创建带WebSocket的控制服务器
-	controlSrv := server.NewControlServerWithWebSocket(wsHub)
+	controlSrv := server.NewControlServerWithWebSocket(store, wsHub)
 
 	// 创建WebServer实例
 	webServer := &WebServer{

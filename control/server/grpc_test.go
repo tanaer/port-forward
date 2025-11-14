@@ -27,8 +27,8 @@ func init() {
 
 // TestControlServer 测试控制服务器功能
 func TestControlServer(t *testing.T) {
-	// 创建控制服务器
-	server := NewControlServer()
+	// 创建控制服务器（测试环境使用nil数据库）
+	server := NewControlServer(nil)
 
 	// 启动gRPC服务器（使用bufconn进行测试）
 	go func() {
@@ -341,7 +341,7 @@ func testReportStatus(t *testing.T, client pb.ControlServiceClient, server *Cont
 
 // BenchmarkControlServer 性能测试
 func BenchmarkControlServer(b *testing.B) {
-	server := NewControlServer()
+	server := NewControlServer(nil)
 
 	go func() {
 		grpcServer := grpc.NewServer()
