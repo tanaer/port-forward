@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package control;
 
-option go_package = "goForward/control";
+option go_package = "goForward/proto";
 
 service ControlService {
   // 节点注册 - Agent启动时调用

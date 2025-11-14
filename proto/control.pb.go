@@ -4,7 +4,7 @@
 // 	protoc        v3.12.4
 // source: proto/control.proto
 
-package control
+package proto
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -912,7 +912,7 @@ const file_proto_control_proto_rawDesc = "" +
 	"\fRegisterNode\x12\x11.control.NodeInfo\x1a\x19.control.RegisterResponse\x12F\n" +
 	"\tHeartbeat\x12\x19.control.HeartbeatRequest\x1a\x1a.control.HeartbeatResponse(\x010\x01\x12A\n" +
 	"\fStreamConfig\x12\x16.control.ConfigRequest\x1a\x15.control.ConfigUpdate(\x010\x01\x12<\n" +
-	"\fReportStatus\x12\x13.control.NodeStatus\x1a\x17.control.StatusResponseB\x13Z\x11goForward/controlb\x06proto3"
+	"\fReportStatus\x12\x13.control.NodeStatus\x1a\x17.control.StatusResponseB\x11Z\x0fgoForward/protob\x06proto3"
 
 var (
 	file_proto_control_proto_rawDescOnce sync.Once

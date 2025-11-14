@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
 	pb "goForward/proto"
@@ -167,7 +169,21 @@ func testHeartbeat(t *testing.T, client pb.ControlServiceClient, server *Control
 func testConfigManagement(t *testing.T, client pb.ControlServiceClient, server *ControlServer) {
 	log.Println("=== 测试配置管理 ===")
 
-	stream, err := client.StreamConfig(context.Background())
+	// 获取节点Token
+	nodes := server.GetNodes()
+	node, exists := nodes["test-node-001"]
+	if !exists {
+		t.Fatal("节点未注册")
+	}
+	token := node.ControlToken
+
+	// 创建带认证的context
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(map[string]string{
+		"authorization": fmt.Sprintf("Bearer %s", token),
+		"node_id":       "test-node-001",
+	}))
+
+	stream, err := client.StreamConfig(ctx)
 	if err != nil {
 		t.Fatalf("创建配置流失败: %v", err)
 	}
@@ -265,6 +281,20 @@ func testConfigManagement(t *testing.T, client pb.ControlServiceClient, server *
 func testReportStatus(t *testing.T, client pb.ControlServiceClient, server *ControlServer) {
 	log.Println("=== 测试状态上报 ===")
 
+	// 获取节点Token
+	nodes := server.GetNodes()
+	node, exists := nodes["test-node-001"]
+	if !exists {
+		t.Fatal("节点未注册")
+	}
+	token := node.ControlToken
+
+	// 创建带认证的context
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.New(map[string]string{
+		"authorization": fmt.Sprintf("Bearer %s", token),
+		"node_id":       "test-node-001",
+	}))
+
 	proxies := []*pb.ProxyStatus{
 		{
 			Id:                1,
@@ -296,7 +326,7 @@ func testReportStatus(t *testing.T, client pb.ControlServiceClient, server *Cont
 		Proxies: proxies,
 	}
 
-	resp, err := client.ReportStatus(context.Background(), status)
+	resp, err := client.ReportStatus(ctx, status)
 	if err != nil {
 		t.Fatalf("上报状态失败: %v", err)
 	}
