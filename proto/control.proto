@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package control;
+
+option go_package = "goForward/control";
+
+service ControlService {
+  // 节点注册 - Agent启动时调用
+  rpc RegisterNode(NodeInfo) returns (RegisterResponse);
+
+  // 心跳保活 - 双向流，用于节点定期上报健康状态
+  rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse);
+
+  // 配置分发 - 双向流，用于控制端向Agent推送配置更新
+  rpc StreamConfig(stream ConfigRequest) returns (stream ConfigUpdate);
+
+  // 状态上报 - Agent主动上报节点状态和代理运行状态
+  rpc ReportStatus(NodeStatus) returns (StatusResponse);
+}
+
+// 节点基本信息
+message NodeInfo {
+  string node_id = 1;           // 节点唯一ID
+  string hostname = 2;          // 主机名
+  string ip_address = 3;        // IP地址
+  string version = 4;           // Agent版本
+  int64  uptime = 5;            // 运行时间（秒）
+  map<string, string> labels = 6; // 标签（可选）
+}
+
+// 注册响应
+message RegisterResponse {
+  bool success = 1;
+  string message = 2;
+  string control_token = 3;     // 控制端认证令牌
+}
+
+// 心跳请求（Agent -> Control）
+message HeartbeatRequest {
+  string node_id = 1;
+  int64 timestamp = 2;
+  NodeHealth health = 3;        // 节点健康状态
+}
+
+// 心跳响应（Control -> Agent）
+message HeartbeatResponse {
+  string node_id = 1;
+  int64 timestamp = 2;
+  bool alive = 3;               // 是否存活
+  int64 next_heartbeat = 4;     // 下次心跳间隔（秒）
+}
+
+// 节点健康状态
+message NodeHealth {
+  int64 cpu_percent = 1;        // CPU使用率
+  int64 memory_percent = 2;     // 内存使用率
+  int64 disk_percent = 3;       // 磁盘使用率
+  int32 active_connections = 4; // 活跃连接数
+  double network_rx = 5;        // 网络接收（KB/s）
+  double network_tx = 6;        // 网络发送（KB/s）
+}
+
+// 配置请求（Control -> Agent）
+message ConfigRequest {
+  string node_id = 1;
+  string request_type = 2;      // "get", "update", "delete"
+  ProxyConfig config = 3;       // 代理配置（可选）
+}
+
+// 配置更新（Agent -> Control）
+message ConfigUpdate {
+  string node_id = 1;
+  bool success = 2;
+  string message = 3;
+  repeated ProxyConfig configs = 4; // 当前运行的代理配置列表
+}
+
+// 代理配置
+message ProxyConfig {
+  int32 id = 1;
+  string name = 2;
+  string outbound_type = 3;     // "hysteria2", "vmess", "socks5"
+  int32 inbound_port = 4;       // 入站端口
+  string target_server = 5;     // 目标服务器
+  int32 target_port = 6;        // 目标端口
+  map<string, string> params = 7; // 其他参数
+}
+
+// 节点状态上报（Agent -> Control）
+message NodeStatus {
+  string node_id = 1;
+  int64 timestamp = 2;
+  NodeHealth health = 3;
+  repeated ProxyStatus proxies = 4; // 代理状态列表
+}
+
+// 代理运行状态
+message ProxyStatus {
+  int32 id = 1;
+  string name = 2;
+  bool running = 3;             // 是否运行中
+  int64 uptime = 4;             // 运行时间（秒）
+  int64 total_bytes = 5;        // 总流量（字节）
+  int32 active_connections = 6; // 活跃连接数
+  string error_message = 7;     // 错误信息（如果有）
+}
+
+// 状态响应（Control -> Agent）
+message StatusResponse {
+  bool success = 1;
+  string message = 2;
+  string action = 3;            // 推荐的操作：none, restart, update_config
+}

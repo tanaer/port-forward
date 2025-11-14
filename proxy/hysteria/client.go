@@ -160,10 +160,14 @@ func findHysteria2Binary() (string, error) {
 		if _, err := os.Stat(localHy2); err == nil {
 			return localHy2, nil
 		}
-		// 尝试hysteria命名
-		localHy := filepath.Join(filepath.Dir(execPath), "bin", "hysteria")
-		if _, err := os.Stat(localHy); err == nil {
-			return localHy, nil
+	}
+
+	// 尝试从当前工作目录查找
+	wd, err := os.Getwd()
+	if err == nil {
+		localHy2 := filepath.Join(wd, "bin", "hysteria2")
+		if _, err := os.Stat(localHy2); err == nil {
+			return localHy2, nil
 		}
 	}
 
@@ -171,11 +175,6 @@ func findHysteria2Binary() (string, error) {
 	hy2Path, err := exec.LookPath("hysteria2")
 	if err == nil {
 		return hy2Path, nil
-	}
-
-	hyPath, err := exec.LookPath("hysteria")
-	if err == nil {
-		return hyPath, nil
 	}
 
 	return "", fmt.Errorf("未找到hysteria2可执行文件，请安装hysteria2或将其放在bin/目录下")

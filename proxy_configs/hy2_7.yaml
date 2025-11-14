@@ -1,0 +1,10 @@
+server: 160.187.110.11:443
+auth: 4Qeg9JucraszNjz2
+tls:
+    sni: bing.com
+    insecure: true
+bandwidth:
+    up: 100 mbps
+    down: 100 mbps
+socks5:
+    listen: 127.0.0.1:10809

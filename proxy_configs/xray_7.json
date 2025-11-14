@@ -5,13 +5,13 @@
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": 38042,
+      "port": 37423,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
             "flow": "xtls-rprx-vision",
-            "id": "3b7a31a2-992b-4053-a995-e606b5c2d71b"
+            "id": "e9ee9aab-540b-4007-a230-e3d2dcf6eb7a"
           }
         ],
         "decryption": "none"
@@ -20,13 +20,13 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "dest": "www.tesla.com:443",
-          "privateKey": "T5ImTaBYSSPwMQ_5u2b_LRxCXWxaS_fK3JGn5voCKik",
+          "dest": "yahoo.com:443",
+          "privateKey": "mjMnFx_AdDdbfnRuDxWYewO_jccQZ9e-mjypaH8abew",
           "serverNames": [
-            "www.tesla.com"
+            "yahoo.com"
           ],
           "shortIds": [
-            "72b2059abfb67d34"
+            "b72c43b06218d941"
           ],
           "show": false
         }
@@ -40,14 +40,8 @@
       "settings": {
         "servers": [
           {
-            "address": "sg.ipdodo.cloud",
-            "port": 10804,
-            "users": [
-              {
-                "pass": "d663672c",
-                "user": "v1_1759828755-sh-66450312622080"
-              }
-            ]
+            "address": "127.0.0.1",
+            "port": 10809
           }
         ]
       },
