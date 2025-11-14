@@ -24,6 +24,8 @@ type NodeRecord struct {
 	Version     string `json:"version"`
 	Status      string `json:"status"`
 	ControlToken string `json:"control_token"`
+	NodeGroup   string `json:"node_group"`
+	Tags        string `json:"tags"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 }
@@ -35,6 +37,7 @@ type ProxyConfigRecord struct {
 	Name        string `json:"name"`
 	OutboundType string `json:"outbound_type"`
 	ConfigJSON  string `json:"config_json"`
+	ConfigGroup string `json:"config_group"`
 	Version     int32  `json:"version"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`

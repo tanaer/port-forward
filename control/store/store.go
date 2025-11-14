@@ -23,6 +23,13 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("创建数据库失败: %v", err)
 	}
 
+	// 执行数据库迁移
+	migrator := NewMigrator(db.db)
+	if err := migrator.Migrate(); err != nil {
+		log.Printf("[存储] 数据库迁移失败: %v", err)
+		return nil, fmt.Errorf("数据库迁移失败: %v", err)
+	}
+
 	// 创建DAO实例
 	nodeDAO := NewNodeDAO(db.db)
 	configDAO := NewProxyConfigDAO(db.db)
@@ -44,6 +51,13 @@ func NewMemoryStore() (*Store, error) {
 	db, err := NewDatabase(":memory:")
 	if err != nil {
 		return nil, err
+	}
+
+	// 执行数据库迁移
+	migrator := NewMigrator(db.db)
+	if err := migrator.Migrate(); err != nil {
+		log.Printf("[存储] 内存数据库迁移失败: %v", err)
+		return nil, fmt.Errorf("数据库迁移失败: %v", err)
 	}
 
 	nodeDAO := NewNodeDAO(db.db)
