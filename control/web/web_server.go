@@ -1,9 +1,11 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -109,6 +111,8 @@ func (w *WebServer) setupRoutes() {
 	router.GET("/api/configs", w.apiConfigsHandler)
 	router.POST("/api/configs/batch", w.apiBatchConfigsHandler)
 	router.DELETE("/api/configs/batch", w.apiBatchDeleteConfigsHandler)
+	router.GET("/api/configs/:id/versions", w.apiConfigVersionsHandler)
+	router.POST("/api/configs/:id/rollback/:version", w.apiConfigRollbackHandler)
 
 	// WebSocket接口
 	router.GET("/ws", w.wsHandler)
@@ -280,7 +284,6 @@ func (w *WebServer) apiConfigsHandler(c *gin.Context) {
 			"name":         config.Name,
 			"outboundType": config.OutboundType,
 			"inboundPort":  config.InboundPort,
-			"nodeId":       config.NodeId,
 		})
 	}
 
@@ -527,13 +530,14 @@ func (w *WebServer) apiBatchDeleteConfigsHandler(c *gin.Context) {
 	}
 
 	// 调用控制服务器的批量删除方法
-	affected, err := w.controlSrv.BatchDeleteConfigs(req.ConfigIDs)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "批量删除配置失败: " + err.Error(),
-		})
-		return
+	results := w.controlSrv.BatchDeleteConfig(req.ConfigIDs)
+
+	// 统计成功删除的数量
+	affected := 0
+	for _, success := range results {
+		if success {
+			affected++
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -541,6 +545,7 @@ func (w *WebServer) apiBatchDeleteConfigsHandler(c *gin.Context) {
 		"message":  fmt.Sprintf("批量删除配置完成，影响 %d 个配置", affected),
 		"affected": affected,
 		"requested": len(req.ConfigIDs),
+		"results":   results,
 	})
 }
 
@@ -778,5 +783,165 @@ func (w *WebServer) apiNodeEventsHandler(c *gin.Context) {
 		"node_id": nodeID,
 		"events":  events,
 		"count":   len(events),
+	})
+}
+
+// apiConfigVersionsHandler 获取配置版本历史
+func (w *WebServer) apiConfigVersionsHandler(c *gin.Context) {
+	configID := c.Param("id")
+	if configID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "配置ID不能为空",
+		})
+		return
+	}
+
+	// 解析配置ID
+	var id int32
+	if _, err := fmt.Sscanf(configID, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的配置ID格式",
+		})
+		return
+	}
+
+	// 获取版本管理器
+	versionManager := w.controlSrv.GetVersionManager()
+	if versionManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "版本管理器未初始化",
+		})
+		return
+	}
+
+	// 获取版本历史
+	limit := 20 // 默认返回20条记录
+	offset := 0 // 从最新版本开始
+
+	versions, err := versionManager.GetVersionHistory(id, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("获取版本历史失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"config_id": id,
+		"versions":  versions,
+		"count":     len(versions),
+	})
+}
+
+// apiConfigRollbackHandler 配置回滚
+func (w *WebServer) apiConfigRollbackHandler(c *gin.Context) {
+	configID := c.Param("id")
+	versionStr := c.Param("version")
+
+	if configID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "配置ID不能为空",
+		})
+		return
+	}
+
+	if versionStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "目标版本号不能为空",
+		})
+		return
+	}
+
+	// 解析配置ID和目标版本
+	var configIDInt int32
+	var targetVersion int32
+
+	if _, err := fmt.Sscanf(configID, "%d", &configIDInt); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的配置ID格式",
+		})
+		return
+	}
+
+	if _, err := fmt.Sscanf(versionStr, "%d", &targetVersion); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的版本号格式",
+		})
+		return
+	}
+
+	// 获取版本管理器
+	versionManager := w.controlSrv.GetVersionManager()
+	if versionManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "版本管理器未初始化",
+		})
+		return
+	}
+
+	// 获取目标版本的配置快照
+	record, err := versionManager.GetVersion(configIDInt, targetVersion)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("目标版本不存在: %v", err),
+		})
+		return
+	}
+
+	// 将快照转换为 ProxyConfigRecord
+	var configRecord store.ProxyConfigRecord
+	if err := json.Unmarshal([]byte(record.ConfigSnapshot), &configRecord); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("解析配置快照失败: %v", err),
+		})
+		return
+	}
+
+	// 更新当前配置（回滚到目标版本）
+	configs := []*store.ProxyConfigRecord{&configRecord}
+	affected, err := w.controlSrv.BatchUpdateConfigs(configs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("回滚配置失败: %v", err),
+		})
+		return
+	}
+
+	// 发布回滚事件
+	if w.controlSrv.GetEventBus() != nil {
+		w.controlSrv.GetEventBus().Publish(&server.Event{
+			Type:      server.EventConfigRolledBack,
+			ConfigID:  configIDInt,
+			Data: map[string]interface{}{
+				"target_version": targetVersion,
+				"current_version": record.Version + 1, // 回滚后的新版本号
+				"rollback_by":    "web_ui",
+			},
+			Timestamp: time.Now().Unix(),
+		})
+	}
+
+	log.Printf("[Web API] 配置 %d 回滚到版本 %d 完成，影响 %d 个配置",
+		configIDInt, targetVersion, affected)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"message":         "配置回滚成功",
+		"config_id":       configIDInt,
+		"target_version":  targetVersion,
+		"affected_configs": affected,
 	})
 }

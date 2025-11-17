@@ -1082,6 +1082,16 @@ func (s *ControlServer) GetLifecycleManager() *LifecycleManager {
 	return s.lifecycleManager
 }
 
+// GetVersionManager 获取版本管理器
+func (s *ControlServer) GetVersionManager() *VersionManager {
+	return s.versionManager
+}
+
+// GetEventBus 获取事件总线
+func (s *ControlServer) GetEventBus() *EventBus {
+	return s.eventBus
+}
+
 // GetStore 获取数据存储
 func (s *ControlServer) GetStore() *store.Store {
 	return s.store
