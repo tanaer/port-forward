@@ -604,8 +604,8 @@ func TestRollbackGetStreamWithJsonValidation(t *testing.T) {
 	// 2. 建立 StreamConfig 连接
 	log.Println("✓ 步骤2: 建立 StreamConfig 双向流")
 	md := metadata.New(map[string]string{
-		"node_id": "json-verify-node",
-		"token":   registerResp.ControlToken,
+		"node_id":       "json-verify-node",
+		"authorization": fmt.Sprintf("Bearer %s", registerResp.ControlToken),
 	})
 	streamCtx := metadata.NewOutgoingContext(ctx, md)
 	stream, err := client.StreamConfig(streamCtx)
