@@ -784,3 +784,206 @@ func TestRollbackJsonParsingErrorHandling(t *testing.T) {
 
 	log.Println("=== 🎉 JSON 解析错误处理测试完成 ===")
 }
+
+// TestRollbackFailurePathWithEventCapture 测试回滚失败路径的事件捕获和任务重入队
+// 验证：当版本快照缺失required字段时，是否能正确发布EventRollbackTaskFailed并重新入队
+func TestRollbackFailurePathWithEventCapture(t *testing.T) {
+	log.Println("=== 测试回滚失败路径：EventRollbackTaskFailed 事件捕获 ===")
+
+	// 创建独立的bufconn listener（避免与其他测试共享）
+	localLis := bufconn.Listen(bufSize)
+
+	// 创建事件捕获器
+	var capturedFailureEvents []*Event
+	var capturedPushedEvents []*Event
+	var mu sync.Mutex
+
+	failureHandler := func(event *Event) error {
+		mu.Lock()
+		defer mu.Unlock()
+		capturedFailureEvents = append(capturedFailureEvents, event)
+		log.Printf("✓ 捕获到EventRollbackTaskFailed: task_id=%v, reason=%v",
+			event.Data["task_id"], event.Data["reason"])
+		return nil
+	}
+
+	pushedHandler := func(event *Event) error {
+		mu.Lock()
+		defer mu.Unlock()
+		capturedPushedEvents = append(capturedPushedEvents, event)
+		log.Printf("✓ 捕获到EventRollbackTaskPushed: task_id=%v",
+			event.Data["task_id"])
+		return nil
+	}
+
+	// 创建控制服务器和gRPC
+	server := NewControlServer(nil)
+	server.eventBus.SubscribeFunc(EventRollbackTaskFailed, failureHandler)
+	server.eventBus.SubscribeFunc(EventRollbackTaskPushed, pushedHandler)
+
+	// 启动gRPC服务器
+	go func() {
+		grpcServer := grpc.NewServer()
+		pb.RegisterControlServiceServer(grpcServer, server)
+		_ = grpcServer.Serve(localLis)
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	// 创建客户端
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+		return localLis.Dial()
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("连接失败: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewControlServiceClient(conn)
+
+	// 步骤1: 注册节点
+	log.Println("\n✓ 步骤1: 注册节点")
+	nodeInfo := &pb.NodeInfo{
+		NodeId:    "failure-test-node",
+		Hostname:  "test-host",
+		IpAddress: "192.168.1.100",
+		Version:   "v2.0.0",
+	}
+	registerResp, err := client.RegisterNode(context.Background(), nodeInfo)
+	if err != nil || !registerResp.Success {
+		t.Fatalf("节点注册失败: %v", err)
+	}
+	log.Printf("✅ 节点注册成功，Token: %s\n", registerResp.ControlToken)
+
+	// 步骤2: 建立StreamConfig连接
+	log.Println("✓ 步骤2: 建立 StreamConfig 双向流")
+	md := metadata.New(map[string]string{
+		"node_id":       "failure-test-node",
+		"authorization": fmt.Sprintf("Bearer %s", registerResp.ControlToken),
+	})
+	streamCtx := metadata.NewOutgoingContext(ctx, md)
+	stream, err := client.StreamConfig(streamCtx)
+	if err != nil {
+		t.Fatalf("创建流失败: %v", err)
+	}
+	defer stream.CloseSend()
+	log.Println("✅ StreamConfig 流已建立")
+
+	// 步骤3: 创建一个会导致JSON解析失败的回滚任务
+	// 场景：版本快照的config_snapshot解析失败（缺少required字段）
+	log.Println("✓ 步骤3: 推送一个会触发JSON解析失败的回滚任务到队列")
+
+	// 先模拟版本管理器返回不完整的快照
+	// 这里我们直接手动构造回滚任务，让grpc_server.go中的JSON解析逻辑触发失败
+	invalidTask := &RollbackTask{
+		ID:            1,
+		ConfigID:      999,
+		TargetVersion: 1,
+		Reason:        "test_invalid_snapshot",
+		CreatedAt:     time.Now(),
+	}
+
+	server.nodeRegistry.mu.Lock()
+	server.nodeRegistry.rollbackTasks["failure-test-node"] = []*RollbackTask{invalidTask}
+	server.nodeRegistry.mu.Unlock()
+	log.Printf("✅ 无效任务已添加到队列: ConfigID=%d, TargetVersion=%d",
+		invalidTask.ConfigID, invalidTask.TargetVersion)
+
+	// 步骤4: Agent发送get请求，触发回滚任务处理（会因版本不存在而失败）
+	log.Println("✓ 步骤4: Agent发送get请求，触发任务处理（预期失败）")
+	getReq := &pb.ConfigRequest{
+		NodeId:      "failure-test-node",
+		RequestType: "get",
+	}
+	err = stream.Send(getReq)
+	if err != nil {
+		t.Fatalf("发送get请求失败: %v", err)
+	}
+	log.Println("✅ get请求已发送")
+
+	// 步骤5: 接收响应，应该是失败
+	log.Println("✓ 步骤5: 接收响应并验证失败")
+	update, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("接收响应失败: %v", err)
+	}
+
+	if update.Success {
+		t.Error("❌ 预期失败，但收到成功响应")
+	} else {
+		log.Printf("✅ 收到失败响应（符合预期）: %s", update.Message)
+	}
+
+	// 步骤6: 等待事件处理
+	log.Println("✓ 步骤6: 等待事件处理")
+	time.Sleep(200 * time.Millisecond)
+
+	// 步骤7: 验证EventRollbackTaskFailed是否被发布
+	log.Println("✓ 步骤7: 验证事件捕获结果")
+	mu.Lock()
+	failureCount := len(capturedFailureEvents)
+	var eventsCopy []*Event
+	for _, e := range capturedFailureEvents {
+		eventsCopy = append(eventsCopy, e)
+	}
+	mu.Unlock()
+
+	if failureCount == 0 {
+		t.Error("❌ 未捕获到EventRollbackTaskFailed事件")
+	} else {
+		log.Printf("✅ 成功捕获到%d个EventRollbackTaskFailed事件", failureCount)
+		for i, event := range eventsCopy {
+			log.Printf("   [事件%d] task_id=%v, config_id=%v, reason=%v",
+				i+1, event.Data["task_id"], event.Data["config_id"],
+				event.Data["reason"])
+		}
+	}
+
+	// 步骤8: 验证任务是否重新入队
+	log.Println("✓ 步骤8: 验证任务重新入队")
+	server.nodeRegistry.mu.RLock()
+	tasksAfterFailure := server.nodeRegistry.rollbackTasks["failure-test-node"]
+	server.nodeRegistry.mu.RUnlock()
+
+	if len(tasksAfterFailure) == 1 {
+		log.Printf("✅ 失败的任务已重新入队: 共%d个任务", len(tasksAfterFailure))
+		reueuedTask := tasksAfterFailure[0]
+		log.Printf("   重新入队的任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
+			reueuedTask.ID, reueuedTask.ConfigID, reueuedTask.TargetVersion)
+	} else {
+		t.Errorf("❌ 任务队列长度错误: 期望=1, 实际=%d", len(tasksAfterFailure))
+	}
+
+	// 步骤9: 再次发送get请求，验证任务被重试
+	log.Println("✓ 步骤9: 再次发送get请求，验证重试机制")
+	err = stream.Send(getReq)
+	if err != nil {
+		t.Fatalf("发送第二次get请求失败: %v", err)
+	}
+
+	update, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("接收第二次响应失败: %v", err)
+	}
+
+	if !update.Success {
+		log.Printf("✅ 第二次请求仍然失败（任务持续重试）: %s", update.Message)
+	}
+
+	// 最终验证：事件系统工作
+	log.Println("✓ 步骤10: 最终验证")
+	mu.Lock()
+	finalFailureCount := len(capturedFailureEvents)
+	finalPushedCount := len(capturedPushedEvents)
+	mu.Unlock()
+
+	if finalFailureCount >= 2 {
+		log.Printf("✅ 多次重试，事件系统正常工作: 共%d个失败事件", finalFailureCount)
+	}
+
+	log.Println("=== 🎉 回滚失败路径集成测试完成 ===")
+	log.Printf("最终统计:")
+	log.Printf("  - EventRollbackTaskFailed 事件: %d 个", finalFailureCount)
+	log.Printf("  - EventRollbackTaskPushed 事件: %d 个", finalPushedCount)
+	log.Printf("  - 队列中待执行任务: %d 个", len(tasksAfterFailure))
+}
