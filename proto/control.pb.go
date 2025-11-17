@@ -386,8 +386,9 @@ func (x *NodeHealth) GetNetworkTx() float64 {
 type ConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	RequestType   string                 `protobuf:"bytes,2,opt,name=request_type,json=requestType,proto3" json:"request_type,omitempty"` // "get", "update", "delete"
-	Config        *ProxyConfig           `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`                              // 代理配置（可选）
+	RequestType   string                 `protobuf:"bytes,2,opt,name=request_type,json=requestType,proto3" json:"request_type,omitempty"`    // "get", "update", "delete", "rollback"
+	Config        *ProxyConfig           `protobuf:"bytes,3,opt,name=config,proto3" json:"config,omitempty"`                                 // 代理配置（可选）
+	RollbackInfo  *RollbackInfo          `protobuf:"bytes,4,opt,name=rollback_info,json=rollbackInfo,proto3" json:"rollback_info,omitempty"` // 回滚信息（可选）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -443,6 +444,82 @@ func (x *ConfigRequest) GetConfig() *ProxyConfig {
 	return nil
 }
 
+func (x *ConfigRequest) GetRollbackInfo() *RollbackInfo {
+	if x != nil {
+		return x.RollbackInfo
+	}
+	return nil
+}
+
+// 回滚信息
+type RollbackInfo struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConfigId       int32                  `protobuf:"varint,1,opt,name=config_id,json=configId,proto3" json:"config_id,omitempty"`                  // 配置ID
+	TargetVersion  int32                  `protobuf:"varint,2,opt,name=target_version,json=targetVersion,proto3" json:"target_version,omitempty"`   // 目标版本号
+	RollbackReason string                 `protobuf:"bytes,3,opt,name=rollback_reason,json=rollbackReason,proto3" json:"rollback_reason,omitempty"` // 回滚原因
+	InitiatedBy    int64                  `protobuf:"varint,4,opt,name=initiated_by,json=initiatedBy,proto3" json:"initiated_by,omitempty"`         // 发起者用户ID（可选）
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RollbackInfo) Reset() {
+	*x = RollbackInfo{}
+	mi := &file_proto_control_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RollbackInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RollbackInfo) ProtoMessage() {}
+
+func (x *RollbackInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_control_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RollbackInfo.ProtoReflect.Descriptor instead.
+func (*RollbackInfo) Descriptor() ([]byte, []int) {
+	return file_proto_control_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RollbackInfo) GetConfigId() int32 {
+	if x != nil {
+		return x.ConfigId
+	}
+	return 0
+}
+
+func (x *RollbackInfo) GetTargetVersion() int32 {
+	if x != nil {
+		return x.TargetVersion
+	}
+	return 0
+}
+
+func (x *RollbackInfo) GetRollbackReason() string {
+	if x != nil {
+		return x.RollbackReason
+	}
+	return ""
+}
+
+func (x *RollbackInfo) GetInitiatedBy() int64 {
+	if x != nil {
+		return x.InitiatedBy
+	}
+	return 0
+}
+
 // 配置更新（Agent -> Control）
 type ConfigUpdate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -456,7 +533,7 @@ type ConfigUpdate struct {
 
 func (x *ConfigUpdate) Reset() {
 	*x = ConfigUpdate{}
-	mi := &file_proto_control_proto_msgTypes[6]
+	mi := &file_proto_control_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +545,7 @@ func (x *ConfigUpdate) String() string {
 func (*ConfigUpdate) ProtoMessage() {}
 
 func (x *ConfigUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_control_proto_msgTypes[6]
+	mi := &file_proto_control_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,7 +558,7 @@ func (x *ConfigUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigUpdate.ProtoReflect.Descriptor instead.
 func (*ConfigUpdate) Descriptor() ([]byte, []int) {
-	return file_proto_control_proto_rawDescGZIP(), []int{6}
+	return file_proto_control_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ConfigUpdate) GetNodeId() string {
@@ -528,7 +605,7 @@ type ProxyConfig struct {
 
 func (x *ProxyConfig) Reset() {
 	*x = ProxyConfig{}
-	mi := &file_proto_control_proto_msgTypes[7]
+	mi := &file_proto_control_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +617,7 @@ func (x *ProxyConfig) String() string {
 func (*ProxyConfig) ProtoMessage() {}
 
 func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_control_proto_msgTypes[7]
+	mi := &file_proto_control_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,7 +630,7 @@ func (x *ProxyConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyConfig.ProtoReflect.Descriptor instead.
 func (*ProxyConfig) Descriptor() ([]byte, []int) {
-	return file_proto_control_proto_rawDescGZIP(), []int{7}
+	return file_proto_control_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ProxyConfig) GetId() int32 {
@@ -618,7 +695,7 @@ type NodeStatus struct {
 
 func (x *NodeStatus) Reset() {
 	*x = NodeStatus{}
-	mi := &file_proto_control_proto_msgTypes[8]
+	mi := &file_proto_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -630,7 +707,7 @@ func (x *NodeStatus) String() string {
 func (*NodeStatus) ProtoMessage() {}
 
 func (x *NodeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_control_proto_msgTypes[8]
+	mi := &file_proto_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -643,7 +720,7 @@ func (x *NodeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeStatus.ProtoReflect.Descriptor instead.
 func (*NodeStatus) Descriptor() ([]byte, []int) {
-	return file_proto_control_proto_rawDescGZIP(), []int{8}
+	return file_proto_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *NodeStatus) GetNodeId() string {
@@ -690,7 +767,7 @@ type ProxyStatus struct {
 
 func (x *ProxyStatus) Reset() {
 	*x = ProxyStatus{}
-	mi := &file_proto_control_proto_msgTypes[9]
+	mi := &file_proto_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -702,7 +779,7 @@ func (x *ProxyStatus) String() string {
 func (*ProxyStatus) ProtoMessage() {}
 
 func (x *ProxyStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_control_proto_msgTypes[9]
+	mi := &file_proto_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -715,7 +792,7 @@ func (x *ProxyStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyStatus.ProtoReflect.Descriptor instead.
 func (*ProxyStatus) Descriptor() ([]byte, []int) {
-	return file_proto_control_proto_rawDescGZIP(), []int{9}
+	return file_proto_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ProxyStatus) GetId() int32 {
@@ -779,7 +856,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_proto_control_proto_msgTypes[10]
+	mi := &file_proto_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -791,7 +868,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_control_proto_msgTypes[10]
+	mi := &file_proto_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -804,7 +881,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_control_proto_rawDescGZIP(), []int{10}
+	return file_proto_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StatusResponse) GetSuccess() bool {
@@ -867,11 +944,17 @@ const file_proto_control_proto_rawDesc = "" +
 	"\n" +
 	"network_rx\x18\x05 \x01(\x01R\tnetworkRx\x12\x1d\n" +
 	"\n" +
-	"network_tx\x18\x06 \x01(\x01R\tnetworkTx\"y\n" +
+	"network_tx\x18\x06 \x01(\x01R\tnetworkTx\"\xb5\x01\n" +
 	"\rConfigRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12!\n" +
 	"\frequest_type\x18\x02 \x01(\tR\vrequestType\x12,\n" +
-	"\x06config\x18\x03 \x01(\v2\x14.control.ProxyConfigR\x06config\"\x8b\x01\n" +
+	"\x06config\x18\x03 \x01(\v2\x14.control.ProxyConfigR\x06config\x12:\n" +
+	"\rrollback_info\x18\x04 \x01(\v2\x15.control.RollbackInfoR\frollbackInfo\"\x9e\x01\n" +
+	"\fRollbackInfo\x12\x1b\n" +
+	"\tconfig_id\x18\x01 \x01(\x05R\bconfigId\x12%\n" +
+	"\x0etarget_version\x18\x02 \x01(\x05R\rtargetVersion\x12'\n" +
+	"\x0frollback_reason\x18\x03 \x01(\tR\x0erollbackReason\x12!\n" +
+	"\finitiated_by\x18\x04 \x01(\x03R\vinitiatedBy\"\x8b\x01\n" +
 	"\fConfigUpdate\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
@@ -926,7 +1009,7 @@ func file_proto_control_proto_rawDescGZIP() []byte {
 	return file_proto_control_proto_rawDescData
 }
 
-var file_proto_control_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_control_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proto_control_proto_goTypes = []any{
 	(*NodeInfo)(nil),          // 0: control.NodeInfo
 	(*RegisterResponse)(nil),  // 1: control.RegisterResponse
@@ -934,35 +1017,37 @@ var file_proto_control_proto_goTypes = []any{
 	(*HeartbeatResponse)(nil), // 3: control.HeartbeatResponse
 	(*NodeHealth)(nil),        // 4: control.NodeHealth
 	(*ConfigRequest)(nil),     // 5: control.ConfigRequest
-	(*ConfigUpdate)(nil),      // 6: control.ConfigUpdate
-	(*ProxyConfig)(nil),       // 7: control.ProxyConfig
-	(*NodeStatus)(nil),        // 8: control.NodeStatus
-	(*ProxyStatus)(nil),       // 9: control.ProxyStatus
-	(*StatusResponse)(nil),    // 10: control.StatusResponse
-	nil,                       // 11: control.NodeInfo.LabelsEntry
-	nil,                       // 12: control.ProxyConfig.ParamsEntry
+	(*RollbackInfo)(nil),      // 6: control.RollbackInfo
+	(*ConfigUpdate)(nil),      // 7: control.ConfigUpdate
+	(*ProxyConfig)(nil),       // 8: control.ProxyConfig
+	(*NodeStatus)(nil),        // 9: control.NodeStatus
+	(*ProxyStatus)(nil),       // 10: control.ProxyStatus
+	(*StatusResponse)(nil),    // 11: control.StatusResponse
+	nil,                       // 12: control.NodeInfo.LabelsEntry
+	nil,                       // 13: control.ProxyConfig.ParamsEntry
 }
 var file_proto_control_proto_depIdxs = []int32{
-	11, // 0: control.NodeInfo.labels:type_name -> control.NodeInfo.LabelsEntry
+	12, // 0: control.NodeInfo.labels:type_name -> control.NodeInfo.LabelsEntry
 	4,  // 1: control.HeartbeatRequest.health:type_name -> control.NodeHealth
-	7,  // 2: control.ConfigRequest.config:type_name -> control.ProxyConfig
-	7,  // 3: control.ConfigUpdate.configs:type_name -> control.ProxyConfig
-	12, // 4: control.ProxyConfig.params:type_name -> control.ProxyConfig.ParamsEntry
-	4,  // 5: control.NodeStatus.health:type_name -> control.NodeHealth
-	9,  // 6: control.NodeStatus.proxies:type_name -> control.ProxyStatus
-	0,  // 7: control.ControlService.RegisterNode:input_type -> control.NodeInfo
-	2,  // 8: control.ControlService.Heartbeat:input_type -> control.HeartbeatRequest
-	5,  // 9: control.ControlService.StreamConfig:input_type -> control.ConfigRequest
-	8,  // 10: control.ControlService.ReportStatus:input_type -> control.NodeStatus
-	1,  // 11: control.ControlService.RegisterNode:output_type -> control.RegisterResponse
-	3,  // 12: control.ControlService.Heartbeat:output_type -> control.HeartbeatResponse
-	6,  // 13: control.ControlService.StreamConfig:output_type -> control.ConfigUpdate
-	10, // 14: control.ControlService.ReportStatus:output_type -> control.StatusResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	8,  // 2: control.ConfigRequest.config:type_name -> control.ProxyConfig
+	6,  // 3: control.ConfigRequest.rollback_info:type_name -> control.RollbackInfo
+	8,  // 4: control.ConfigUpdate.configs:type_name -> control.ProxyConfig
+	13, // 5: control.ProxyConfig.params:type_name -> control.ProxyConfig.ParamsEntry
+	4,  // 6: control.NodeStatus.health:type_name -> control.NodeHealth
+	10, // 7: control.NodeStatus.proxies:type_name -> control.ProxyStatus
+	0,  // 8: control.ControlService.RegisterNode:input_type -> control.NodeInfo
+	2,  // 9: control.ControlService.Heartbeat:input_type -> control.HeartbeatRequest
+	5,  // 10: control.ControlService.StreamConfig:input_type -> control.ConfigRequest
+	9,  // 11: control.ControlService.ReportStatus:input_type -> control.NodeStatus
+	1,  // 12: control.ControlService.RegisterNode:output_type -> control.RegisterResponse
+	3,  // 13: control.ControlService.Heartbeat:output_type -> control.HeartbeatResponse
+	7,  // 14: control.ControlService.StreamConfig:output_type -> control.ConfigUpdate
+	11, // 15: control.ControlService.ReportStatus:output_type -> control.StatusResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_control_proto_init() }
@@ -976,7 +1061,7 @@ func file_proto_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_control_proto_rawDesc), len(file_proto_control_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

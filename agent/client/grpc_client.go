@@ -241,6 +241,38 @@ func (a *AgentClient) DeleteConfig(configID int32) error {
 	return nil
 }
 
+// RollbackConfig 回滚配置
+func (a *AgentClient) RollbackConfig(configID int32, targetVersion int32, reason string) error {
+	req := &pb.ConfigRequest{
+		NodeId:      a.nodeID,
+		RequestType: "rollback",
+		RollbackInfo: &pb.RollbackInfo{
+			ConfigId:       configID,
+			TargetVersion:  targetVersion,
+			RollbackReason: reason,
+		},
+	}
+
+	log.Printf("[Agent] 发起配置回滚: ConfigID=%d, TargetVersion=%d, Reason=%s",
+		configID, targetVersion, reason)
+
+	if err := a.configStream.Send(req); err != nil {
+		return fmt.Errorf("发送配置回滚请求失败: %v", err)
+	}
+
+	update, err := a.configStream.Recv()
+	if err != nil {
+		return fmt.Errorf("接收配置回滚响应失败: %v", err)
+	}
+
+	if !update.Success {
+		return fmt.Errorf("配置回滚失败: %s", update.Message)
+	}
+
+	log.Printf("[Agent] 配置回滚成功: %s", update.Message)
+	return nil
+}
+
 // ReportStatus 上报状态
 func (a *AgentClient) ReportStatus(proxies []*pb.ProxyStatus) error {
 	status := &pb.NodeStatus{

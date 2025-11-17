@@ -527,6 +527,88 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 				}
 			}
 
+		case "rollback":
+			// 处理回滚请求 - Agent请求控制端执行回滚
+			if req.RollbackInfo != nil {
+				configID := req.RollbackInfo.ConfigId
+				targetVersion := req.RollbackInfo.TargetVersion
+				reason := req.RollbackInfo.RollbackReason
+
+				log.Printf("[控制端] 收到节点 %s 回滚请求: ConfigID=%d, TargetVersion=%d, Reason=%s",
+					nodeID, configID, targetVersion, reason)
+
+				// 获取版本管理器
+				if s.versionManager == nil {
+					update = &pb.ConfigUpdate{
+						NodeId:  nodeID,
+						Success: false,
+						Message: "版本管理器未初始化",
+					}
+				} else {
+					// 获取目标版本的配置快照
+					record, err := s.versionManager.GetVersion(configID, targetVersion)
+					if err != nil {
+						update = &pb.ConfigUpdate{
+							NodeId:  nodeID,
+							Success: false,
+							Message: fmt.Sprintf("获取版本失败: %v", err),
+						}
+					} else {
+						// 将快照转换为 ProxyConfigRecord
+						var configRecord store.ProxyConfigRecord
+						if err := json.Unmarshal([]byte(record.ConfigSnapshot), &configRecord); err != nil {
+							update = &pb.ConfigUpdate{
+								NodeId:  nodeID,
+								Success: false,
+								Message: fmt.Sprintf("解析配置快照失败: %v", err),
+							}
+						} else {
+							// 更新当前配置（回滚到目标版本）
+							configs := []*store.ProxyConfigRecord{&configRecord}
+							affected, err := s.BatchUpdateConfigs(configs)
+							if err != nil {
+								update = &pb.ConfigUpdate{
+									NodeId:  nodeID,
+									Success: false,
+									Message: fmt.Sprintf("回滚配置失败: %v", err),
+								}
+							} else {
+								update = &pb.ConfigUpdate{
+									NodeId:  nodeID,
+									Success: true,
+									Message: fmt.Sprintf("配置 %d 回滚到版本 %d 成功，影响 %d 个配置",
+										configID, targetVersion, affected),
+								}
+
+								// 发布回滚事件
+								if s.eventBus != nil {
+									s.eventBus.Publish(&Event{
+										Type:      EventConfigRolledBack,
+										ConfigID:  configID,
+										Data: map[string]interface{}{
+											"target_version": targetVersion,
+											"current_version": record.Version + 1,
+											"rollback_by":     "agent_" + nodeID,
+											"initiated_by":    req.RollbackInfo.InitiatedBy,
+										},
+										Timestamp: time.Now().Unix(),
+									})
+								}
+
+								log.Printf("[控制端] 配置回滚完成: ConfigID=%d, TargetVersion=%d",
+									configID, targetVersion)
+							}
+						}
+					}
+				}
+			} else {
+				update = &pb.ConfigUpdate{
+					NodeId:  nodeID,
+					Success: false,
+					Message: "回滚信息无效",
+				}
+			}
+
 		default:
 			update = &pb.ConfigUpdate{
 				NodeId:  nodeID,
@@ -897,6 +979,30 @@ func (s *ControlServer) BatchDeleteConfig(configIDs []int32) map[int32]bool {
 
 	log.Printf("[控制端] 批量删除配置完成，成功 %d 个", len(results))
 	return results
+}
+
+// PushRollbackToNode 向指定节点推送回滚配置
+func (s *ControlServer) PushRollbackToNode(nodeID string, configID int32, targetVersion int32, reason string) error {
+	log.Printf("[控制端] 准备向节点 %s 推送回滚配置: ConfigID=%d, TargetVersion=%d",
+		nodeID, configID, targetVersion)
+
+	// 检查节点是否存在
+	s.nodeRegistry.mu.RLock()
+	_, exists := s.nodeRegistry.nodes[nodeID]
+	s.nodeRegistry.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("节点 %s 不存在", nodeID)
+	}
+
+	// TODO: 实现向指定节点发送回滚配置的逻辑
+	// 这里需要建立到Agent的gRPC连接并发送回滚请求
+	// 由于当前架构是Agent主动连接控制端，我们需要等待Agent下一次请求配置时推送
+	// 或者实现一个回调机制，让Agent主动拉取待执行的回滚任务
+
+	log.Printf("[控制端] 回滚配置推送机制待实现 (NodeID=%s, ConfigID=%d, TargetVersion=%d)",
+		nodeID, configID, targetVersion)
+	return nil
 }
 
 // GetNodesByGroup 批量获取分组节点

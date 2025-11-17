@@ -63,8 +63,17 @@ message NodeHealth {
 // 配置请求（Control -> Agent）
 message ConfigRequest {
   string node_id = 1;
-  string request_type = 2;      // "get", "update", "delete"
+  string request_type = 2;      // "get", "update", "delete", "rollback"
   ProxyConfig config = 3;       // 代理配置（可选）
+  RollbackInfo rollback_info = 4; // 回滚信息（可选）
+}
+
+// 回滚信息
+message RollbackInfo {
+  int32 config_id = 1;          // 配置ID
+  int32 target_version = 2;     // 目标版本号
+  string rollback_reason = 3;   // 回滚原因
+  int64 initiated_by = 4;       // 发起者用户ID（可选）
 }
 
 // 配置更新（Agent -> Control）
