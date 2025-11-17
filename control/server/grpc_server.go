@@ -258,6 +258,17 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 	log.Printf("[控制端] 收到节点注册请求: NodeID=%s, Hostname=%s, IP=%s",
 		nodeInfo.NodeId, nodeInfo.Hostname, nodeInfo.IpAddress)
 
+	// 检查是否为新节点注册
+	isNewNode := false
+	if s.store != nil {
+		if existingNode, _ := s.store.NodeDAO().GetNodeByID(nodeInfo.NodeId); existingNode == nil {
+			isNewNode = true
+			log.Printf("[控制端] 检测到新节点注册: %s", nodeInfo.NodeId)
+		} else {
+			log.Printf("[控制端] 检测到节点重新注册: %s", nodeInfo.NodeId)
+		}
+	}
+
 	// 生成控制令牌
 	controlToken := s.generateToken(nodeInfo.NodeId)
 
@@ -283,6 +294,31 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 		if err := s.store.NodeDAO().CreateNode(nodeRecord); err != nil {
 			log.Printf("[控制端] 保存节点到数据库失败: %v", err)
 		}
+
+		// 记录节点注册日志
+		if isNewNode {
+			eventMessage := fmt.Sprintf("新节点注册: %s (%s)", nodeInfo.Hostname, nodeInfo.IpAddress)
+			if err := s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+				NodeID:    nodeInfo.NodeId,
+				LogType:   "node_registered",
+				Message:   eventMessage,
+				Data:      fmt.Sprintf(`{"hostname":"%s","ip":"%s","version":"%s"}`, nodeInfo.Hostname, nodeInfo.IpAddress, nodeInfo.Version),
+				CreatedAt: time.Now().Unix(),
+			}); err != nil {
+				log.Printf("[控制端] 记录节点注册日志失败: %v", err)
+			}
+		} else {
+			eventMessage := fmt.Sprintf("节点重新注册: %s (%s)", nodeInfo.Hostname, nodeInfo.IpAddress)
+			if err := s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
+				NodeID:    nodeInfo.NodeId,
+				LogType:   "node_reregistered",
+				Message:   eventMessage,
+				Data:      fmt.Sprintf(`{"hostname":"%s","ip":"%s","version":"%s"}`, nodeInfo.Hostname, nodeInfo.IpAddress, nodeInfo.Version),
+				CreatedAt: time.Now().Unix(),
+			}); err != nil {
+				log.Printf("[控制端] 记录节点重新注册日志失败: %v", err)
+			}
+		}
 	}
 
 	// 注册节点
@@ -296,6 +332,21 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 	s.nodeRegistry.mu.Unlock()
 
 	log.Printf("[控制端] 节点注册成功: %s, Token=%s", nodeInfo.NodeId, controlToken)
+
+	// 发布节点注册事件
+	if s.eventBus != nil {
+		s.eventBus.Publish(&Event{
+			Type:      EventNodeRegistered,
+			NodeID:    nodeInfo.NodeId,
+			Data:      map[string]interface{}{
+				"is_new_node": isNewNode,
+				"hostname":    nodeInfo.Hostname,
+				"ip_address":  nodeInfo.IpAddress,
+				"version":     nodeInfo.Version,
+			},
+			Timestamp: time.Now().Unix(),
+		})
+	}
 
 	// 触发生命周期事件
 	if s.lifecycleManager != nil {
@@ -328,60 +379,16 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 			nodeID, req.Health.CpuPercent, req.Health.MemoryPercent,
 			req.Health.DiskPercent, req.Health.ActiveConnections)
 
-		// 检查CPU使用率
-		if req.Health.CpuPercent > 90 {
-			log.Printf("[控制端] 警告: 节点 %s CPU使用率过高: %d%%", nodeID, req.Health.CpuPercent)
-
-			// 记录健康告警日志
-			if s.store != nil {
-				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
-					NodeID:    nodeID,
-					LogType:   "health_warning",
-					Message:   fmt.Sprintf("CPU使用率过高: %d%%", req.Health.CpuPercent),
-					Data:      fmt.Sprintf(`{"cpu_percent": %d}`, req.Health.CpuPercent),
-					CreatedAt: time.Now().Unix(),
-				})
-			}
+		// 使用生命周期管理器更新健康状态（包含自动恢复检测）
+		if s.lifecycleManager != nil {
+			s.lifecycleManager.UpdateNodeHealth(nodeID, req.Health)
 		}
 
-		// 检查内存使用率
-		if req.Health.MemoryPercent > 90 {
-			log.Printf("[控制端] 警告: 节点 %s 内存使用率过高: %d%%", nodeID, req.Health.MemoryPercent)
-
-			if s.store != nil {
-				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
-					NodeID:    nodeID,
-					LogType:   "health_warning",
-					Message:   fmt.Sprintf("内存使用率过高: %d%%", req.Health.MemoryPercent),
-					Data:      fmt.Sprintf(`{"memory_percent": %d}`, req.Health.MemoryPercent),
-					CreatedAt: time.Now().Unix(),
-				})
-			}
-		}
-
-		// 检查磁盘使用率
-		if req.Health.DiskPercent > 90 {
-			log.Printf("[控制端] 警告: 节点 %s 磁盘使用率过高: %d%%", nodeID, req.Health.DiskPercent)
-
-			if s.store != nil {
-				s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
-					NodeID:    nodeID,
-					LogType:   "health_warning",
-					Message:   fmt.Sprintf("磁盘使用率过高: %d%%", req.Health.DiskPercent),
-					Data:      fmt.Sprintf(`{"disk_percent": %d}`, req.Health.DiskPercent),
-					CreatedAt: time.Now().Unix(),
-				})
-			}
-		}
-
-		// 更新节点心跳时间和状态
+		// 更新节点心跳时间
 		s.nodeRegistry.mu.Lock()
 		if node, exists := s.nodeRegistry.nodes[nodeID]; exists {
 			node.LastHeartbeat = time.Now()
 			node.Status = "active"
-
-			// 更新健康信息
-			node.Health = req.Health
 		}
 		s.nodeRegistry.mu.Unlock()
 

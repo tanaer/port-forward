@@ -137,12 +137,12 @@ func testHeartbeat(t *testing.T, client pb.ControlServiceClient, server *Control
 	// 发送心跳请求
 	for i := 0; i < 3; i++ {
 		req := &pb.HeartbeatRequest{
-			NodeId: "test-node-001",
+			NodeId:    "test-node-001",
 			Timestamp: time.Now().Unix(),
 			Health: &pb.NodeHealth{
-				CpuPercent:     30 + int64(i)*5,
-				MemoryPercent:  50 + int64(i)*3,
-				DiskPercent:    60,
+				CpuPercent:    30 + int64(i)*5,
+				MemoryPercent: 50 + int64(i)*3,
+				DiskPercent:   60,
 			},
 		}
 
@@ -319,9 +319,9 @@ func testReportStatus(t *testing.T, client pb.ControlServiceClient, server *Cont
 		NodeId:    "test-node-001",
 		Timestamp: time.Now().Unix(),
 		Health: &pb.NodeHealth{
-			CpuPercent:     40,
-			MemoryPercent:  55,
-			DiskPercent:    65,
+			CpuPercent:    40,
+			MemoryPercent: 55,
+			DiskPercent:   65,
 		},
 		Proxies: proxies,
 	}
@@ -376,14 +376,14 @@ func BenchmarkControlServer(b *testing.B) {
 			NodeId:    "bench-node",
 			Timestamp: time.Now().Unix(),
 			Health: &pb.NodeHealth{
-				CpuPercent:     30,
-				MemoryPercent:  50,
-				DiskPercent:    60,
+				CpuPercent:    30,
+				MemoryPercent: 50,
+				DiskPercent:   60,
 			},
 			Proxies: []*pb.ProxyStatus{
 				{
-					Id:    1,
-					Name:  "bench-proxy",
+					Id:      1,
+					Name:    "bench-proxy",
 					Running: true,
 				},
 			},

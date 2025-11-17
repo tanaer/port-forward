@@ -37,6 +37,7 @@ type ProxyConfigRecord struct {
 	Name        string `json:"name"`
 	OutboundType string `json:"outbound_type"`
 	ConfigJSON  string `json:"config_json"`
+	InboundPort int32  `json:"inbound_port"` // 从配置JSON中解析
 	ConfigGroup string `json:"config_group"`
 	Version     int32  `json:"version"`
 	CreatedAt   int64  `json:"created_at"`
@@ -118,6 +119,8 @@ func (d *Database) createNodesTable() error {
 		version VARCHAR(64) NOT NULL DEFAULT '2.0.0',
 		status VARCHAR(32) NOT NULL DEFAULT 'unknown',
 		control_token TEXT NOT NULL,
+		node_group VARCHAR(128),
+		tags TEXT,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	);
@@ -125,6 +128,7 @@ func (d *Database) createNodesTable() error {
 	CREATE INDEX IF NOT EXISTS idx_nodes_node_id ON nodes(node_id);
 	CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status);
 	CREATE INDEX IF NOT EXISTS idx_nodes_ip_address ON nodes(ip_address);
+	CREATE INDEX IF NOT EXISTS idx_nodes_node_group ON nodes(node_group);
 	`
 
 	if _, err := d.db.Exec(query); err != nil {
@@ -144,6 +148,8 @@ func (d *Database) createProxyConfigsTable() error {
 		name VARCHAR(255) NOT NULL,
 		outbound_type VARCHAR(64) NOT NULL,
 		config_json TEXT NOT NULL,
+		inbound_port INTEGER NOT NULL DEFAULT 0,
+		config_group VARCHAR(128),
 		version INTEGER NOT NULL DEFAULT 1,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL,
@@ -152,6 +158,7 @@ func (d *Database) createProxyConfigsTable() error {
 
 	CREATE INDEX IF NOT EXISTS idx_proxy_configs_node_id ON proxy_configs(node_id);
 	CREATE INDEX IF NOT EXISTS idx_proxy_configs_outbound_type ON proxy_configs(outbound_type);
+	CREATE INDEX IF NOT EXISTS idx_proxy_configs_config_group ON proxy_configs(config_group);
 	`
 
 	if _, err := d.db.Exec(query); err != nil {

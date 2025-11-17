@@ -142,6 +142,43 @@ func (lm *LifecycleManager) CheckNodeHealth(nodeID string, health *pb.NodeHealth
 	return HealthStatusHealthy
 }
 
+// UpdateNodeHealth 更新节点健康状态（用于心跳处理）
+func (lm *LifecycleManager) UpdateNodeHealth(nodeID string, health *pb.NodeHealth) {
+	// 获取节点注册表中的当前状态
+	lm.nodeRegistry.mu.RLock()
+	nodeInfo, exists := lm.nodeRegistry.nodes[nodeID]
+	lm.nodeRegistry.mu.RUnlock()
+
+	if !exists {
+		log.Printf("[生命周期] 节点 %s 不存在，跳过健康检查", nodeID)
+		return
+	}
+
+	// 检查节点是否从离线状态恢复
+	if nodeInfo.Status == "offline" {
+		log.Printf("[生命周期] 检测到节点 %s 从离线状态恢复", nodeID)
+		lm.OnNodeOnline(nodeID)
+	}
+
+	// 计算健康状态（使用之前保存的健康状态，如果没有则默认为 unknown）
+	var oldStatus HealthStatus = HealthStatusUnknown
+	if nodeInfo.Health != nil {
+		// 从节点状态字符串转换
+		oldStatus = HealthStatus(nodeInfo.Status)
+	}
+
+	newStatus := lm.CheckNodeHealth(nodeID, health)
+
+	// 更新节点注册表中的健康状态
+	lm.nodeRegistry.mu.Lock()
+	lm.nodeRegistry.nodes[nodeID].Health = health
+	lm.nodeRegistry.nodes[nodeID].Status = string(newStatus)
+	lm.nodeRegistry.mu.Unlock()
+
+	// 处理健康状态变化
+	lm.OnHealthChanged(nodeID, oldStatus, newStatus, health)
+}
+
 // OnHealthChanged 健康状态变化处理
 func (lm *LifecycleManager) OnHealthChanged(nodeID string, oldStatus, newStatus HealthStatus, health *pb.NodeHealth) {
 	if oldStatus == newStatus {
@@ -162,6 +199,7 @@ func (lm *LifecycleManager) OnHealthChanged(nodeID string, oldStatus, newStatus 
 			"disk_percent":       health.DiskPercent,
 			"active_connections": health.ActiveConnections,
 		},
+		Timestamp: time.Now().Unix(),
 	})
 
 	// 更新失败计数
@@ -169,9 +207,10 @@ func (lm *LifecycleManager) OnHealthChanged(nodeID string, oldStatus, newStatus 
 	if newStatus == HealthStatusCritical || newStatus == HealthStatusOffline {
 		lm.failureCount[nodeID]++
 		log.Printf("[生命周期] 节点 %s 失败计数: %d", nodeID, lm.failureCount[nodeID])
-	} else if newStatus == HealthStatusHealthy {
+	} else if newStatus == HealthStatusHealthy && oldStatus != HealthStatusUnknown {
 		// 恢复健康，清除失败计数
 		delete(lm.failureCount, nodeID)
+		log.Printf("[生命周期] 节点 %s 健康状态恢复，清除失败计数", nodeID)
 	}
 	lm.mu.Unlock()
 

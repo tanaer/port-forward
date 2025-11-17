@@ -57,6 +57,22 @@ func (m *Migrator) registerMigrations() {
 		Up:      m.addConfigGroups,
 		Down:    m.removeConfigGroups,
 	})
+
+	// 版本4: 添加节点生命周期管理字段
+	m.migrations = append(m.migrations, Migration{
+		Version: 4,
+		Name:    "add_node_lifecycle_fields",
+		Up:      m.addNodeLifecycleFields,
+		Down:    m.removeNodeLifecycleFields,
+	})
+
+	// 版本5: 添加节点事件表和配置版本表
+	m.migrations = append(m.migrations, Migration{
+		Version: 5,
+		Name:    "add_event_and_version_tables",
+		Up:      m.addEventAndVersionTables,
+		Down:    m.removeEventAndVersionTables,
+	})
 }
 
 // createInitialSchema 创建初始数据库结构
@@ -141,15 +157,16 @@ func (m *Migrator) addNodeGroupsAndTags(db *sql.DB) error {
 	log.Println("[迁移] 执行迁移 v2: 添加节点分组和标签")
 
 	// 为nodes表添加分组和标签字段
+	// 注意: SQLite的ALTER TABLE ADD COLUMN不支持IF NOT EXISTS
 	if _, err := db.Exec(`
-		ALTER TABLE nodes ADD COLUMN IF NOT EXISTS node_group VARCHAR(128);
-	`); err != nil {
+		ALTER TABLE nodes ADD COLUMN node_group VARCHAR(128);
+	`); err != nil && !isColumnExistsError(err) {
 		return fmt.Errorf("添加node_group字段失败: %v", err)
 	}
 
 	if _, err := db.Exec(`
-		ALTER TABLE nodes ADD COLUMN IF NOT EXISTS tags TEXT;
-	`); err != nil {
+		ALTER TABLE nodes ADD COLUMN tags TEXT;
+	`); err != nil && !isColumnExistsError(err) {
 		return fmt.Errorf("添加tags字段失败: %v", err)
 	}
 
@@ -181,8 +198,8 @@ func (m *Migrator) addConfigGroups(db *sql.DB) error {
 
 	// 为proxy_configs表添加分组字段
 	if _, err := db.Exec(`
-		ALTER TABLE proxy_configs ADD COLUMN IF NOT EXISTS config_group VARCHAR(128);
-	`); err != nil {
+		ALTER TABLE proxy_configs ADD COLUMN config_group VARCHAR(128);
+	`); err != nil && !isColumnExistsError(err) {
 		return fmt.Errorf("添加config_group字段失败: %v", err)
 	}
 
@@ -363,4 +380,167 @@ type MigrationStatus struct {
 	Version int
 	Name    string
 	Applied bool
+}
+
+// isColumnExistsError 检查是否是列已存在的错误
+func isColumnExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return len(errStr) > 0 && (
+		// SQLite错误：列已存在
+		contains(errStr, "duplicate column name") ||
+		contains(errStr, "already exists"))
+}
+
+// contains 检查字符串是否包含子字符串
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && findSubstring(s, substr)
+}
+
+// findSubstring 简单的子字符串查找
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		match := true
+		for j := 0; j < len(substr); j++ {
+			if s[i+j] != substr[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// addNodeLifecycleFields 添加节点生命周期管理字段
+func (m *Migrator) addNodeLifecycleFields(db *sql.DB) error {
+	log.Println("[迁移] 执行迁移 v4: 添加节点生命周期管理字段")
+
+	// 添加健康状态字段
+	if _, err := db.Exec(`
+		ALTER TABLE nodes ADD COLUMN health_status VARCHAR(32) DEFAULT 'unknown';
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加health_status字段失败: %v", err)
+	}
+
+	// 添加隔离状态字段
+	if _, err := db.Exec(`
+		ALTER TABLE nodes ADD COLUMN isolated BOOLEAN DEFAULT 0;
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加isolated字段失败: %v", err)
+	}
+
+	// 添加隔离时间字段
+	if _, err := db.Exec(`
+		ALTER TABLE nodes ADD COLUMN isolated_at INTEGER;
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加isolated_at字段失败: %v", err)
+	}
+
+	// 添加隔离原因字段
+	if _, err := db.Exec(`
+		ALTER TABLE nodes ADD COLUMN isolated_reason TEXT;
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加isolated_reason字段失败: %v", err)
+	}
+
+	log.Println("[迁移] 节点生命周期管理字段添加成功")
+	return nil
+}
+
+// removeNodeLifecycleFields 移除节点生命周期管理字段
+func (m *Migrator) removeNodeLifecycleFields(db *sql.DB) error {
+	log.Println("[迁移] 回滚迁移 v4: 移除节点生命周期管理字段")
+	log.Println("[迁移] SQLite不支持DROP COLUMN，跳过回滚操作")
+	return nil
+}
+
+// addEventAndVersionTables 添加节点事件表和配置版本表
+func (m *Migrator) addEventAndVersionTables(db *sql.DB) error {
+	log.Println("[迁移] 执行迁移 v5: 添加节点事件表和配置版本表")
+
+	// 创建节点事件表
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS node_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			node_id VARCHAR(255) NOT NULL,
+			event_type VARCHAR(64) NOT NULL,
+			event_data TEXT,
+			created_at INTEGER NOT NULL,
+			FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+		);
+	`); err != nil {
+		return fmt.Errorf("创建节点事件表失败: %v", err)
+	}
+
+	// 创建节点事件表索引
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_node_events_node_id ON node_events(node_id);
+	`); err != nil {
+		return fmt.Errorf("创建节点事件表node_id索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_node_events_event_type ON node_events(event_type);
+	`); err != nil {
+		return fmt.Errorf("创建节点事件表event_type索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_node_events_created_at ON node_events(created_at);
+	`); err != nil {
+		return fmt.Errorf("创建节点事件表created_at索引失败: %v", err)
+	}
+
+	// 创建配置版本表
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS config_versions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			config_id INTEGER NOT NULL,
+			version INTEGER NOT NULL,
+			config_snapshot TEXT NOT NULL,
+			change_type VARCHAR(32) NOT NULL,
+			change_summary TEXT,
+			created_by VARCHAR(128),
+			created_at INTEGER NOT NULL,
+			FOREIGN KEY (config_id) REFERENCES proxy_configs(id) ON DELETE CASCADE
+		);
+	`); err != nil {
+		return fmt.Errorf("创建配置版本表失败: %v", err)
+	}
+
+	// 创建配置版本表索引
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_config_versions_config_id ON config_versions(config_id);
+	`); err != nil {
+		return fmt.Errorf("创建配置版本表config_id索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_config_versions_version ON config_versions(version);
+	`); err != nil {
+		return fmt.Errorf("创建配置版本表version索引失败: %v", err)
+	}
+
+	log.Println("[迁移] 节点事件表和配置版本表创建成功")
+	return nil
+}
+
+// removeEventAndVersionTables 移除节点事件表和配置版本表
+func (m *Migrator) removeEventAndVersionTables(db *sql.DB) error {
+	log.Println("[迁移] 回滚迁移 v5: 移除节点事件表和配置版本表")
+
+	tables := []string{"config_versions", "node_events"}
+	for _, table := range tables {
+		if _, err := db.Exec("DROP TABLE IF EXISTS " + table); err != nil {
+			return fmt.Errorf("删除表 %s 失败: %v", table, err)
+		}
+	}
+
+	log.Println("[迁移] 节点事件表和配置版本表删除成功")
+	return nil
 }

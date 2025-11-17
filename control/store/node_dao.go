@@ -183,6 +183,51 @@ func (dao *NodeDAO) CountNodes() (int, error) {
 	return count, nil
 }
 
+// GetNodesByGroup 根据分组获取节点
+func (dao *NodeDAO) GetNodesByGroup(group string) ([]*NodeRecord, error) {
+	query := `
+		SELECT id, node_id, hostname, ip_address, version, status, control_token, node_group, tags, created_at, updated_at
+		FROM nodes
+		WHERE node_group = ?
+		ORDER BY created_at DESC
+	`
+	rows, err := dao.db.Query(query, group)
+	if err != nil {
+		return nil, fmt.Errorf("根据分组查询节点失败: %v", err)
+	}
+	defer rows.Close()
+
+	var nodes []*NodeRecord
+	for rows.Next() {
+		var node NodeRecord
+		var nodeGroup sql.NullString
+		var tags sql.NullString
+		if err := rows.Scan(
+			&node.ID,
+			&node.NodeID,
+			&node.Hostname,
+			&node.IPAddress,
+			&node.Version,
+			&node.Status,
+			&node.ControlToken,
+			&nodeGroup,
+			&tags,
+			&node.CreatedAt,
+			&node.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("扫描节点记录失败: %v", err)
+		}
+		if nodeGroup.Valid {
+			node.NodeGroup = nodeGroup.String
+		}
+		if tags.Valid {
+			node.Tags = tags.String
+		}
+		nodes = append(nodes, &node)
+	}
+	return nodes, nil
+}
+
 // GetNodesByStatus 根据状态获取节点
 func (dao *NodeDAO) GetNodesByStatus(status string) ([]*NodeRecord, error) {
 	query := `
@@ -217,4 +262,139 @@ func (dao *NodeDAO) GetNodesByStatus(status string) ([]*NodeRecord, error) {
 	}
 
 	return nodes, nil
+}
+
+// BatchGetNodesByIDs 批量获取节点
+func (dao *NodeDAO) BatchGetNodesByIDs(nodeIDs []string) ([]*NodeRecord, error) {
+	if len(nodeIDs) == 0 {
+		return []*NodeRecord{}, nil
+	}
+
+	query := `
+		SELECT id, node_id, hostname, ip_address, version, status, control_token, node_group, tags, created_at, updated_at
+		FROM nodes WHERE node_id IN (
+	`
+
+	// 构建 IN 子句
+	params := make([]interface{}, 0, len(nodeIDs))
+	for i, nodeID := range nodeIDs {
+		if i > 0 {
+			query += ","
+		}
+		query += "?"
+		params = append(params, nodeID)
+	}
+
+	query += ") ORDER BY created_at DESC"
+
+	rows, err := dao.db.Query(query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("批量查询节点失败: %v", err)
+	}
+	defer rows.Close()
+
+	var nodes []*NodeRecord
+	for rows.Next() {
+		var node NodeRecord
+		var nodeGroup sql.NullString
+		var tags sql.NullString
+		err := rows.Scan(
+			&node.ID,
+			&node.NodeID,
+			&node.Hostname,
+			&node.IPAddress,
+			&node.Version,
+			&node.Status,
+			&node.ControlToken,
+			&nodeGroup,
+			&tags,
+			&node.CreatedAt,
+			&node.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("扫描节点记录失败: %v", err)
+		}
+
+		// 处理NULL值
+		if nodeGroup.Valid {
+			node.NodeGroup = nodeGroup.String
+		}
+		if tags.Valid {
+			node.Tags = tags.String
+		}
+
+		nodes = append(nodes, &node)
+	}
+
+	return nodes, nil
+}
+
+// BatchUpdateNodesStatus 批量更新节点状态
+func (dao *NodeDAO) BatchUpdateNodesStatus(nodeIDs []string, status string) (int64, error) {
+	if len(nodeIDs) == 0 {
+		return 0, fmt.Errorf("节点ID列表为空")
+	}
+
+	query := `
+		UPDATE nodes SET status = ?, updated_at = ? WHERE node_id IN (
+	`
+
+	now := time.Now().Unix()
+	params := []interface{}{status, now}
+
+	for i, nodeID := range nodeIDs {
+		if i > 0 {
+			query += ","
+		}
+		query += "?"
+		params = append(params, nodeID)
+	}
+
+	query += ")"
+
+	result, err := dao.db.Exec(query, params...)
+	if err != nil {
+		return 0, fmt.Errorf("批量更新节点状态失败: %v", err)
+	}
+
+	updated, _ := result.RowsAffected()
+	fmt.Printf("[DAO] 批量更新节点状态完成，更新 %d 个节点\n", updated)
+	return updated, nil
+}
+
+// IsolateNode 隔离节点
+func (dao *NodeDAO) IsolateNode(nodeID, reason string) error {
+	_, err := dao.db.Exec(
+		"UPDATE nodes SET isolated = 1, isolated_at = ?, isolated_reason = ? WHERE node_id = ?",
+		time.Now().Unix(), reason, nodeID,
+	)
+	if err != nil {
+		return fmt.Errorf("隔离节点失败: %v", err)
+	}
+	return nil
+}
+
+// RecoverNode 恢复节点
+func (dao *NodeDAO) RecoverNode(nodeID string) error {
+	_, err := dao.db.Exec(
+		"UPDATE nodes SET isolated = 0, isolated_at = NULL, isolated_reason = NULL WHERE node_id = ?",
+		nodeID,
+	)
+	if err != nil {
+		return fmt.Errorf("恢复节点失败: %v", err)
+	}
+	return nil
+}
+
+// IsNodeIsolated 检查节点是否被隔离
+func (dao *NodeDAO) IsNodeIsolated(nodeID string) (bool, error) {
+	var isolated int
+	err := dao.db.QueryRow("SELECT isolated FROM nodes WHERE node_id = ?", nodeID).Scan(&isolated)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, fmt.Errorf("节点 %s 不存在", nodeID)
+		}
+		return false, fmt.Errorf("查询节点隔离状态失败: %v", err)
+	}
+	return isolated == 1, nil
 }

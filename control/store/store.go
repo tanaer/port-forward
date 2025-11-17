@@ -9,10 +9,12 @@ import (
 
 // Store 统一数据存储接口
 type Store struct {
-	db       *sql.DB
-	nodeDAO  *NodeDAO
-	configDAO *ProxyConfigDAO
-	logDAO   *NodeLogDAO
+	db             *sql.DB
+	nodeDAO        *NodeDAO
+	configDAO      *ProxyConfigDAO
+	logDAO         *NodeLogDAO
+	eventDAO       *NodeEventDAO
+	versionDAO     *ConfigVersionDAO
 }
 
 // NewStore 创建存储实例
@@ -34,12 +36,16 @@ func NewStore(dbPath string) (*Store, error) {
 	nodeDAO := NewNodeDAO(db.db)
 	configDAO := NewProxyConfigDAO(db.db)
 	logDAO := NewNodeLogDAO(db.db)
+	eventDAO := NewNodeEventDAO(db.db)
+	versionDAO := NewConfigVersionDAO(db.db)
 
 	store := &Store{
-		db:       db.db,
-		nodeDAO:  nodeDAO,
-		configDAO: configDAO,
-		logDAO:   logDAO,
+		db:         db.db,
+		nodeDAO:    nodeDAO,
+		configDAO:  configDAO,
+		logDAO:     logDAO,
+		eventDAO:   eventDAO,
+		versionDAO: versionDAO,
 	}
 
 	log.Println("[存储] 数据存储层已初始化")
@@ -63,12 +69,16 @@ func NewMemoryStore() (*Store, error) {
 	nodeDAO := NewNodeDAO(db.db)
 	configDAO := NewProxyConfigDAO(db.db)
 	logDAO := NewNodeLogDAO(db.db)
+	eventDAO := NewNodeEventDAO(db.db)
+	versionDAO := NewConfigVersionDAO(db.db)
 
 	return &Store{
-		db:       db.db,
-		nodeDAO:  nodeDAO,
-		configDAO: configDAO,
-		logDAO:   logDAO,
+		db:         db.db,
+		nodeDAO:    nodeDAO,
+		configDAO:  configDAO,
+		logDAO:     logDAO,
+		eventDAO:   eventDAO,
+		versionDAO: versionDAO,
 	}, nil
 }
 
@@ -85,6 +95,16 @@ func (s *Store) ProxyConfigDAO() *ProxyConfigDAO {
 // NodeLogDAO 返回节点日志DAO
 func (s *Store) NodeLogDAO() *NodeLogDAO {
 	return s.logDAO
+}
+
+// NodeEventDAO 返回节点事件DAO
+func (s *Store) NodeEventDAO() *NodeEventDAO {
+	return s.eventDAO
+}
+
+// ConfigVersionDAO 返回配置版本DAO
+func (s *Store) ConfigVersionDAO() *ConfigVersionDAO {
+	return s.versionDAO
 }
 
 // Close 关闭存储

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -96,7 +97,18 @@ func (w *WebServer) setupRoutes() {
 	// API接口
 	router.GET("/api/nodes", w.apiNodesHandler)
 	router.GET("/api/nodes/:id", w.apiNodeDetailHandler)
+	router.POST("/api/nodes/:id/isolate", w.apiIsolateNodeHandler)
+	router.POST("/api/nodes/:id/recover", w.apiRecoverNodeHandler)
+	router.GET("/api/nodes/:id/health", w.apiNodeHealthHandler)
+	router.GET("/api/nodes/:id/events", w.apiNodeEventsHandler)
+	router.POST("/api/nodes/batch/restart", w.apiBatchRestartNodesHandler)
+	router.POST("/api/nodes/batch/status", w.apiBatchUpdateNodesStatusHandler)
 	router.GET("/api/health", w.apiHealthHandler)
+
+	// 配置API接口
+	router.GET("/api/configs", w.apiConfigsHandler)
+	router.POST("/api/configs/batch", w.apiBatchConfigsHandler)
+	router.DELETE("/api/configs/batch", w.apiBatchDeleteConfigsHandler)
 
 	// WebSocket接口
 	router.GET("/ws", w.wsHandler)
@@ -256,4 +268,515 @@ func (w *WebServer) Stop() error {
 // wsHandler WebSocket处理
 func (w *WebServer) wsHandler(c *gin.Context) {
 	w.wsHub.ServeWebSocket(c)
+}
+// apiConfigsHandler API - 获取配置列表
+func (w *WebServer) apiConfigsHandler(c *gin.Context) {
+	configs := w.controlSrv.GetConfigs()
+
+	configList := make([]map[string]interface{}, 0, len(configs))
+	for configID, config := range configs {
+		configList = append(configList, map[string]interface{}{
+			"id":           configID,
+			"name":         config.Name,
+			"outboundType": config.OutboundType,
+			"inboundPort":  config.InboundPort,
+			"nodeId":       config.NodeId,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    configList,
+	})
+}
+
+// apiBatchRestartNodesHandler API - 批量重启节点
+func (w *WebServer) apiBatchRestartNodesHandler(c *gin.Context) {
+	var req struct {
+		NodeIDs []string `json:"node_ids"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	// 验证节点ID列表
+	if len(req.NodeIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID列表不能为空",
+		})
+		return
+	}
+
+	// 调用控制服务器的批量重启方法
+	results := w.controlSrv.BatchRestartNodes(req.NodeIDs)
+
+	// 统计成功和失败的数量
+	successCount := 0
+	failedCount := 0
+	for _, success := range results {
+		if success {
+			successCount++
+		} else {
+			failedCount++
+		}
+	}
+
+	// 如果所有节点都返回false，说明功能未实现
+	if failedCount == len(results) {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"success":      false,
+			"error":        "批量重启功能暂未实现，需 Phase 2 支持",
+			"successCount": successCount,
+			"failedCount":  failedCount,
+			"results":      results,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"message":      fmt.Sprintf("批量重启完成: 成功 %d, 失败 %d", successCount, failedCount),
+		"successCount": successCount,
+		"failedCount":  failedCount,
+		"results":      results,
+	})
+}
+
+// apiBatchUpdateNodesStatusHandler API - 批量更新节点状态
+func (w *WebServer) apiBatchUpdateNodesStatusHandler(c *gin.Context) {
+	var req struct {
+		NodeIDs []string `json:"node_ids"`
+		Status  string   `json:"status"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	// 验证节点ID列表
+	if len(req.NodeIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID列表不能为空",
+		})
+		return
+	}
+
+	// 验证状态字段
+	if req.Status == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "状态不能为空",
+		})
+		return
+	}
+
+	// 验证状态值
+	validStatuses := map[string]bool{
+		"active":     true,
+		"inactive":   true,
+		"maintenance": true,
+		"unknown":    true,
+	}
+	if !validStatuses[req.Status] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("无效的状态值 '%s'，必须是 active/inactive/maintenance/unknown", req.Status),
+		})
+		return
+	}
+
+	// 调用控制服务器的批量更新方法
+	affected, err := w.controlSrv.BatchUpdateNodesStatus(req.NodeIDs, req.Status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "批量更新节点状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"message":    fmt.Sprintf("批量更新节点状态完成，影响 %d 个节点", affected),
+		"affected":   affected,
+		"requested":  len(req.NodeIDs),
+	})
+}
+
+// apiBatchConfigsHandler API - 批量创建/更新配置
+func (w *WebServer) apiBatchConfigsHandler(c *gin.Context) {
+	var req struct {
+		Configs []*store.ProxyConfigRecord `json:"configs"`
+		Action  string                     `json:"action"` // "create" or "update"
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	// 验证配置列表
+	if len(req.Configs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "配��列表不能为空",
+		})
+		return
+	}
+
+	// 验证操作类型
+	if req.Action != "create" && req.Action != "update" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "操作类型必须是 'create' 或 'update'",
+		})
+		return
+	}
+
+	// 验证每个配置的必需字段
+	for i, config := range req.Configs {
+		if config.NodeID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("配置 %d 缺少 node_id", i),
+			})
+			return
+		}
+		if config.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("配置 %d 缺少 name", i),
+			})
+			return
+		}
+		if config.OutboundType == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("配置 %d 缺少 outbound_type", i),
+			})
+			return
+		}
+		if config.ConfigJSON == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("配置 %d 缺少 config_json", i),
+			})
+			return
+		}
+	}
+
+	var affected int64
+	var err error
+
+	if req.Action == "create" {
+		affected, err = w.controlSrv.BatchCreateConfigs(req.Configs)
+	} else {
+		affected, err = w.controlSrv.BatchUpdateConfigs(req.Configs)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("批量%s配置失败: %v", req.Action, err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"message":  fmt.Sprintf("批量%s配置完成，影响 %d 个配置", req.Action, affected),
+		"affected": affected,
+		"requested": len(req.Configs),
+	})
+}
+
+// apiBatchDeleteConfigsHandler API - 批量删除配置
+func (w *WebServer) apiBatchDeleteConfigsHandler(c *gin.Context) {
+	var req struct {
+		ConfigIDs []int32 `json:"config_ids"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	if len(req.ConfigIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "配置ID列表不能为空",
+		})
+		return
+	}
+
+	// 调用控制服务器的批量删除方法
+	affected, err := w.controlSrv.BatchDeleteConfigs(req.ConfigIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "批量删除配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"message":  fmt.Sprintf("批量删除配置完成，影响 %d 个配置", affected),
+		"affected": affected,
+		"requested": len(req.ConfigIDs),
+	})
+}
+
+// apiIsolateNodeHandler 隔离节点API
+func (w *WebServer) apiIsolateNodeHandler(c *gin.Context) {
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID不能为空",
+		})
+		return
+	}
+
+	// 解析请求体（可选的隔离原因）
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 如果没有提供原因，使用默认值
+		req.Reason = "手动隔离"
+	}
+
+	// 检查节点是否存在
+	if _, exists := w.controlSrv.GetNodeStatus(nodeID); !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("节点 %s 不存在", nodeID),
+		})
+		return
+	}
+
+	// 获取生命周期管理器并执行隔离
+	lifecycleManager := w.controlSrv.GetLifecycleManager()
+	if lifecycleManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "生命周期管理器未初始化",
+		})
+		return
+	}
+
+	// 执行隔离
+	if err := lifecycleManager.IsolateNode(nodeID, req.Reason, false); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[Web API] 节点已隔离: %s, 原因: %s", nodeID, req.Reason)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("节点 %s 已成功隔离", nodeID),
+		"node_id": nodeID,
+		"reason":  req.Reason,
+	})
+}
+
+// apiRecoverNodeHandler 恢复节点API
+func (w *WebServer) apiRecoverNodeHandler(c *gin.Context) {
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID不能为空",
+		})
+		return
+	}
+
+	// 检查节点是否存在
+	if _, exists := w.controlSrv.GetNodeStatus(nodeID); !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("节点 %s 不存在", nodeID),
+		})
+		return
+	}
+
+	// 获取生命周期管理器并执行恢复
+	lifecycleManager := w.controlSrv.GetLifecycleManager()
+	if lifecycleManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "生命周期管理器未初始化",
+		})
+		return
+	}
+
+	// 执行恢复
+	if err := lifecycleManager.RecoverNode(nodeID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[Web API] 节点已恢复: %s", nodeID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("节点 %s 已成功恢复", nodeID),
+		"node_id": nodeID,
+	})
+}
+
+// apiNodeHealthHandler 获取节点健康状态API
+func (w *WebServer) apiNodeHealthHandler(c *gin.Context) {
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID不能为空",
+		})
+		return
+	}
+
+	// 检查节点是否存在
+	node, exists := w.controlSrv.GetNodeStatus(nodeID)
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("节点 %s 不存在", nodeID),
+		})
+		return
+	}
+
+	// 获取生命周期管理器
+	lifecycleManager := w.controlSrv.GetLifecycleManager()
+	if lifecycleManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "生命周期管理器未初始化",
+		})
+		return
+	}
+
+	// 获取健康状态
+	healthStatus, err := lifecycleManager.GetNodeHealthStatus(nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 获取失败计数和离线时间
+	failureCount := lifecycleManager.GetFailureCount(nodeID)
+	offlineTime, isOffline := lifecycleManager.GetOfflineTime(nodeID)
+	isolated := lifecycleManager.IsNodeIsolated(nodeID)
+
+	response := gin.H{
+		"success":       true,
+		"node_id":       nodeID,
+		"health_status": string(healthStatus),
+		"status":        node.Status,
+		"failure_count": failureCount,
+		"isolated":      isolated,
+	}
+
+	if isOffline {
+		response["offline_since"] = offlineTime.Unix()
+		response["offline_duration_seconds"] = int64(node.LastHeartbeat.Sub(offlineTime).Seconds())
+	}
+
+	if node.Health != nil {
+		response["health_metrics"] = gin.H{
+			"cpu_percent":         node.Health.CpuPercent,
+			"memory_percent":      node.Health.MemoryPercent,
+			"disk_percent":        node.Health.DiskPercent,
+			"active_connections":  node.Health.ActiveConnections,
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// apiNodeEventsHandler 获取节点事件历史API
+func (w *WebServer) apiNodeEventsHandler(c *gin.Context) {
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "节点ID不能为空",
+		})
+		return
+	}
+
+	// 获取limit参数（默认50条）
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil && parsedLimit == 1 {
+			if limit < 1 {
+				limit = 10
+			} else if limit > 500 {
+				limit = 500
+			}
+		}
+	}
+
+	// 检查节点是否存在
+	if _, exists := w.controlSrv.GetNodeStatus(nodeID); !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("节点 %s 不存在", nodeID),
+		})
+		return
+	}
+
+	// 从数据库获取事件
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "数据存储未初始化",
+		})
+		return
+	}
+
+	events, err := store.NodeEventDAO().GetEventsByNodeID(nodeID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("获取节点事件失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"node_id": nodeID,
+		"events":  events,
+		"count":   len(events),
+	})
 }
