@@ -501,12 +501,43 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 			s.configManager.mu.RUnlock()
 
 			// 检查是否有待执行的回滚任务
-			s.nodeRegistry.mu.Lock()
-			tasks := s.nodeRegistry.rollbackTasks[nodeID]
-			if len(tasks) > 0 {
-				// 取出第一个任务（先不移除，失败时便于重试）
-				task := tasks[0]
+			var task *RollbackTask
+			var dbTaskID int64
+
+			// 优先从数据库读取任务
+			if s.store != nil {
+				dbTasks, err := s.store.RollbackTaskDAO().GetPendingTasksByNode(nodeID)
+				if err != nil {
+					log.Printf("[控制端] 从数据库读取任务失败: %v", err)
+				} else if len(dbTasks) > 0 {
+					// 使用数据库中的第一个待执行任务
+					dbTask := dbTasks[0]
+					dbTaskID = dbTask.ID
+					task = &RollbackTask{
+						ID:            int32(dbTask.ID),
+						ConfigID:      dbTask.ConfigID,
+						TargetVersion: dbTask.TargetVersion,
+						Reason:        dbTask.Reason,
+						CreatedAt:     time.Unix(dbTask.CreatedAt, 0),
+					}
+					log.Printf("[控制端] 从数据库加载任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
+						task.ID, task.ConfigID, task.TargetVersion)
+				}
+			}
+
+			// 如果数据库没有任务，检查内存队列（降级方案）
+			if task == nil {
+				s.nodeRegistry.mu.Lock()
+				memTasks := s.nodeRegistry.rollbackTasks[nodeID]
+				if len(memTasks) > 0 {
+					task = memTasks[0]
+					log.Printf("[控制端] 从内存队列加载任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
+						task.ID, task.ConfigID, task.TargetVersion)
+				}
 				s.nodeRegistry.mu.Unlock()
+			}
+
+			if task != nil {
 
 				log.Printf("[控制端] 向节点 %s 发送回滚任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
 					nodeID, task.ID, task.ConfigID, task.TargetVersion)
@@ -590,7 +621,7 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 
 				// 处理任务结果
 				if taskFailed {
-					// 任务失败：发布失败事件，重新入队
+					// 任务失败：发布失败事件，更新状态（保持pending，增加重试计数）
 					update = &pb.ConfigUpdate{
 						NodeId:  nodeID,
 						Success: false,
@@ -603,26 +634,54 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 							Type:     EventRollbackTaskFailed,
 							ConfigID: task.ConfigID,
 							Data: map[string]interface{}{
-								"task_id":       task.ID,
-								"node_id":       nodeID,
-								"reason":        failureReason,
+								"task_id":        task.ID,
+								"node_id":        nodeID,
+								"reason":         failureReason,
 								"target_version": task.TargetVersion,
 							},
 							Timestamp: time.Now().Unix(),
 						})
 					}
 
-					// 重新入队，供后续重试
-					s.nodeRegistry.mu.Lock()
-					s.nodeRegistry.rollbackTasks[nodeID] = append([]*RollbackTask{task}, s.nodeRegistry.rollbackTasks[nodeID][1:]...)
-					s.nodeRegistry.mu.Unlock()
-
-					log.Printf("[控制端] 回滚任务失败，已重新入队: TaskID=%d, Reason=%s", task.ID, failureReason)
+					// 更新数据库：增加重试计数（如果使用数据库）
+					if dbTaskID > 0 && s.store != nil {
+						if err := s.store.RollbackTaskDAO().IncrementRetryCount(dbTaskID); err != nil {
+							log.Printf("[控制端] 更新任务重试计数失败: %v", err)
+						}
+						if err := s.store.RollbackTaskDAO().UpdateTaskStatus(dbTaskID, "pending", failureReason); err != nil {
+							log.Printf("[控制端] 更新任务状态失败: %v", err)
+						}
+						log.Printf("[控制端] 回滚任务失败，已记录到数据库: TaskID=%d, Reason=%s", task.ID, failureReason)
+					} else {
+						// 内存队列：重新入队，供后续重试
+						s.nodeRegistry.mu.Lock()
+						memTasks := s.nodeRegistry.rollbackTasks[nodeID]
+						if len(memTasks) > 0 {
+							s.nodeRegistry.rollbackTasks[nodeID] = append([]*RollbackTask{task}, memTasks[1:]...)
+						}
+						s.nodeRegistry.mu.Unlock()
+						log.Printf("[控制端] 回滚任务失败，已重新入队: TaskID=%d, Reason=%s", task.ID, failureReason)
+					}
 				} else {
-					// 任务成功准备：发送回滚配置给Agent，并移除任务
-					s.nodeRegistry.mu.Lock()
-					s.nodeRegistry.rollbackTasks[nodeID] = tasks[1:]
-					s.nodeRegistry.mu.Unlock()
+					// 任务成功准备：发送回滚配置给Agent，并标记任务为已推送
+
+					// 从数据库或内存删除/更新任务
+					if dbTaskID > 0 && s.store != nil {
+						// 数据库：标记为processing（等待Agent执行反馈）
+						if err := s.store.RollbackTaskDAO().UpdateTaskStatus(dbTaskID, "processing", ""); err != nil {
+							log.Printf("[控制端] 更新任务状态失败: %v", err)
+						}
+						log.Printf("[控制端] 回滚任务已标记为processing: TaskID=%d", task.ID)
+					} else {
+						// 内存队列：移除任务
+						s.nodeRegistry.mu.Lock()
+						memTasks := s.nodeRegistry.rollbackTasks[nodeID]
+						if len(memTasks) > 0 {
+							s.nodeRegistry.rollbackTasks[nodeID] = memTasks[1:]
+						}
+						s.nodeRegistry.mu.Unlock()
+						log.Printf("[控制端] 回滚任务已从内存队列移除: TaskID=%d", task.ID)
+					}
 
 					update = &pb.ConfigUpdate{
 						NodeId:      nodeID,
@@ -643,10 +702,10 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 							Type:     EventRollbackTaskPushed,
 							ConfigID: task.ConfigID,
 							Data: map[string]interface{}{
-								"task_id":       task.ID,
-								"node_id":       nodeID,
+								"task_id":        task.ID,
+								"node_id":        nodeID,
 								"target_version": task.TargetVersion,
-								"reason":        task.Reason,
+								"reason":         task.Reason,
 							},
 							Timestamp: time.Now().Unix(),
 						})
@@ -656,8 +715,7 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 						task.ID, task.ConfigID)
 				}
 			} else {
-				s.nodeRegistry.mu.Unlock()
-
+				// 无待执行任务，返回正常配置列表
 				update = &pb.ConfigUpdate{
 					NodeId:  nodeID,
 					Success: true,
@@ -1198,23 +1256,34 @@ func (s *ControlServer) PushRollbackToNode(nodeID string, configID int32, target
 		return fmt.Errorf("节点 %s 不存在", nodeID)
 	}
 
-	// 创建回滚任务
-	task := &RollbackTask{
-		ConfigID:     configID,
-		TargetVersion: targetVersion,
-		Reason:       reason,
-		CreatedAt:    time.Now(),
+	var taskID int64
+
+	// 使用数据库持久化任务（如果可用）
+	if s.store != nil {
+		taskRecord := &store.RollbackTaskRecord{
+			NodeID:        nodeID,
+			ConfigID:      configID,
+			TargetVersion: targetVersion,
+			Status:        "pending",
+			RetryCount:    0,
+			Reason:        reason,
+			ErrorMessage:  "",
+		}
+
+		id, err := s.store.RollbackTaskDAO().CreateTask(taskRecord)
+		if err != nil {
+			log.Printf("[控制端] 数据库持久化任务失败，回退到内存队列: %v", err)
+			// 降级到内存队列
+			taskID = s.addTaskToMemoryQueue(nodeID, configID, targetVersion, reason)
+		} else {
+			taskID = id
+			log.Printf("[控制端] 回滚任务已持久化到数据库: TaskID=%d, NodeID=%s, ConfigID=%d, TargetVersion=%d",
+				taskID, nodeID, configID, targetVersion)
+		}
+	} else {
+		// 无数据库，使用内存队列
+		taskID = s.addTaskToMemoryQueue(nodeID, configID, targetVersion, reason)
 	}
-
-	// 将任务添加到节点的待执行队列
-	s.nodeRegistry.mu.Lock()
-	// 生成简单任务ID（实际项目中应使用原子自增ID）
-	task.ID = int32(len(s.nodeRegistry.rollbackTasks[nodeID]) + 1)
-	s.nodeRegistry.rollbackTasks[nodeID] = append(s.nodeRegistry.rollbackTasks[nodeID], task)
-	s.nodeRegistry.mu.Unlock()
-
-	log.Printf("[控制端] 回滚任务已添加到队列: NodeID=%s, TaskID=%d, ConfigID=%d, TargetVersion=%d",
-		nodeID, task.ID, configID, targetVersion)
 
 	// 发布任务创建事件
 	if s.eventBus != nil {
@@ -1222,16 +1291,36 @@ func (s *ControlServer) PushRollbackToNode(nodeID string, configID int32, target
 			Type:     EventRollbackTaskCreated,
 			ConfigID: configID,
 			Data: map[string]interface{}{
-				"task_id":       task.ID,
-				"node_id":       nodeID,
+				"task_id":        taskID,
+				"node_id":        nodeID,
 				"target_version": targetVersion,
-				"reason":        reason,
+				"reason":         reason,
 			},
 			Timestamp: time.Now().Unix(),
 		})
 	}
 
 	return nil
+}
+
+// addTaskToMemoryQueue 添加任务到内存队列（降级方案）
+func (s *ControlServer) addTaskToMemoryQueue(nodeID string, configID int32, targetVersion int32, reason string) int64 {
+	task := &RollbackTask{
+		ConfigID:      configID,
+		TargetVersion: targetVersion,
+		Reason:        reason,
+		CreatedAt:     time.Now(),
+	}
+
+	s.nodeRegistry.mu.Lock()
+	task.ID = int32(len(s.nodeRegistry.rollbackTasks[nodeID]) + 1)
+	s.nodeRegistry.rollbackTasks[nodeID] = append(s.nodeRegistry.rollbackTasks[nodeID], task)
+	s.nodeRegistry.mu.Unlock()
+
+	log.Printf("[控制端] 回滚任务已添加到内存队列: NodeID=%s, TaskID=%d, ConfigID=%d, TargetVersion=%d",
+		nodeID, task.ID, configID, targetVersion)
+
+	return int64(task.ID)
 }
 
 // GetNodesByGroup 批量获取分组节点

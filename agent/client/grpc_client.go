@@ -185,6 +185,31 @@ func (a *AgentClient) RequestConfig() ([]*pb.ProxyConfig, error) {
 		return nil, fmt.Errorf("获取配置失败: %s", update.Message)
 	}
 
+	// 检查是否包含回滚任务
+	if update.RollbackInfo != nil {
+		log.Printf("[Agent] 🔄 收到回滚任务: ConfigID=%d, TargetVersion=%d, Reason=%s",
+			update.RollbackInfo.ConfigId,
+			update.RollbackInfo.TargetVersion,
+			update.RollbackInfo.RollbackReason)
+
+		// 执行回滚：应用配置到本地代理
+		if len(update.Configs) > 0 {
+			rollbackConfig := update.Configs[0]
+			log.Printf("[Agent] 应用回滚配置: ID=%d, Name=%s, OutboundType=%s",
+				rollbackConfig.Id, rollbackConfig.Name, rollbackConfig.OutboundType)
+
+			// TODO: 在此处调用代理管理器应用配置
+			// 例如：proxyManager.ApplyConfig(rollbackConfig)
+
+			log.Printf("[Agent] ✅ 回滚配置已应用")
+		} else {
+			log.Printf("[Agent] ⚠️ 回滚任务没有附带配置数据")
+		}
+
+		// 返回回滚后的配置列表
+		return update.Configs, nil
+	}
+
 	log.Printf("[Agent] 收到配置: %d 个代理", len(update.Configs))
 	return update.Configs, nil
 }

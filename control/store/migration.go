@@ -73,6 +73,14 @@ func (m *Migrator) registerMigrations() {
 		Up:      m.addEventAndVersionTables,
 		Down:    m.removeEventAndVersionTables,
 	})
+
+	// 版本6: 添加回滚任务表
+	m.migrations = append(m.migrations, Migration{
+		Version: 6,
+		Name:    "add_rollback_tasks_table",
+		Up:      m.addRollbackTasksTable,
+		Down:    m.removeRollbackTasksTable,
+	})
 }
 
 // createInitialSchema 创建初始数据库结构
@@ -542,5 +550,63 @@ func (m *Migrator) removeEventAndVersionTables(db *sql.DB) error {
 	}
 
 	log.Println("[迁移] 节点事件表和配置版本表删除成功")
+	return nil
+}
+
+// addRollbackTasksTable 添加回滚任务表
+func (m *Migrator) addRollbackTasksTable(db *sql.DB) error {
+	log.Println("[迁移] 执行迁移 v6: 添加回滚任务表")
+
+	// 创建回滚任务表
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS rollback_tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			node_id VARCHAR(255) NOT NULL,
+			config_id INTEGER NOT NULL,
+			target_version INTEGER NOT NULL,
+			status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			retry_count INTEGER DEFAULT 0,
+			reason TEXT,
+			error_message TEXT,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+		);
+	`); err != nil {
+		return fmt.Errorf("创建回滚任务表失败: %v", err)
+	}
+
+	// 创建索引
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_rollback_tasks_node_id ON rollback_tasks(node_id);
+	`); err != nil {
+		return fmt.Errorf("创建回滚任务表node_id索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_rollback_tasks_status ON rollback_tasks(status);
+	`); err != nil {
+		return fmt.Errorf("创建回滚任务表status索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_rollback_tasks_created_at ON rollback_tasks(created_at);
+	`); err != nil {
+		return fmt.Errorf("创建回滚任务表created_at索引失败: %v", err)
+	}
+
+	log.Println("[迁移] 回滚任务表创建成功")
+	return nil
+}
+
+// removeRollbackTasksTable 移除回滚任务表
+func (m *Migrator) removeRollbackTasksTable(db *sql.DB) error {
+	log.Println("[迁移] 回滚迁移 v6: 移除回滚任务表")
+
+	if _, err := db.Exec("DROP TABLE IF EXISTS rollback_tasks"); err != nil {
+		return fmt.Errorf("删除rollback_tasks表失败: %v", err)
+	}
+
+	log.Println("[迁移] 回滚任务表删除成功")
 	return nil
 }
