@@ -392,3 +392,116 @@ func BenchmarkControlServer(b *testing.B) {
 		_, _ = client.ReportStatus(ctx, status)
 	}
 }
+
+
+// TestRollbackFlow 测试回滚流程集成测试
+func TestRollbackFlow(t *testing.T) {
+	// 创建事件处理器记录器
+	var recordedEvents []*Event
+	eventHandler := func(event *Event) error {
+		recordedEvents = append(recordedEvents, event)
+		return nil
+	}
+
+	// 创建控制服务器（不使用数据库）
+	server := NewControlServer(nil)
+
+	// 订阅事件处理器（记录所有事件）
+	eventTypes := []EventType{
+		EventConfigRolledBack,
+		EventConfigVersionCreated,
+		EventRollbackTaskCreated,
+		EventRollbackTaskPushed,
+	}
+	for _, eventType := range eventTypes {
+		server.eventBus.SubscribeFunc(eventType, eventHandler)
+	}
+
+	// 先注册节点
+	nodeInfo := &NodeInfo{
+		Info: &pb.NodeInfo{
+			NodeId:    "test-node",
+			Hostname:  "test-host",
+			IpAddress: "192.168.1.100",
+			Version:   "v2.0.0",
+		},
+		LastHeartbeat: time.Now(),
+		Status:        "active",
+		ControlToken:  "test-token",
+	}
+	server.nodeRegistry.mu.Lock()
+	server.nodeRegistry.nodes["test-node"] = nodeInfo
+	server.nodeRegistry.mu.Unlock()
+
+	// 1. 测试 PushRollbackToNode 功能
+	log.Println("=== 步骤1: 测试PushRollbackToNode ===")
+	err := server.PushRollbackToNode("test-node", 1, 2, "测试主动推送回滚")
+	if err != nil {
+		t.Fatalf("PushRollbackToNode失败: %v", err)
+	}
+
+	// 验证任务是否添加到队列
+	server.nodeRegistry.mu.RLock()
+	tasks := server.nodeRegistry.rollbackTasks["test-node"]
+	server.nodeRegistry.mu.RUnlock()
+
+	if len(tasks) != 1 {
+		t.Fatalf("回滚任务队列长度错误: 期望=1, 实际=%d", len(tasks))
+	}
+
+	task := tasks[0]
+	if task.ConfigID != 1 || task.TargetVersion != 2 {
+		t.Errorf("回滚任务内容错误: ConfigID=%d, TargetVersion=%d",
+			task.ConfigID, task.TargetVersion)
+	}
+	log.Printf("✅ 主动推送回滚任务创建成功: TaskID=%d, ConfigID=%d, TargetVersion=%d",
+		task.ID, task.ConfigID, task.TargetVersion)
+
+	// 等待事件处理
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证任务创建事件
+	var foundTaskCreatedEvent bool
+	for _, event := range recordedEvents {
+		if event.Type == EventRollbackTaskCreated {
+			foundTaskCreatedEvent = true
+			if event.Data["node_id"] != "test-node" {
+				t.Errorf("任务创建事件node_id错误")
+			}
+			log.Printf("✅ 收到任务创建事件: %v", event.Data)
+		}
+	}
+
+	if !foundTaskCreatedEvent {
+		t.Error("未收到EventRollbackTaskCreated事件")
+	}
+
+	// 2. 验证任务队列管理
+	log.Println("=== 步骤2: 验证任务队列管理 ===")
+	// 添加另一个任务
+	err = server.PushRollbackToNode("test-node", 2, 3, "第二个任务")
+	if err != nil {
+		t.Errorf("添加第二个任务失败: %v", err)
+	}
+
+	server.nodeRegistry.mu.RLock()
+	tasks = server.nodeRegistry.rollbackTasks["test-node"]
+	server.nodeRegistry.mu.RUnlock()
+
+	if len(tasks) != 2 {
+		t.Errorf("添加任务后队列长度错误: 期望=2, 实际=%d", len(tasks))
+	}
+
+	log.Printf("✅ 任务队列管理正常: 当前任务数=%d", len(tasks))
+
+	// 3. 验证事件系统
+	log.Println("=== 步骤3: 验证事件系统 ===")
+	time.Sleep(100 * time.Millisecond)
+	if len(recordedEvents) == 0 {
+		t.Error("未记录到任何事件")
+	}
+
+	log.Printf("✅ 事件系统正常: 共记录 %d 个事件", len(recordedEvents))
+
+	log.Println("=== 🎉 回滚流程集成测试完成 ===")
+}

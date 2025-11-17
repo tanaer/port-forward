@@ -62,9 +62,19 @@ type WebSocketHub interface {
 }
 
 // NodeRegistry 节点注册表
+// RollbackTask 回滚任务
+type RollbackTask struct {
+	ID           int32  `json:"id"`           // 任务ID
+	ConfigID     int32  `json:"config_id"`    // 配置ID
+	TargetVersion int32 `json:"target_version"` // 目标版本
+	Reason       string `json:"reason"`       // 回滚原因
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type NodeRegistry struct {
-	nodes map[string]*NodeInfo // node_id -> NodeInfo
-	mu    sync.RWMutex
+	nodes        map[string]*NodeInfo // node_id -> NodeInfo
+	rollbackTasks map[string][]*RollbackTask // node_id -> 待执行的回滚任务列表
+	mu           sync.RWMutex
 }
 
 // NodeInfo 节点信息
@@ -97,7 +107,8 @@ func NewControlServer(store *store.Store) *ControlServer {
 func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *ControlServer {
 	// 初始化基础组件
 	nodeRegistry := &NodeRegistry{
-		nodes: make(map[string]*NodeInfo),
+		nodes:         make(map[string]*NodeInfo),
+		rollbackTasks: make(map[string][]*RollbackTask),
 	}
 
 	// 创建事件总线（4个工作协程）
@@ -164,6 +175,11 @@ func (s *ControlServer) subscribeEventHandlers() {
 	s.eventBus.Subscribe(EventConfigUpdated, logHandler)
 	s.eventBus.Subscribe(EventConfigDeleted, logHandler)
 	s.eventBus.Subscribe(EventConfigRolledBack, logHandler)
+	s.eventBus.Subscribe(EventConfigVersionCreated, logHandler)
+	s.eventBus.Subscribe(EventConfigApplied, logHandler)
+	s.eventBus.Subscribe(EventConfigFailed, logHandler)
+	s.eventBus.Subscribe(EventRollbackTaskCreated, logHandler)
+	s.eventBus.Subscribe(EventRollbackTaskPushed, logHandler)
 
 	// 订阅 WebSocket 处理器（如果存在）
 	if s.wsHub != nil {
@@ -178,6 +194,11 @@ func (s *ControlServer) subscribeEventHandlers() {
 		s.eventBus.Subscribe(EventConfigUpdated, wsHandler)
 		s.eventBus.Subscribe(EventConfigDeleted, wsHandler)
 		s.eventBus.Subscribe(EventConfigRolledBack, wsHandler)
+		s.eventBus.Subscribe(EventConfigVersionCreated, wsHandler)
+		s.eventBus.Subscribe(EventConfigApplied, wsHandler)
+		s.eventBus.Subscribe(EventConfigFailed, wsHandler)
+		s.eventBus.Subscribe(EventRollbackTaskCreated, wsHandler)
+		s.eventBus.Subscribe(EventRollbackTaskPushed, wsHandler)
 	}
 
 	// 订阅数据库处理器（节点事件）
@@ -477,13 +498,105 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 			}
 			s.configManager.mu.RUnlock()
 
-			update = &pb.ConfigUpdate{
-				NodeId:  nodeID,
-				Success: true,
-				Message: fmt.Sprintf("获取配置成功，共%d个", len(configs)),
-				Configs: configs,
+			// 检查是否有待执行的回滚任务
+			s.nodeRegistry.mu.Lock()
+			tasks := s.nodeRegistry.rollbackTasks[nodeID]
+			if len(tasks) > 0 {
+				// 取出第一个任务并发送给 Agent
+				task := tasks[0]
+				s.nodeRegistry.rollbackTasks[nodeID] = tasks[1:]
+				s.nodeRegistry.mu.Unlock()
+
+				log.Printf("[控制端] 向节点 %s 发送回滚任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
+					nodeID, task.ID, task.ConfigID, task.TargetVersion)
+
+				// 获取目标版本配置
+				var rollbackConfig *pb.ProxyConfig
+				if s.versionManager != nil {
+					record, err := s.versionManager.GetVersion(task.ConfigID, task.TargetVersion)
+					if err != nil {
+						log.Printf("[控制端] 获取回滚版本失败: %v", err)
+						update = &pb.ConfigUpdate{
+							NodeId:  nodeID,
+							Success: false,
+							Message: fmt.Sprintf("获取回滚版本失败: %v", err),
+						}
+					} else {
+						var configRecord store.ProxyConfigRecord
+						if err := json.Unmarshal([]byte(record.ConfigSnapshot), &configRecord); err != nil {
+							log.Printf("[控制端] 解析回滚配置失败: %v", err)
+							update = &pb.ConfigUpdate{
+								NodeId:  nodeID,
+								Success: false,
+								Message: fmt.Sprintf("解析回滚配置失败: %v", err),
+							}
+						} else {
+							// 解析配置JSON获取参数
+							var configParams map[string]interface{}
+							json.Unmarshal([]byte(configRecord.ConfigJSON), &configParams)
+
+							// 转换为 protobuf 格式
+							rollbackConfig = &pb.ProxyConfig{
+								Id:           configRecord.ID,
+								Name:         configRecord.Name,
+								OutboundType: configRecord.OutboundType,
+								InboundPort:  configRecord.InboundPort,
+								TargetServer: configParams["target_server"].(string),
+								TargetPort:   int32(configParams["target_port"].(float64)),
+								Params:       make(map[string]string),
+							}
+
+							// 转换其他参数
+							for k, v := range configParams {
+								if k != "target_server" && k != "target_port" {
+									rollbackConfig.Params[k] = fmt.Sprintf("%v", v)
+								}
+							}
+						}
+					}
+				}
+
+				// 发送回滚配置
+				if rollbackConfig != nil {
+					update = &pb.ConfigUpdate{
+						NodeId:      nodeID,
+						Success:     true,
+						Message:     fmt.Sprintf("回滚任务执行: TaskID=%d, ConfigID=%d -> Version=%d (%s)",
+							task.ID, task.ConfigID, task.TargetVersion, task.Reason),
+						Configs:     []*pb.ProxyConfig{rollbackConfig},
+						RollbackInfo: &pb.RollbackInfo{
+							ConfigId:       task.ConfigID,
+							TargetVersion:  task.TargetVersion,
+							RollbackReason: task.Reason,
+						},
+					}
+
+					// 发布任务执行事件
+					if s.eventBus != nil {
+						s.eventBus.Publish(&Event{
+							Type:     EventRollbackTaskPushed,
+							ConfigID: task.ConfigID,
+							Data: map[string]interface{}{
+								"task_id":       task.ID,
+								"node_id":       nodeID,
+								"target_version": task.TargetVersion,
+								"reason":        task.Reason,
+							},
+							Timestamp: time.Now().Unix(),
+						})
+					}
+				}
+			} else {
+				s.nodeRegistry.mu.Unlock()
+
+				update = &pb.ConfigUpdate{
+					NodeId:  nodeID,
+					Success: true,
+					Message: fmt.Sprintf("获取配置成功，共%d个", len(configs)),
+					Configs: configs,
+				}
+				log.Printf("[控制端] 向节点 %s 下发 %d 个配置", nodeID, len(configs))
 			}
-			log.Printf("[控制端] 向节点 %s 下发 %d 个配置", nodeID, len(configs))
 
 		case "update":
 			// 更新配置
@@ -580,14 +693,35 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 										configID, targetVersion, affected),
 								}
 
+								// 生成回滚版本的真实版本号
+								var actualVersion int32
+								if s.versionManager != nil {
+									// 将配置JSON序列化以创建版本快照
+									configJSON, _ := json.Marshal(configRecord)
+									versionRecord, err := s.versionManager.CaptureVersion(
+										configID,
+										string(configJSON),
+										"restore",
+										fmt.Sprintf("回滚到版本 %d", targetVersion),
+										fmt.Sprintf("agent_%s", nodeID),
+									)
+									if err != nil {
+										log.Printf("[控制端] 生成回滚版本号失败: %v", err)
+										// 使用计算值作为后备
+										actualVersion = record.Version + 1
+									} else {
+										actualVersion = versionRecord.Version
+									}
+								}
+
 								// 发布回滚事件
 								if s.eventBus != nil {
 									s.eventBus.Publish(&Event{
 										Type:      EventConfigRolledBack,
 										ConfigID:  configID,
 										Data: map[string]interface{}{
-											"target_version": targetVersion,
-											"current_version": record.Version + 1,
+											"target_version":  targetVersion,
+											"current_version": actualVersion,
 											"rollback_by":     "agent_" + nodeID,
 											"initiated_by":    req.RollbackInfo.InitiatedBy,
 										},
@@ -995,13 +1129,39 @@ func (s *ControlServer) PushRollbackToNode(nodeID string, configID int32, target
 		return fmt.Errorf("节点 %s 不存在", nodeID)
 	}
 
-	// TODO: 实现向指定节点发送回滚配置的逻辑
-	// 这里需要建立到Agent的gRPC连接并发送回滚请求
-	// 由于当前架构是Agent主动连接控制端，我们需要等待Agent下一次请求配置时推送
-	// 或者实现一个回调机制，让Agent主动拉取待执行的回滚任务
+	// 创建回滚任务
+	task := &RollbackTask{
+		ConfigID:     configID,
+		TargetVersion: targetVersion,
+		Reason:       reason,
+		CreatedAt:    time.Now(),
+	}
 
-	log.Printf("[控制端] 回滚配置推送机制待实现 (NodeID=%s, ConfigID=%d, TargetVersion=%d)",
-		nodeID, configID, targetVersion)
+	// 将任务添加到节点的待执行队列
+	s.nodeRegistry.mu.Lock()
+	// 生成简单任务ID（实际项目中应使用原子自增ID）
+	task.ID = int32(len(s.nodeRegistry.rollbackTasks[nodeID]) + 1)
+	s.nodeRegistry.rollbackTasks[nodeID] = append(s.nodeRegistry.rollbackTasks[nodeID], task)
+	s.nodeRegistry.mu.Unlock()
+
+	log.Printf("[控制端] 回滚任务已添加到队列: NodeID=%s, TaskID=%d, ConfigID=%d, TargetVersion=%d",
+		nodeID, task.ID, configID, targetVersion)
+
+	// 发布任务创建事件
+	if s.eventBus != nil {
+		s.eventBus.Publish(&Event{
+			Type:     EventRollbackTaskCreated,
+			ConfigID: configID,
+			Data: map[string]interface{}{
+				"task_id":       task.ID,
+				"node_id":       nodeID,
+				"target_version": targetVersion,
+				"reason":        reason,
+			},
+			Timestamp: time.Now().Unix(),
+		})
+	}
+
 	return nil
 }
 

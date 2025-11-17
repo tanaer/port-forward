@@ -29,6 +29,10 @@ const (
 	EventConfigVersionCreated EventType = "config_version_created"
 	EventConfigApplied        EventType = "config_applied"
 	EventConfigFailed         EventType = "config_failed"
+
+	// 回滚任务事件
+	EventRollbackTaskCreated EventType = "rollback_task_created"
+	EventRollbackTaskPushed  EventType = "rollback_task_pushed"
 )
 
 // Event 事件结构

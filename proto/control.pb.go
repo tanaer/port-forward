@@ -382,7 +382,7 @@ func (x *NodeHealth) GetNetworkTx() float64 {
 	return 0
 }
 
-// 配置请求（Control -> Agent）
+// 配置请求（Agent -> Control）
 type ConfigRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -526,7 +526,8 @@ type ConfigUpdate struct {
 	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
 	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	Configs       []*ProxyConfig         `protobuf:"bytes,4,rep,name=configs,proto3" json:"configs,omitempty"` // 当前运行的代理配置列表
+	Configs       []*ProxyConfig         `protobuf:"bytes,4,rep,name=configs,proto3" json:"configs,omitempty"`                                     // 当前运行的代理配置列表
+	RollbackInfo  *RollbackInfo          `protobuf:"bytes,5,opt,name=rollback_info,json=rollbackInfo,proto3,oneof" json:"rollback_info,omitempty"` // 回滚信息（仅回滚时使用）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,6 +586,13 @@ func (x *ConfigUpdate) GetMessage() string {
 func (x *ConfigUpdate) GetConfigs() []*ProxyConfig {
 	if x != nil {
 		return x.Configs
+	}
+	return nil
+}
+
+func (x *ConfigUpdate) GetRollbackInfo() *RollbackInfo {
+	if x != nil {
+		return x.RollbackInfo
 	}
 	return nil
 }
@@ -954,12 +962,14 @@ const file_proto_control_proto_rawDesc = "" +
 	"\tconfig_id\x18\x01 \x01(\x05R\bconfigId\x12%\n" +
 	"\x0etarget_version\x18\x02 \x01(\x05R\rtargetVersion\x12'\n" +
 	"\x0frollback_reason\x18\x03 \x01(\tR\x0erollbackReason\x12!\n" +
-	"\finitiated_by\x18\x04 \x01(\x03R\vinitiatedBy\"\x8b\x01\n" +
+	"\finitiated_by\x18\x04 \x01(\x03R\vinitiatedBy\"\xde\x01\n" +
 	"\fConfigUpdate\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12.\n" +
-	"\aconfigs\x18\x04 \x03(\v2\x14.control.ProxyConfigR\aconfigs\"\xb4\x02\n" +
+	"\aconfigs\x18\x04 \x03(\v2\x14.control.ProxyConfigR\aconfigs\x12?\n" +
+	"\rrollback_info\x18\x05 \x01(\v2\x15.control.RollbackInfoH\x00R\frollbackInfo\x88\x01\x01B\x10\n" +
+	"\x0e_rollback_info\"\xb4\x02\n" +
 	"\vProxyConfig\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
@@ -1032,22 +1042,23 @@ var file_proto_control_proto_depIdxs = []int32{
 	8,  // 2: control.ConfigRequest.config:type_name -> control.ProxyConfig
 	6,  // 3: control.ConfigRequest.rollback_info:type_name -> control.RollbackInfo
 	8,  // 4: control.ConfigUpdate.configs:type_name -> control.ProxyConfig
-	13, // 5: control.ProxyConfig.params:type_name -> control.ProxyConfig.ParamsEntry
-	4,  // 6: control.NodeStatus.health:type_name -> control.NodeHealth
-	10, // 7: control.NodeStatus.proxies:type_name -> control.ProxyStatus
-	0,  // 8: control.ControlService.RegisterNode:input_type -> control.NodeInfo
-	2,  // 9: control.ControlService.Heartbeat:input_type -> control.HeartbeatRequest
-	5,  // 10: control.ControlService.StreamConfig:input_type -> control.ConfigRequest
-	9,  // 11: control.ControlService.ReportStatus:input_type -> control.NodeStatus
-	1,  // 12: control.ControlService.RegisterNode:output_type -> control.RegisterResponse
-	3,  // 13: control.ControlService.Heartbeat:output_type -> control.HeartbeatResponse
-	7,  // 14: control.ControlService.StreamConfig:output_type -> control.ConfigUpdate
-	11, // 15: control.ControlService.ReportStatus:output_type -> control.StatusResponse
-	12, // [12:16] is the sub-list for method output_type
-	8,  // [8:12] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	6,  // 5: control.ConfigUpdate.rollback_info:type_name -> control.RollbackInfo
+	13, // 6: control.ProxyConfig.params:type_name -> control.ProxyConfig.ParamsEntry
+	4,  // 7: control.NodeStatus.health:type_name -> control.NodeHealth
+	10, // 8: control.NodeStatus.proxies:type_name -> control.ProxyStatus
+	0,  // 9: control.ControlService.RegisterNode:input_type -> control.NodeInfo
+	2,  // 10: control.ControlService.Heartbeat:input_type -> control.HeartbeatRequest
+	5,  // 11: control.ControlService.StreamConfig:input_type -> control.ConfigRequest
+	9,  // 12: control.ControlService.ReportStatus:input_type -> control.NodeStatus
+	1,  // 13: control.ControlService.RegisterNode:output_type -> control.RegisterResponse
+	3,  // 14: control.ControlService.Heartbeat:output_type -> control.HeartbeatResponse
+	7,  // 15: control.ControlService.StreamConfig:output_type -> control.ConfigUpdate
+	11, // 16: control.ControlService.ReportStatus:output_type -> control.StatusResponse
+	13, // [13:17] is the sub-list for method output_type
+	9,  // [9:13] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_control_proto_init() }
@@ -1055,6 +1066,7 @@ func file_proto_control_proto_init() {
 	if File_proto_control_proto != nil {
 		return
 	}
+	file_proto_control_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
