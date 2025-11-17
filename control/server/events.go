@@ -33,6 +33,7 @@ const (
 	// 回滚任务事件
 	EventRollbackTaskCreated EventType = "rollback_task_created"
 	EventRollbackTaskPushed  EventType = "rollback_task_pushed"
+	EventRollbackTaskFailed  EventType = "rollback_task_failed"
 )
 
 // Event 事件结构

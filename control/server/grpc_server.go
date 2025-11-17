@@ -180,6 +180,7 @@ func (s *ControlServer) subscribeEventHandlers() {
 	s.eventBus.Subscribe(EventConfigFailed, logHandler)
 	s.eventBus.Subscribe(EventRollbackTaskCreated, logHandler)
 	s.eventBus.Subscribe(EventRollbackTaskPushed, logHandler)
+	s.eventBus.Subscribe(EventRollbackTaskFailed, logHandler)
 
 	// 订阅 WebSocket 处理器（如果存在）
 	if s.wsHub != nil {
@@ -199,6 +200,7 @@ func (s *ControlServer) subscribeEventHandlers() {
 		s.eventBus.Subscribe(EventConfigFailed, wsHandler)
 		s.eventBus.Subscribe(EventRollbackTaskCreated, wsHandler)
 		s.eventBus.Subscribe(EventRollbackTaskPushed, wsHandler)
+		s.eventBus.Subscribe(EventRollbackTaskFailed, wsHandler)
 	}
 
 	// 订阅数据库处理器（节点事件）
@@ -502,9 +504,8 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 			s.nodeRegistry.mu.Lock()
 			tasks := s.nodeRegistry.rollbackTasks[nodeID]
 			if len(tasks) > 0 {
-				// 取出第一个任务并发送给 Agent
+				// 取出第一个任务（先不移除，失败时便于重试）
 				task := tasks[0]
-				s.nodeRegistry.rollbackTasks[nodeID] = tasks[1:]
 				s.nodeRegistry.mu.Unlock()
 
 				log.Printf("[控制端] 向节点 %s 发送回滚任务: TaskID=%d, ConfigID=%d, TargetVersion=%d",
@@ -512,52 +513,117 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 
 				// 获取目标版本配置
 				var rollbackConfig *pb.ProxyConfig
-				if s.versionManager != nil {
+				var taskFailed bool
+				var failureReason string
+
+				if s.versionManager == nil {
+					taskFailed = true
+					failureReason = "版本管理器未初始化"
+					log.Printf("[控制端] %s", failureReason)
+				} else {
 					record, err := s.versionManager.GetVersion(task.ConfigID, task.TargetVersion)
 					if err != nil {
-						log.Printf("[控制端] 获取回滚版本失败: %v", err)
-						update = &pb.ConfigUpdate{
-							NodeId:  nodeID,
-							Success: false,
-							Message: fmt.Sprintf("获取回滚版本失败: %v", err),
-						}
+						taskFailed = true
+						failureReason = fmt.Sprintf("获取回滚版本失败: %v", err)
+						log.Printf("[控制端] %s", failureReason)
 					} else {
 						var configRecord store.ProxyConfigRecord
 						if err := json.Unmarshal([]byte(record.ConfigSnapshot), &configRecord); err != nil {
-							log.Printf("[控制端] 解析回滚配置失败: %v", err)
-							update = &pb.ConfigUpdate{
-								NodeId:  nodeID,
-								Success: false,
-								Message: fmt.Sprintf("解析回滚配置失败: %v", err),
-							}
+							taskFailed = true
+							failureReason = fmt.Sprintf("解析回滚配置快照失败: %v", err)
+							log.Printf("[控制端] %s", failureReason)
 						} else {
-							// 解析配置JSON获取参数
+							// 安全地解析配置JSON获取参数
 							var configParams map[string]interface{}
-							json.Unmarshal([]byte(configRecord.ConfigJSON), &configParams)
+							if err := json.Unmarshal([]byte(configRecord.ConfigJSON), &configParams); err != nil {
+								taskFailed = true
+								failureReason = fmt.Sprintf("解析回滚配置参数失败: %v", err)
+								log.Printf("[控制端] %s", failureReason)
+							} else {
+								// 安全地提取并验证必需字段
+								targetServer, ok := configParams["target_server"]
+								if !ok {
+									taskFailed = true
+									failureReason = "回滚配置缺少 target_server 字段"
+									log.Printf("[控制端] %s", failureReason)
+								} else if targetServerStr, isString := targetServer.(string); !isString {
+									taskFailed = true
+									failureReason = fmt.Sprintf("target_server 字段类型错误: %T", targetServer)
+									log.Printf("[控制端] %s", failureReason)
+								} else {
+									targetPortVal, hasPort := configParams["target_port"]
+									if !hasPort {
+										taskFailed = true
+										failureReason = "回滚配置缺少 target_port 字段"
+										log.Printf("[控制端] %s", failureReason)
+									} else {
+										targetPort, isNumber := targetPortVal.(float64)
+										if !isNumber {
+											taskFailed = true
+											failureReason = fmt.Sprintf("target_port 字段类型错误: %T", targetPortVal)
+											log.Printf("[控制端] %s", failureReason)
+										} else {
+											// 所有字段验证通过，构造回滚配置
+											rollbackConfig = &pb.ProxyConfig{
+												Id:           configRecord.ID,
+												Name:         configRecord.Name,
+												OutboundType: configRecord.OutboundType,
+												InboundPort:  configRecord.InboundPort,
+												TargetServer: targetServerStr,
+												TargetPort:   int32(targetPort),
+												Params:       make(map[string]string),
+											}
 
-							// 转换为 protobuf 格式
-							rollbackConfig = &pb.ProxyConfig{
-								Id:           configRecord.ID,
-								Name:         configRecord.Name,
-								OutboundType: configRecord.OutboundType,
-								InboundPort:  configRecord.InboundPort,
-								TargetServer: configParams["target_server"].(string),
-								TargetPort:   int32(configParams["target_port"].(float64)),
-								Params:       make(map[string]string),
-							}
-
-							// 转换其他参数
-							for k, v := range configParams {
-								if k != "target_server" && k != "target_port" {
-									rollbackConfig.Params[k] = fmt.Sprintf("%v", v)
+											// 转换其他参数
+											for k, v := range configParams {
+												if k != "target_server" && k != "target_port" {
+													rollbackConfig.Params[k] = fmt.Sprintf("%v", v)
+												}
+											}
+										}
+									}
 								}
 							}
 						}
 					}
 				}
 
-				// 发送回滚配置
-				if rollbackConfig != nil {
+				// 处理任务结果
+				if taskFailed {
+					// 任务失败：发布失败事件，重新入队
+					update = &pb.ConfigUpdate{
+						NodeId:  nodeID,
+						Success: false,
+						Message: failureReason,
+					}
+
+					// 发布任务失败事件
+					if s.eventBus != nil {
+						s.eventBus.Publish(&Event{
+							Type:     EventRollbackTaskFailed,
+							ConfigID: task.ConfigID,
+							Data: map[string]interface{}{
+								"task_id":       task.ID,
+								"node_id":       nodeID,
+								"reason":        failureReason,
+								"target_version": task.TargetVersion,
+							},
+							Timestamp: time.Now().Unix(),
+						})
+					}
+
+					// 重新入队，供后续重试
+					s.nodeRegistry.mu.Lock()
+					s.nodeRegistry.rollbackTasks[nodeID] = append([]*RollbackTask{task}, s.nodeRegistry.rollbackTasks[nodeID][1:]...)
+					s.nodeRegistry.mu.Unlock()
+
+					log.Printf("[控制端] 回滚任务失败，已重新入队: TaskID=%d, Reason=%s", task.ID, failureReason)
+				} else {
+					// 任务成功准备：发送回滚配置给Agent，并移除任务
+					s.nodeRegistry.mu.Lock()
+					s.nodeRegistry.rollbackTasks[nodeID] = tasks[1:]
+					s.nodeRegistry.mu.Unlock()
+
 					update = &pb.ConfigUpdate{
 						NodeId:      nodeID,
 						Success:     true,
@@ -571,7 +637,7 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 						},
 					}
 
-					// 发布任务执行事件
+					// 发布任务推送成功事件
 					if s.eventBus != nil {
 						s.eventBus.Publish(&Event{
 							Type:     EventRollbackTaskPushed,
@@ -585,6 +651,9 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 							Timestamp: time.Now().Unix(),
 						})
 					}
+
+					log.Printf("[控制端] 回滚任务已推送给Agent: TaskID=%d, ConfigID=%d",
+						task.ID, task.ConfigID)
 				}
 			} else {
 				s.nodeRegistry.mu.Unlock()
