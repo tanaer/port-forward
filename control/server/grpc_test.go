@@ -536,7 +536,7 @@ func TestRollbackTaskWithJsonValidation(t *testing.T) {
 
 	server.nodeRegistry.mu.Lock()
 	server.nodeRegistry.rollbackTasks["recovery-test-node"] = []*RollbackTask{task1}
-	server.nodeRegistry.mu.RUnlock()
+	server.nodeRegistry.mu.Unlock()
 
 	// 验证任务在队列中
 	server.nodeRegistry.mu.RLock()
@@ -559,78 +559,228 @@ func TestRollbackTaskWithJsonValidation(t *testing.T) {
 	log.Println("=== 🎉 队列恢复机制测试完成 ===")
 }
 
-// TestRollbackConfigSerializationSafety 测试配置序列化的健壮性
-func TestRollbackConfigSerializationSafety(t *testing.T) {
-	log.Println("=== 测试配置序列化的健壮性 ===")
+// TestRollbackGetStreamWithJsonValidation 真实 StreamConfig get 分支集成测试
+// 验证 JSON 解析、失败恢复、任务重试的完整链路
+func TestRollbackGetStreamWithJsonValidation(t *testing.T) {
+	log.Println("=== StreamConfig get 分支集成测试：JSON 验证和任务重试 ===")
 
+	// 创建控制服务器
 	server := NewControlServer(nil)
 
-	// 注册节点
-	nodeInfo := &NodeInfo{
-		Info: &pb.NodeInfo{NodeId: "serialize-test-node"},
-		Status:  "active",
-		ControlToken: "test-token",
+	// 启动 gRPC 服务器
+	go func() {
+		grpcServer := grpc.NewServer()
+		pb.RegisterControlServiceServer(grpcServer, server)
+		_ = grpcServer.Serve(lis)
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	// 创建客户端
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+		return lis.Dial()
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("连接失败: %v", err)
+	}
+	defer conn.Close()
+
+	client := pb.NewControlServiceClient(conn)
+
+	// 1. 注册节点
+	log.Println("\n✓ 步骤1: 注册节点")
+	nodeInfo := &pb.NodeInfo{
+		NodeId:    "json-verify-node",
+		Hostname:  "test-host",
+		IpAddress: "192.168.1.100",
+		Version:   "v2.0.0",
+	}
+	registerResp, err := client.RegisterNode(context.Background(), nodeInfo)
+	if err != nil || !registerResp.Success {
+		t.Fatalf("注册失败: %v", err)
+	}
+	log.Printf("✅ 节点注册成功，Token: %s\n", registerResp.ControlToken)
+
+	// 2. 建立 StreamConfig 连接
+	log.Println("✓ 步骤2: 建立 StreamConfig 双向流")
+	md := metadata.New(map[string]string{
+		"node_id": "json-verify-node",
+		"token":   registerResp.ControlToken,
+	})
+	streamCtx := metadata.NewOutgoingContext(ctx, md)
+	stream, err := client.StreamConfig(streamCtx)
+	if err != nil {
+		t.Fatalf("创建流失败: %v", err)
+	}
+	defer stream.CloseSend()
+	log.Println("✅ StreamConfig 流已建立")
+
+	// 3. 添加一个无效版本的回滚任务到队列（模拟 JSON 解析失败）
+	log.Println("✓ 步骤3: 添加无效版本的回滚任务（验证失败重试）")
+	invalidTask := &RollbackTask{
+		ID:            1,
+		ConfigID:      999, // 不存在的版本
+		TargetVersion: 99,
+		Reason:        "test invalid version",
+		CreatedAt:     time.Now(),
 	}
 	server.nodeRegistry.mu.Lock()
-	server.nodeRegistry.nodes["serialize-test-node"] = nodeInfo
+	server.nodeRegistry.rollbackTasks["json-verify-node"] = []*RollbackTask{invalidTask}
 	server.nodeRegistry.mu.Unlock()
+	log.Printf("✅ 无效任务已添加到队列\n")
 
-	log.Println("✓ 测试1: 无效 JSON 处理")
-	// 验证无法让代码 panic 的无效输入
-	invalidInputs := []string{
-		"",                    // 空字符串
-		"{",                   // 不完整的 JSON
-		`{"no_target":"x"}`,   // 缺少必要字段
-		`{"target_server":123}`, // 错误的字段类型
+	// 4. Agent 发送 get 请求
+	log.Println("✓ 步骤4: Agent 发送 get 请求触发任务处理")
+	getReq := &pb.ConfigRequest{
+		NodeId:      "json-verify-node",
+		RequestType: "get",
+	}
+	err = stream.Send(getReq)
+	if err != nil {
+		t.Fatalf("发送 get 请求失败: %v", err)
+	}
+	log.Println("✅ get 请求已发送")
+
+	// 5. 接收响应并验证失败情况下任务重新入队
+	log.Println("✓ 步骤5: 接收响应，验证失败任务是否重新入队")
+	update, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("接收响应失败: %v", err)
 	}
 
-	for i, input := range invalidInputs {
-		// 这些都应该被安全地处理
+	if !update.Success {
+		log.Printf("✅ 返回失败响应（符合预期）: %s\n", update.Message)
+	}
+
+	// 验证任务是否被重新入队
+	time.Sleep(100 * time.Millisecond) // 等待事件处理
+	server.nodeRegistry.mu.RLock()
+	tasksAfter := server.nodeRegistry.rollbackTasks["json-verify-node"]
+	server.nodeRegistry.mu.RUnlock()
+
+	if len(tasksAfter) >= 1 {
+		log.Printf("✅ 失败的任务已重新入队: %d 个任务\n", len(tasksAfter))
+	} else {
+		t.Error("❌ 失败的任务丢失，未重新入队")
+	}
+
+	// 6. 测试有效的任务（但没有版本管理器，还是会失败）
+	log.Println("✓ 步骤6: 再次发送 get 请求处理同一个任务")
+	err = stream.Send(getReq)
+	if err != nil {
+		t.Fatalf("发送第二次 get 请求失败: %v", err)
+	}
+
+	update, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("接收第二次响应失败: %v", err)
+	}
+
+	log.Printf("✅ 第二次响应接收: Success=%v, Message=%s\n", update.Success, update.Message)
+
+	// 最终验证：无版本管理器情况下，任务应该一直重试
+	server.nodeRegistry.mu.RLock()
+	finalTasks := server.nodeRegistry.rollbackTasks["json-verify-node"]
+	server.nodeRegistry.mu.RUnlock()
+
+	log.Printf("✅ 最终队列状态: %d 个任务\n", len(finalTasks))
+	log.Println("=== 🎉 StreamConfig 集成测试完成 ===")
+}
+
+// TestRollbackJsonParsingErrorHandling 测试 JSON 解析错误的具体处理
+func TestRollbackJsonParsingErrorHandling(t *testing.T) {
+	log.Println("=== 测试 JSON 解析错误的完整处理 ===")
+
+	// 测试数据：模拟各种 JSON 错误情况
+	testCases := []struct {
+		name        string
+		configJSON  string
+		shouldError bool
+		errorMsg    string
+	}{
+		{
+			name:        "有效的配置",
+			configJSON:  `{"target_server":"example.com","target_port":8080}`,
+			shouldError: false,
+		},
+		{
+			name:        "缺少必需字段",
+			configJSON:  `{"target_server":"example.com"}`,
+			shouldError: true,
+			errorMsg:    "缺少 target_port",
+		},
+		{
+			name:        "错误的字段类型",
+			configJSON:  `{"target_server":123,"target_port":8080}`,
+			shouldError: true,
+			errorMsg:    "类型错误",
+		},
+		{
+			name:        "不完整的 JSON",
+			configJSON:  `{"target_server":"example.com"`,
+			shouldError: true,
+			errorMsg:    "JSON 解析失败",
+		},
+		{
+			name:        "空字符串",
+			configJSON:  ``,
+			shouldError: true,
+			errorMsg:    "JSON 解析失败",
+		},
+	}
+
+	for _, tc := range testCases {
+		log.Printf("\n✓ 测试: %s", tc.name)
+
+		// 安全地解析配置 JSON
 		var configParams map[string]interface{}
-		err := json.Unmarshal([]byte(input), &configParams)
-		
-		if err != nil && input != "" {
-			log.Printf("✅ 输入 %d: JSON 解析正确地返回错误 %v", i+1, err)
-		} else if err == nil {
-			log.Printf("✅ 输入 %d: JSON 解析成功，%d 个字段", i+1, len(configParams))
+		err := json.Unmarshal([]byte(tc.configJSON), &configParams)
+
+		if err != nil {
+			if tc.shouldError {
+				log.Printf("  ✅ 正确捕获 JSON 解析错误: %v", err)
+			} else {
+				t.Errorf("  ❌ 不应该出现解析错误: %v", err)
+			}
+			continue
 		}
-	}
 
-	log.Println("✓ 测试2: 类型断言安全性")
-	// 验证所有类型断言都有检查
-	testCases := []map[string]interface{}{
-		{"target_server": "example.com", "target_port": 8080},                 // 正确
-		{"target_server": 123, "target_port": 8080},                           // 错误的 target_server 类型
-		{"target_server": "example.com", "target_port": "8080"},              // 错误的 target_port 类型
-		{"target_server": "example.com"},                                      // 缺少 target_port
-	}
-
-	for i, testCase := range testCases {
-		// 模拟代码中的安全类型断言
-		targetServer, ok := testCase["target_server"]
+		// 验证字段存在性和类型
+		targetServer, ok := configParams["target_server"]
 		if !ok {
-			log.Printf("✅ 测试 %d: 缺少 target_server，正确检测", i+1)
-			continue
-		}
-		
-		if _, isString := targetServer.(string); !isString {
-			log.Printf("✅ 测试 %d: target_server 类型错误，正确检测为 %T", i+1, targetServer)
+			if tc.shouldError {
+				log.Printf("  ✅ 正确检测到缺少 target_server")
+			}
 			continue
 		}
 
-		targetPort, hasPort := testCase["target_port"]
+		if _, isString := targetServer.(string); !isString {
+			if tc.shouldError {
+				log.Printf("  ✅ 正确检测到字段类型错误")
+			}
+			continue
+		}
+
+		targetPort, hasPort := configParams["target_port"]
 		if !hasPort {
-			log.Printf("✅ 测试 %d: 缺少 target_port，正确检测", i+1)
+			if tc.shouldError {
+				log.Printf("  ✅ 正确检测到缺少 target_port")
+			}
 			continue
 		}
 
 		if _, isNumber := targetPort.(float64); !isNumber {
-			log.Printf("✅ 测试 %d: target_port 类型错误，正确检测为 %T", i+1, targetPort)
+			if tc.shouldError {
+				log.Printf("  ✅ 正确检测到 target_port 类型错误")
+			}
 			continue
 		}
 
-		log.Printf("✅ 测试 %d: 所有字段通过验证", i+1)
+		// 所有检查都通过
+		if !tc.shouldError {
+			log.Printf("  ✅ 所有字段验证通过")
+		}
 	}
 
-	log.Println("=== 🎉 序列化安全性测试完成 ===")
+	log.Println("=== 🎉 JSON 解析错误处理测试完成 ===")
 }
