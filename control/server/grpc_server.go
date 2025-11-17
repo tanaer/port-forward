@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -16,8 +17,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	pb "goForward/proto"
 	"goForward/control/store"
+	pb "goForward/proto"
 )
 
 // ControlServer 实现ControlService接口
@@ -30,6 +31,9 @@ type ControlServer struct {
 	// 配置管理器
 	configManager *ConfigManager
 
+	// 版本管理器（用于配置版本快照和历史管理）
+	versionManager *VersionManager
+
 	// Token管理器
 	tokenManager *TokenManager
 
@@ -38,6 +42,12 @@ type ControlServer struct {
 
 	// WebSocket中心
 	wsHub WebSocketHub
+
+	// 事件总线
+	eventBus *EventBus
+
+	// 生命周期管理器
+	lifecycleManager *LifecycleManager
 
 	// 节点健康检查定时器
 	healthCheckTicker *time.Ticker
@@ -61,8 +71,8 @@ type NodeRegistry struct {
 type NodeInfo struct {
 	Info          *pb.NodeInfo
 	LastHeartbeat time.Time
-	Status        string // "active", "inactive", "unknown"
-	ControlToken  string // 控制令牌
+	Status        string         // "active", "inactive", "unknown"
+	ControlToken  string         // 控制令牌
 	Health        *pb.NodeHealth // 最新健康状态
 }
 
@@ -85,20 +95,42 @@ func NewControlServer(store *store.Store) *ControlServer {
 
 // NewControlServerWithWebSocket 创建带WebSocket的控制服务器
 func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *ControlServer {
+	// 初始化基础组件
+	nodeRegistry := &NodeRegistry{
+		nodes: make(map[string]*NodeInfo),
+	}
+
+	// 创建事件总线（4个工作协程）
+	eventBus := NewEventBus(4)
+
+	// 创建生命周期管理器
+	lifecycleManager := NewLifecycleManager(nodeRegistry, eventBus)
+
+	// 创建版本管理器（支持 nil store 用于测试）
+	var versionManager *VersionManager
+	if store != nil {
+		versionDAO := store.ConfigVersionDAO()
+		versionManager = NewVersionManager(versionDAO, eventBus)
+	}
+
 	server := &ControlServer{
-		nodeRegistry: &NodeRegistry{
-			nodes: make(map[string]*NodeInfo),
-		},
+		nodeRegistry: nodeRegistry,
 		configManager: &ConfigManager{
 			configs: make(map[int32]*pb.ProxyConfig),
 		},
+		versionManager: versionManager,
 		tokenManager: &TokenManager{
 			tokens: make(map[string]string),
 		},
 		store:             store,
 		wsHub:             wsHub,
+		eventBus:          eventBus,
+		lifecycleManager:  lifecycleManager,
 		healthCheckTicker: time.NewTicker(30 * time.Second),
 	}
+
+	// 订阅事件处理器
+	server.subscribeEventHandlers()
 
 	// 启动健康检查goroutine
 	go server.healthCheck()
@@ -112,6 +144,54 @@ func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *Cont
 // NewControlServerFull 创建完整的控制服务器（带数据库和WebSocket）
 func NewControlServerFull(store *store.Store, wsHub WebSocketHub) *ControlServer {
 	return NewControlServerWithWebSocket(store, wsHub)
+}
+
+// subscribeEventHandlers 订阅事件处理器
+func (s *ControlServer) subscribeEventHandlers() {
+	if s.eventBus == nil {
+		return
+	}
+
+	// 订阅日志处理器（所有事件）
+	logHandler := NewLogEventHandler()
+	s.eventBus.Subscribe(EventNodeRegistered, logHandler)
+	s.eventBus.Subscribe(EventNodeHealthChanged, logHandler)
+	s.eventBus.Subscribe(EventNodeIsolated, logHandler)
+	s.eventBus.Subscribe(EventNodeRecovered, logHandler)
+	s.eventBus.Subscribe(EventNodeOffline, logHandler)
+	s.eventBus.Subscribe(EventNodeOnline, logHandler)
+	s.eventBus.Subscribe(EventConfigCreated, logHandler)
+	s.eventBus.Subscribe(EventConfigUpdated, logHandler)
+	s.eventBus.Subscribe(EventConfigDeleted, logHandler)
+	s.eventBus.Subscribe(EventConfigRolledBack, logHandler)
+
+	// 订阅 WebSocket 处理器（如果存在）
+	if s.wsHub != nil {
+		wsHandler := NewWebSocketEventHandler(s.wsHub)
+		s.eventBus.Subscribe(EventNodeRegistered, wsHandler)
+		s.eventBus.Subscribe(EventNodeHealthChanged, wsHandler)
+		s.eventBus.Subscribe(EventNodeIsolated, wsHandler)
+		s.eventBus.Subscribe(EventNodeRecovered, wsHandler)
+		s.eventBus.Subscribe(EventNodeOffline, wsHandler)
+		s.eventBus.Subscribe(EventNodeOnline, wsHandler)
+		s.eventBus.Subscribe(EventConfigCreated, wsHandler)
+		s.eventBus.Subscribe(EventConfigUpdated, wsHandler)
+		s.eventBus.Subscribe(EventConfigDeleted, wsHandler)
+		s.eventBus.Subscribe(EventConfigRolledBack, wsHandler)
+	}
+
+	// 订阅数据库处理器（节点事件）
+	if s.store != nil {
+		dbHandler := NewDatabaseEventHandler(s.store)
+		s.eventBus.Subscribe(EventNodeRegistered, dbHandler)
+		s.eventBus.Subscribe(EventNodeHealthChanged, dbHandler)
+		s.eventBus.Subscribe(EventNodeIsolated, dbHandler)
+		s.eventBus.Subscribe(EventNodeRecovered, dbHandler)
+		s.eventBus.Subscribe(EventNodeOffline, dbHandler)
+		s.eventBus.Subscribe(EventNodeOnline, dbHandler)
+	}
+
+	log.Println("[控制端] 事件处理器订阅完成")
 }
 
 // generateToken 生成Token
@@ -217,6 +297,11 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 
 	log.Printf("[控制端] 节点注册成功: %s, Token=%s", nodeInfo.NodeId, controlToken)
 
+	// 触发生命周期事件
+	if s.lifecycleManager != nil {
+		s.lifecycleManager.OnNodeRegistered(nodeInfo.NodeId, nodeInfo)
+	}
+
 	// 通过WebSocket广播新节点
 	if s.wsHub != nil {
 		s.broadcastNodeUpdate("node_registered", nodeInfo.NodeId)
@@ -307,10 +392,10 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 
 			// 记录心跳日志
 			s.store.NodeLogDAO().CreateLog(&store.NodeLogRecord{
-				NodeID:    nodeID,
-				LogType:   "heartbeat",
-				Message:   "心跳保活",
-				Data:      fmt.Sprintf(`{"cpu_percent": %d, "memory_percent": %d, "disk_percent": %d, "active_connections": %d}`,
+				NodeID:  nodeID,
+				LogType: "heartbeat",
+				Message: "心跳保活",
+				Data: fmt.Sprintf(`{"cpu_percent": %d, "memory_percent": %d, "disk_percent": %d, "active_connections": %d}`,
 					req.Health.CpuPercent, req.Health.MemoryPercent, req.Health.DiskPercent, req.Health.ActiveConnections),
 				CreatedAt: time.Now().Unix(),
 			})
@@ -323,9 +408,9 @@ func (s *ControlServer) Heartbeat(stream pb.ControlService_HeartbeatServer) erro
 
 		// 发送心跳响应
 		resp := &pb.HeartbeatResponse{
-			NodeId:       nodeID,
-			Timestamp:    time.Now().Unix(),
-			Alive:        true,
+			NodeId:        nodeID,
+			Timestamp:     time.Now().Unix(),
+			Alive:         true,
 			NextHeartbeat: 30, // 下次30秒后
 		}
 
@@ -542,13 +627,17 @@ func (s *ControlServer) checkNodeHealth() {
 
 	for nodeID, node := range s.nodeRegistry.nodes {
 		oldStatus := node.Status
+
+		// 检查心跳超时
 		if now.Sub(node.LastHeartbeat) > timeout {
 			if node.Status != "inactive" {
 				node.Status = "inactive"
 				log.Printf("[控制端] 节点失联（心跳超时90秒）: %s", nodeID)
 
-				// 发出告警
-				log.Printf("[控制端] 🚨 告警: 节点 %s 失联，请检查节点状态", nodeID)
+				// 触发节点离线事件
+				if s.lifecycleManager != nil {
+					s.lifecycleManager.OnNodeOffline(nodeID)
+				}
 
 				// 广播节点失联
 				if s.wsHub != nil && oldStatus != "inactive" {
@@ -556,16 +645,29 @@ func (s *ControlServer) checkNodeHealth() {
 				}
 			}
 		} else {
-			// 检查健康指标
-			if node.Health != nil {
-				if node.Health.CpuPercent > 90 {
-					log.Printf("[控制端] ⚠️ 告警: 节点 %s CPU使用率过高: %d%%", nodeID, node.Health.CpuPercent)
+			// 节点在线，检查健康状态
+			if node.Status == "inactive" {
+				node.Status = "active"
+				log.Printf("[控制端] 节点恢复在线: %s", nodeID)
+
+				// 触发节点上线事件
+				if s.lifecycleManager != nil {
+					s.lifecycleManager.OnNodeOnline(nodeID)
 				}
-				if node.Health.MemoryPercent > 90 {
-					log.Printf("[控制端] ⚠️ 告警: 节点 %s 内存使用率过高: %d%%", nodeID, node.Health.MemoryPercent)
+
+				if s.wsHub != nil {
+					go s.broadcastNodeUpdate("node_active", nodeID)
 				}
-				if node.Health.DiskPercent > 90 {
-					log.Printf("[控制端] ⚠️ 告警: 节点 %s 磁盘使用率过高: %d%%", nodeID, node.Health.DiskPercent)
+			}
+
+			// 使用生命周期管理器检查健康状态
+			if s.lifecycleManager != nil && node.Health != nil {
+				oldHealthStatus, _ := s.lifecycleManager.GetNodeHealthStatus(nodeID)
+				newHealthStatus := s.lifecycleManager.CheckNodeHealth(nodeID, node.Health)
+
+				// 状态变化时触发事件
+				if oldHealthStatus != newHealthStatus {
+					s.lifecycleManager.OnHealthChanged(nodeID, oldHealthStatus, newHealthStatus, node.Health)
 				}
 			}
 		}
@@ -603,18 +705,18 @@ func (s *ControlServer) loadNodesFromDatabase() {
 		s.nodeRegistry.mu.Lock()
 		s.nodeRegistry.nodes[node.NodeID] = &NodeInfo{
 			Info: &pb.NodeInfo{
-				NodeId:      node.NodeID,
-				Hostname:    node.Hostname,
-				IpAddress:   node.IPAddress,
-				Version:     node.Version,
+				NodeId:    node.NodeID,
+				Hostname:  node.Hostname,
+				IpAddress: node.IPAddress,
+				Version:   node.Version,
 			},
 			LastHeartbeat: time.Unix(node.UpdatedAt, 0),
 			Status:        node.Status,
 			ControlToken:  node.ControlToken,
 			Health: &pb.NodeHealth{
-				CpuPercent:      0,
-				MemoryPercent:   0,
-				DiskPercent:     0,
+				CpuPercent:        0,
+				MemoryPercent:     0,
+				DiskPercent:       0,
 				ActiveConnections: 0,
 			},
 		}
@@ -697,4 +799,283 @@ func (s *ControlServer) broadcastNodeUpdate(eventType, nodeID string) {
 
 	// 广播消息
 	s.wsHub.Broadcast(data)
+}
+
+// BatchGetNodes 批量获取节点状态
+func (s *ControlServer) BatchGetNodes(nodeIDs []string) map[string]*NodeInfo {
+	result := make(map[string]*NodeInfo)
+
+	for _, nodeID := range nodeIDs {
+		if node, exists := s.GetNodeStatus(nodeID); exists {
+			result[nodeID] = node
+		}
+	}
+
+	log.Printf("[控制端] 批量获取节点状态完成，共 %d 个节点", len(result))
+	return result
+}
+
+// BatchUpdateConfig 批量更新配置
+func (s *ControlServer) BatchUpdateConfig(configs map[string]*pb.ProxyConfig) map[string]bool {
+	results := make(map[string]bool)
+
+	for nodeID, config := range configs {
+		// 验证节点是否存在
+		if _, exists := s.GetNodeStatus(nodeID); !exists {
+			results[nodeID] = false
+			log.Printf("[控制端] 批量更新配置失败: 节点 %s 不存在", nodeID)
+			continue
+		}
+
+		// 添加到配置管理器
+		s.configManager.mu.Lock()
+		s.configManager.configs[config.Id] = config
+		s.configManager.mu.Unlock()
+
+		results[nodeID] = true
+		log.Printf("[控制端] 批量更新配置成功: 节点 %s, 配置 ID=%d", nodeID, config.Id)
+	}
+
+	log.Printf("[控制端] 批量更新配置完成，成功 %d 个", len(results))
+	return results
+}
+
+// BatchRestartNodes 批量重启节点
+func (s *ControlServer) BatchRestartNodes(nodeIDs []string) map[string]bool {
+	results := make(map[string]bool)
+
+	for _, nodeID := range nodeIDs {
+		// 验证节点是否存在
+		if _, exists := s.GetNodeStatus(nodeID); !exists {
+			results[nodeID] = false
+			log.Printf("[控制端] 批量重启失败: 节点 %s 不存在", nodeID)
+			continue
+		}
+
+		// 记录功能未实现
+		// TODO: 实现节点重启逻辑 - 需要向 Agent 发送 gRPC 指令
+		// 目前只是记录操作，不实际执行重启
+		results[nodeID] = false // 修改为 false，标记功能未实现
+		log.Printf("[控制端] 批量重启节点 %s: 功能暂未实现（需 Phase 2 支持）", nodeID)
+	}
+
+	log.Printf("[控制端] 批量重启节点完成，共 %d 个节点，结果: %v", len(results), results)
+	return results
+}
+
+// BatchDeleteConfig 批量删除配置
+func (s *ControlServer) BatchDeleteConfig(configIDs []int32) map[int32]bool {
+	results := make(map[int32]bool)
+
+	for _, configID := range configIDs {
+		// 检查配置是否存在
+		s.configManager.mu.RLock()
+		_, exists := s.configManager.configs[configID]
+		s.configManager.mu.RUnlock()
+
+		if !exists {
+			results[configID] = false
+			log.Printf("[控制端] 批量删除配置失败: 配置 %d 不存在", configID)
+			continue
+		}
+
+		// 删除配置
+		s.configManager.mu.Lock()
+		delete(s.configManager.configs, configID)
+		s.configManager.mu.Unlock()
+
+		results[configID] = true
+		log.Printf("[控制端] 批量删除配置成功: ID=%d", configID)
+	}
+
+	log.Printf("[控制端] 批量删除配置完成，成功 %d 个", len(results))
+	return results
+}
+
+// GetNodesByGroup 批量获取分组节点
+func (s *ControlServer) GetNodesByGroup(nodeGroup string) map[string]*NodeInfo {
+	result := make(map[string]*NodeInfo)
+
+	// 从store中获取分组节点
+	if s.store != nil {
+		nodes, err := s.store.NodeDAO().GetNodesByGroup(nodeGroup)
+		if err != nil {
+			log.Printf("[控制端] 获取分组节点失败: %v", err)
+			return result
+		}
+
+		for _, node := range nodes {
+			// 从内存中获取最新状态
+			if nodeInfo, exists := s.GetNodeStatus(node.NodeID); exists {
+				result[node.NodeID] = nodeInfo
+			}
+		}
+	} else {
+		// 如果没有store，从内存中筛选
+		s.nodeRegistry.mu.RLock()
+		for nodeID, node := range s.nodeRegistry.nodes {
+			// 这里假设在nodeInfo结构体中有分组信息
+			// 但当前实现中还没有，需要从store中获取
+			// 所以这里是fallback逻辑
+			_ = nodeID
+			_ = node
+		}
+		s.nodeRegistry.mu.RUnlock()
+	}
+
+	log.Printf("[控制端] 获取分组节点 %s 完成，共 %d 个节点", nodeGroup, len(result))
+	return result
+}
+
+// BatchUpdateNodesStatus 批量更新节点状态
+func (s *ControlServer) BatchUpdateNodesStatus(nodeIDs []string, status string) (int64, error) {
+	if s.store == nil {
+		log.Println("[控制端] 未配置数据存储，无法批量更新节点状态")
+		return 0, fmt.Errorf("数据存储未初始化")
+	}
+
+	affected, err := s.store.NodeDAO().BatchUpdateNodesStatus(nodeIDs, status)
+	if err != nil {
+		return 0, fmt.Errorf("批量更新节点状态失败: %v", err)
+	}
+
+	// 更新内存中的节点状态
+	s.nodeRegistry.mu.Lock()
+	for _, nodeID := range nodeIDs {
+		if node, exists := s.nodeRegistry.nodes[nodeID]; exists {
+			node.Status = status
+		}
+	}
+	s.nodeRegistry.mu.Unlock()
+
+	log.Printf("[控制端] 批量更新节点状态完成，影响 %d 个节点", affected)
+	return affected, nil
+}
+
+// BatchCreateConfigs 批量创建配置
+func (s *ControlServer) BatchCreateConfigs(configs []*store.ProxyConfigRecord) (int64, error) {
+	if s.store == nil {
+		log.Println("[控制端] 未配置数据存储，无法批量创建配置")
+		return 0, fmt.Errorf("数据存储未初始化")
+	}
+
+	affected, err := s.store.ProxyConfigDAO().BatchCreateConfigs(configs)
+	if err != nil {
+		return 0, fmt.Errorf("批量创建配置失败: %v", err)
+	}
+
+	// 版本捕获钩子：为每个新创建的配置创建初始版本快照
+	if s.versionManager != nil {
+		for _, config := range configs {
+			// 将配置序列化为JSON
+			configJSON, err := json.Marshal(config)
+			if err != nil {
+				log.Printf("[控制端] 配置 %d 序列化失败，跳过版本捕获: %v", config.ID, err)
+				continue
+			}
+
+			// 创建初始版本快照
+			_, err = s.versionManager.CaptureVersion(
+				config.ID,
+				string(configJSON),
+				"create",
+				fmt.Sprintf("创建配置: %s", config.Name),
+				"system",
+			)
+			if err != nil {
+				log.Printf("[控制端] 配置 %d 版本捕获失败: %v", config.ID, err)
+				// 版本捕获失败不影响配置创建流程，只记录日志
+			}
+		}
+	} else {
+		log.Println("[控制端] 版本管理器未初始化，跳过版本捕获")
+	}
+
+	// 更新内存中的配置
+	for _, config := range configs {
+		pbConfig := &pb.ProxyConfig{
+			Id:           config.ID,
+			Name:         config.Name,
+			OutboundType: config.OutboundType,
+			InboundPort:  config.InboundPort,
+		}
+		s.configManager.mu.Lock()
+		s.configManager.configs[config.ID] = pbConfig
+		s.configManager.mu.Unlock()
+	}
+
+	log.Printf("[控制端] 批量创建配置完成，影响 %d 个配置", affected)
+	return affected, nil
+}
+
+// BatchUpdateConfigs 批量更新配置（使用ProxyConfigRecord）
+func (s *ControlServer) BatchUpdateConfigs(configs []*store.ProxyConfigRecord) (int64, error) {
+	if s.store == nil {
+		log.Println("[控制端] 未配置数据存储，无法批量更新配置")
+		return 0, fmt.Errorf("数据存储未初始化")
+	}
+
+	// 将 ProxyConfigRecord 转换为 map[int32]*ProxyConfigRecord
+	configMap := make(map[int32]*store.ProxyConfigRecord)
+	for _, config := range configs {
+		configMap[config.ID] = config
+	}
+
+	affected, err := s.store.ProxyConfigDAO().BatchUpdateConfigs(configMap)
+	if err != nil {
+		return 0, fmt.Errorf("批量更新配置失败: %v", err)
+	}
+
+	// 版本捕获钩子：为每个更新的配置创建版本快照
+	if s.versionManager != nil {
+		for _, config := range configs {
+			// 将配置序列化为JSON
+			configJSON, err := json.Marshal(config)
+			if err != nil {
+				log.Printf("[控制端] 配置 %d 序列化失败，跳过版本捕获: %v", config.ID, err)
+				continue
+			}
+
+			// 创建版本快照
+			_, err = s.versionManager.CaptureVersion(
+				config.ID,
+				string(configJSON),
+				"update",
+				fmt.Sprintf("批量更新配置: %s", config.Name),
+				"system",
+			)
+			if err != nil {
+				log.Printf("[控制端] 配置 %d 版本捕获失败: %v", config.ID, err)
+				// 版本捕获失败不影响配置更新流程，只记录日志
+			}
+		}
+	} else {
+		log.Println("[控制端] 版本管理器未初始化，跳过版本捕获")
+	}
+
+	// 更新内存中的配置
+	for _, config := range configs {
+		pbConfig := &pb.ProxyConfig{
+			Id:           config.ID,
+			Name:         config.Name,
+			OutboundType: config.OutboundType,
+			InboundPort:  config.InboundPort,
+		}
+		s.configManager.mu.Lock()
+		s.configManager.configs[config.ID] = pbConfig
+		s.configManager.mu.Unlock()
+	}
+
+	log.Printf("[控制端] 批量更新配置完成，影响 %d 个配置", affected)
+	return affected, nil
+}
+
+// GetLifecycleManager 获取生命周期管理器
+func (s *ControlServer) GetLifecycleManager() *LifecycleManager {
+	return s.lifecycleManager
+}
+
+// GetStore 获取数据存储
+func (s *ControlServer) GetStore() *store.Store {
+	return s.store
 }
