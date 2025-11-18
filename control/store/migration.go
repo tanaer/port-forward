@@ -81,6 +81,14 @@ func (m *Migrator) registerMigrations() {
 		Up:      m.addRollbackTasksTable,
 		Down:    m.removeRollbackTasksTable,
 	})
+
+	// 版本7: 添加回滚任务可靠性字段
+	m.migrations = append(m.migrations, Migration{
+		Version: 7,
+		Name:    "add_rollback_task_reliability_fields",
+		Up:      m.addRollbackTaskReliabilityFields,
+		Down:    m.removeRollbackTaskReliabilityFields,
+	})
 }
 
 // createInitialSchema 创建初始数据库结构
@@ -608,5 +616,34 @@ func (m *Migrator) removeRollbackTasksTable(db *sql.DB) error {
 	}
 
 	log.Println("[迁移] 回滚任务表删除成功")
+	return nil
+}
+
+// addRollbackTaskReliabilityFields 添加回滚任务可靠性字段
+func (m *Migrator) addRollbackTaskReliabilityFields(db *sql.DB) error {
+	log.Println("[迁移] 执行迁移 v7: 添加回滚任务可靠性字段")
+
+	// 添加最大重试次数字段
+	if _, err := db.Exec(`
+		ALTER TABLE rollback_tasks ADD COLUMN max_retries INT DEFAULT 5;
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加max_retries字段失败: %v", err)
+	}
+
+	// 添加processing超时时间字段（秒）
+	if _, err := db.Exec(`
+		ALTER TABLE rollback_tasks ADD COLUMN processing_timeout INT DEFAULT 600;
+	`); err != nil && !isColumnExistsError(err) {
+		return fmt.Errorf("添加processing_timeout字段失败: %v", err)
+	}
+
+	log.Println("[迁移] 回滚任务可靠性字段添加成功")
+	return nil
+}
+
+// removeRollbackTaskReliabilityFields 移除回滚任务可靠性字段
+func (m *Migrator) removeRollbackTaskReliabilityFields(db *sql.DB) error {
+	log.Println("[迁移] 回滚迁移 v7: 移除回滚任务可靠性字段")
+	log.Println("[迁移] SQLite不支持DROP COLUMN，跳过回滚操作")
 	return nil
 }

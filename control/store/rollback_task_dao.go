@@ -220,3 +220,89 @@ func (dao *RollbackTaskDAO) GetTasksByNode(nodeID string) ([]*RollbackTaskRecord
 
 	return tasks, nil
 }
+
+// GetTasksExceedingMaxRetries 查询重试次数超过阈值的任务
+func (dao *RollbackTaskDAO) GetTasksExceedingMaxRetries(maxRetries int) ([]int64, error) {
+	log.Printf("[RollbackTaskDAO] 查询超过最大重试次数的任务: maxRetries=%d", maxRetries)
+
+	rows, err := dao.db.Query(`
+		SELECT id
+		FROM rollback_tasks
+		WHERE retry_count > ? AND status = 'pending'
+		ORDER BY id ASC
+	`, maxRetries)
+
+	if err != nil {
+		return nil, fmt.Errorf("查询超过最大重试次数任务失败: %v", err)
+	}
+	defer rows.Close()
+
+	var taskIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("扫描任务ID失败: %v", err)
+		}
+		taskIDs = append(taskIDs, id)
+	}
+
+	log.Printf("[RollbackTaskDAO] 找到 %d 个超过最大重试次数的任务", len(taskIDs))
+	return taskIDs, nil
+}
+
+// GetStalledProcessingTasks 查询超过timeout秒未更新的processing任务
+func (dao *RollbackTaskDAO) GetStalledProcessingTasks(timeout int64) ([]int64, error) {
+	now := time.Now().Unix()
+	staleThreshold := now - timeout
+
+	log.Printf("[RollbackTaskDAO] 查询超时的processing任务: timeout=%d秒, 阈值时间戳=%d", timeout, staleThreshold)
+
+	rows, err := dao.db.Query(`
+		SELECT id
+		FROM rollback_tasks
+		WHERE status = 'processing' AND updated_at < ?
+		ORDER BY id ASC
+	`, staleThreshold)
+
+	if err != nil {
+		return nil, fmt.Errorf("查询超时processing任务失败: %v", err)
+	}
+	defer rows.Close()
+
+	var taskIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("扫描任务ID失败: %v", err)
+		}
+		taskIDs = append(taskIDs, id)
+	}
+
+	log.Printf("[RollbackTaskDAO] 找到 %d 个超时的processing任务", len(taskIDs))
+	return taskIDs, nil
+}
+
+// ResetProcessingTaskToPending 重置单个processing任务回到pending状态
+func (dao *RollbackTaskDAO) ResetProcessingTaskToPending(id int64) error {
+	result, err := dao.db.Exec(`
+		UPDATE rollback_tasks
+		SET status = 'pending', updated_at = ?
+		WHERE id = ? AND status = 'processing'
+	`, time.Now().Unix(), id)
+
+	if err != nil {
+		return fmt.Errorf("重置任务状态失败: %v", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("获取影响行数失败: %v", err)
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("任务ID %d 不存在或状态不是processing", id)
+	}
+
+	log.Printf("[RollbackTaskDAO] 重置任务状态到pending: ID=%d", id)
+	return nil
+}

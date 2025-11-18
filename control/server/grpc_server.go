@@ -52,6 +52,11 @@ type ControlServer struct {
 	// 节点健康检查定时器
 	healthCheckTicker *time.Ticker
 
+	// 回滚任务可靠性配置
+	maxRetries        int   // 最大重试次数限制
+	processingTimeout int64 // processing状态超时时间（秒）
+	stalledTaskTicker *time.Ticker
+
 	// 互斥锁
 	mu sync.Mutex
 }
@@ -138,6 +143,9 @@ func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *Cont
 		eventBus:          eventBus,
 		lifecycleManager:  lifecycleManager,
 		healthCheckTicker: time.NewTicker(30 * time.Second),
+		maxRetries:        5,   // 默认最大重试5次
+		processingTimeout: 600, // 默认10分钟超时
+		stalledTaskTicker: time.NewTicker(60 * time.Second),
 	}
 
 	// 订阅事件处理器
@@ -145,6 +153,9 @@ func NewControlServerWithWebSocket(store *store.Store, wsHub WebSocketHub) *Cont
 
 	// 启动健康检查goroutine
 	go server.healthCheck()
+
+	// 启动超时任务监控goroutine
+	go server.monitorStalledTasks()
 
 	// 加载数据库中的节点数据
 	server.loadNodesFromDatabase()
@@ -499,6 +510,36 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 				configs = append(configs, config)
 			}
 			s.configManager.mu.RUnlock()
+
+			// 检查并标记超过最大重试次数的任务为failed
+			if s.store != nil {
+				exceededTaskIDs, err := s.store.RollbackTaskDAO().GetTasksExceedingMaxRetries(s.maxRetries)
+				if err != nil {
+					log.Printf("[控制端] 查询超过最大重试次数的任务失败: %v", err)
+				} else if len(exceededTaskIDs) > 0 {
+					for _, taskID := range exceededTaskIDs {
+						failMsg := fmt.Sprintf("任务重试次数超过最大限制 %d 次", s.maxRetries)
+						if err := s.store.RollbackTaskDAO().UpdateTaskStatus(taskID, "failed", failMsg); err != nil {
+							log.Printf("[控制端] 标记任务失败状态失败: TaskID=%d, Error=%v", taskID, err)
+						} else {
+							log.Printf("[控制端] 任务因超过最大重试次数标记为failed: TaskID=%d", taskID)
+
+							// 发布任务失败事件
+							if s.eventBus != nil {
+								s.eventBus.Publish(&Event{
+									Type: EventRollbackTaskFailed,
+									Data: map[string]interface{}{
+										"task_id":     taskID,
+										"reason":      failMsg,
+										"auto_failed": true,
+									},
+									Timestamp: time.Now().Unix(),
+								})
+							}
+						}
+					}
+				}
+			}
 
 			// 检查是否有待执行的回滚任务
 			var task *RollbackTask
@@ -964,6 +1005,54 @@ func (s *ControlServer) Start(address string) error {
 func (s *ControlServer) healthCheck() {
 	for range s.healthCheckTicker.C {
 		s.checkNodeHealth()
+	}
+}
+
+// monitorStalledTasks 定期扫描超时的processing任务并重置
+func (s *ControlServer) monitorStalledTasks() {
+	log.Printf("[控制端] 启动超时任务监控 goroutine: 扫描间隔=%d秒, Processing超时=%d秒",
+		60, s.processingTimeout)
+
+	for range s.stalledTaskTicker.C {
+		if s.store == nil {
+			continue
+		}
+
+		// 查询超时的processing任务
+		stalledTaskIDs, err := s.store.RollbackTaskDAO().GetStalledProcessingTasks(s.processingTimeout)
+		if err != nil {
+			log.Printf("[控制端] 查询超时processing任务失败: %v", err)
+			continue
+		}
+
+		if len(stalledTaskIDs) == 0 {
+			continue
+		}
+
+		log.Printf("[控制端] 发现 %d 个超时的processing任务，准备重置到pending状态", len(stalledTaskIDs))
+
+		// 重置每个超时任务
+		for _, taskID := range stalledTaskIDs {
+			if err := s.store.RollbackTaskDAO().ResetProcessingTaskToPending(taskID); err != nil {
+				log.Printf("[控制端] 重置超时任务失败: TaskID=%d, Error=%v", taskID, err)
+			} else {
+				log.Printf("[控制端] 超时任务已重置到pending: TaskID=%d", taskID)
+
+				// 发布任务重置事件（可选，用于监控）
+				if s.eventBus != nil {
+					s.eventBus.Publish(&Event{
+						Type: EventRollbackTaskFailed, // 复用失败事件类型
+						Data: map[string]interface{}{
+							"task_id":      taskID,
+							"reason":       fmt.Sprintf("Processing超时 %d 秒，已重置到pending", s.processingTimeout),
+							"auto_reset":   true,
+							"stalled_task": true,
+						},
+						Timestamp: time.Now().Unix(),
+					})
+				}
+			}
+		}
 	}
 }
 
