@@ -10,13 +10,13 @@ import (
 
 // SubscriptionGenerator 订阅生成器
 type SubscriptionGenerator struct {
-	ServerIP   string
-	Port       int
-	UUID       string
-	PublicKey  string
-	ShortId    string
-	SNI        string
-	Remark     string
+	ServerIP  string
+	Port      int
+	UUID      string
+	PublicKey string
+	ShortId   string
+	SNI       string
+	Remark    string
 }
 
 // GenerateVLESSLink 生成VLESS订阅链接

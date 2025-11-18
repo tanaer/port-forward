@@ -13,14 +13,14 @@ import (
 
 // Bridge 代理桥接管理器
 type Bridge struct {
-	id            int
-	xrayManager   *xray.Manager
-	hy2Client     *hysteria.Client
-	xrayConfig    string
-	hy2Config     string
-	socks5Port    int  // Hysteria2 SOCKS5端口
-	running       bool
-	mu            sync.Mutex
+	id          int
+	xrayManager *xray.Manager
+	hy2Client   *hysteria.Client
+	xrayConfig  string
+	hy2Config   string
+	socks5Port  int // Hysteria2 SOCKS5端口
+	running     bool
+	mu          sync.Mutex
 	// 流量监控器
 	trafficMonitor *TrafficMonitor
 }
@@ -34,12 +34,12 @@ func NewBridge(id int, socks5Port int) *Bridge {
 	}
 
 	return &Bridge{
-		id:              id,
-		xrayConfig:      filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)),
-		hy2Config:       filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id)),
-		socks5Port:      socks5Port,
-		running:         false,
-		trafficMonitor:  NewTrafficMonitor(),
+		id:             id,
+		xrayConfig:     filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)),
+		hy2Config:      filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id)),
+		socks5Port:     socks5Port,
+		running:        false,
+		trafficMonitor: NewTrafficMonitor(),
 	}
 }
 

@@ -49,7 +49,7 @@ func (dao *RollbackTaskDAO) CreateTask(task *RollbackTaskRecord) (int64, error) 
 		(node_id, config_id, target_version, status, retry_count, reason, error_message, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, task.NodeID, task.ConfigID, task.TargetVersion, task.Status, task.RetryCount,
-	   task.Reason, task.ErrorMessage, task.CreatedAt, task.UpdatedAt)
+		task.Reason, task.ErrorMessage, task.CreatedAt, task.UpdatedAt)
 
 	if err != nil {
 		return 0, fmt.Errorf("创建回滚任务失败: %v", err)

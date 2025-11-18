@@ -21,12 +21,12 @@ type Metrics struct {
 	FailedConnections uint64
 
 	// 端口检查统计
-	PortChecksTotal   uint64
-	PortChecksCached  uint64
-	CacheHitRate      float64
+	PortChecksTotal  uint64
+	PortChecksCached uint64
+	CacheHitRate     float64
 
 	// 性能统计
-	DBWriteDuration    time.Duration
+	DBWriteDuration   time.Duration
 	PortCheckDuration time.Duration
 
 	// 时间戳
@@ -91,15 +91,15 @@ func (m *Metrics) GetMetrics() map[string]interface{} {
 
 	return map[string]interface{}{
 		"traffic": map[string]interface{}{
-			"bytes_sent":     m.TotalBytesSent,
-			"bytes_recv":     m.TotalBytesReceived,
-			"packets_sent":   m.TotalPacketsSent,
-			"packets_recv":   m.TotalPacketsRecv,
+			"bytes_sent":   m.TotalBytesSent,
+			"bytes_recv":   m.TotalBytesReceived,
+			"packets_sent": m.TotalPacketsSent,
+			"packets_recv": m.TotalPacketsRecv,
 		},
 		"connections": map[string]interface{}{
-			"active":    m.ActiveConnections,
-			"total":     m.TotalConnections,
-			"failed":    m.FailedConnections,
+			"active":       m.ActiveConnections,
+			"total":        m.TotalConnections,
+			"failed":       m.FailedConnections,
 			"success_rate": float64(m.TotalConnections) / float64(m.TotalConnections+m.FailedConnections) * 100,
 		},
 		"performance": map[string]interface{}{

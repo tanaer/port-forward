@@ -44,7 +44,6 @@ func (c *APIClient) addAuthHeader(req *http.Request) {
 	}
 }
 
-
 // BatchStartRequest 批量启动请求
 type BatchStartRequest struct {
 	IDs []int `json:"ids"`
@@ -62,9 +61,9 @@ type BatchDeleteRequest struct {
 
 // BatchResponse 批量响应
 type BatchResponse struct {
-	Success []int              `json:"success"`
-	Failed  map[int]string     `json:"failed"`
-	Message string             `json:"message"`
+	Success []int          `json:"success"`
+	Failed  map[int]string `json:"failed"`
+	Message string         `json:"message"`
 }
 
 // StatusQueryRequest 状态查询请求
@@ -79,17 +78,17 @@ type StatusQueryResponse struct {
 
 // ProxyStatus 代理状态
 type ProxyStatus struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	Status     int    `json:"status"`
-	InboundPort int   `json:"inbound_port"`
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Status       int    `json:"status"`
+	InboundPort  int    `json:"inbound_port"`
 	OutboundType string `json:"outbound_type"`
 }
 
 // TrafficStats 流量统计
 type TrafficStats struct {
-	Total       int64  `json:"total"`
-	Active      int64  `json:"active"`
+	Total        int64 `json:"total"`
+	Active       int64 `json:"active"`
 	TotalTraffic int64 `json:"total_traffic"`
 }
 
@@ -105,25 +104,25 @@ type ProxyInfo struct {
 
 // NetworkTestResult 网络测试结果
 type NetworkTestResult struct {
-	Addr string `json:"addr"`
-	Port int    `json:"port"`
-	OK   bool   `json:"ok"`
+	Addr  string `json:"addr"`
+	Port  int    `json:"port"`
+	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
 }
 
 // DiagnosisResult 诊断结果
 type DiagnosisResult struct {
-	Ports      []PortStatus      `json:"ports"`
-	Proxies    []ProxyInfo       `json:"proxies"`
-	Database   TrafficStats      `json:"database"`
-	Network    []NetworkTestResult `json:"network"`
+	Ports    []PortStatus        `json:"ports"`
+	Proxies  []ProxyInfo         `json:"proxies"`
+	Database TrafficStats        `json:"database"`
+	Network  []NetworkTestResult `json:"network"`
 }
 
 // PortStatus 端口状态
 type PortStatus struct {
-	Port       int  `json:"port"`
-	ProxyID    int  `json:"proxy_id"`
-	InUse      bool `json:"in_use"`
+	Port            int  `json:"port"`
+	ProxyID         int  `json:"proxy_id"`
+	InUse           bool `json:"in_use"`
 	MultipleProxies bool `json:"multiple_proxies"`
 }
 

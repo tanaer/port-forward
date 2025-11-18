@@ -18,19 +18,19 @@ import (
 
 // AgentClient Agent客户端
 type AgentClient struct {
-	conn          *grpc.ClientConn
-	client        pb.ControlServiceClient
-	nodeID        string
-	controlAddr   string
-	controlToken  string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	heartbeatCtx  context.Context
+	conn            *grpc.ClientConn
+	client          pb.ControlServiceClient
+	nodeID          string
+	controlAddr     string
+	controlToken    string
+	ctx             context.Context
+	cancel          context.CancelFunc
+	heartbeatCtx    context.Context
 	heartbeatCancel context.CancelFunc
-	configCtx     context.Context
-	configCancel  context.CancelFunc
+	configCtx       context.Context
+	configCancel    context.CancelFunc
 	heartbeatStream pb.ControlService_HeartbeatClient
-	configStream  pb.ControlService_StreamConfigClient
+	configStream    pb.ControlService_StreamConfigClient
 }
 
 // NewAgentClient 创建新的Agent客户端

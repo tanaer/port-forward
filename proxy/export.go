@@ -11,8 +11,8 @@ import (
 
 // ExportConfig 导出配置
 type ExportConfig struct {
-	Version string              `json:"version"`
-	Proxies []conf.ProxyConfig  `json:"proxies"`
+	Version string             `json:"version"`
+	Proxies []conf.ProxyConfig `json:"proxies"`
 }
 
 // ExportProxies 导出代理配置（支持批量选择）

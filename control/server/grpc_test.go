@@ -394,7 +394,6 @@ func BenchmarkControlServer(b *testing.B) {
 	}
 }
 
-
 // TestRollbackFlow 测试回滚流程集成测试
 func TestRollbackFlow(t *testing.T) {
 	// 创建事件处理器记录器
@@ -516,8 +515,8 @@ func TestRollbackTaskWithJsonValidation(t *testing.T) {
 
 	// 注册节点
 	nodeInfo := &NodeInfo{
-		Info: &pb.NodeInfo{NodeId: "recovery-test-node"},
-		Status:  "active",
+		Info:         &pb.NodeInfo{NodeId: "recovery-test-node"},
+		Status:       "active",
 		ControlToken: "test-token",
 	}
 	server.nodeRegistry.mu.Lock()

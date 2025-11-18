@@ -17,40 +17,40 @@ type Database struct {
 
 // NodeRecord 节点记录
 type NodeRecord struct {
-	ID          int    `json:"id"`
-	NodeID      string `json:"node_id"`
-	Hostname    string `json:"hostname"`
-	IPAddress   string `json:"ip_address"`
-	Version     string `json:"version"`
-	Status      string `json:"status"`
+	ID           int    `json:"id"`
+	NodeID       string `json:"node_id"`
+	Hostname     string `json:"hostname"`
+	IPAddress    string `json:"ip_address"`
+	Version      string `json:"version"`
+	Status       string `json:"status"`
 	ControlToken string `json:"control_token"`
-	NodeGroup   string `json:"node_group"`
-	Tags        string `json:"tags"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	NodeGroup    string `json:"node_group"`
+	Tags         string `json:"tags"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
 }
 
 // ProxyConfigRecord 代理配置记录
 type ProxyConfigRecord struct {
-	ID          int32  `json:"id"`
-	NodeID      string `json:"node_id"`
-	Name        string `json:"name"`
+	ID           int32  `json:"id"`
+	NodeID       string `json:"node_id"`
+	Name         string `json:"name"`
 	OutboundType string `json:"outbound_type"`
-	ConfigJSON  string `json:"config_json"`
-	InboundPort int32  `json:"inbound_port"` // 从配置JSON中解析
-	ConfigGroup string `json:"config_group"`
-	Version     int32  `json:"version"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	ConfigJSON   string `json:"config_json"`
+	InboundPort  int32  `json:"inbound_port"` // 从配置JSON中解析
+	ConfigGroup  string `json:"config_group"`
+	Version      int32  `json:"version"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
 }
 
 // NodeLogRecord 节点日志记录
 type NodeLogRecord struct {
 	ID        int    `json:"id"`
 	NodeID    string `json:"node_id"`
-	LogType   string `json:"log_type"`   // heartbeat, error, config_update
+	LogType   string `json:"log_type"` // heartbeat, error, config_update
 	Message   string `json:"message"`
-	Data      string `json:"data"`       // JSON格式的附加数据
+	Data      string `json:"data"` // JSON格式的附加数据
 	CreatedAt int64  `json:"created_at"`
 }
 

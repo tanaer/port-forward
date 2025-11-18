@@ -41,7 +41,7 @@ func (pm *ProxyManager) CreateProxyFromConfig(cfg conf.ProxyConfig) error {
 		ShortIds:        []string{cfg.ShortId},
 		OutboundType:    cfg.OutboundType,
 		Socks5Addr:      cfg.Socks5Addr,
-		Socks5Port:      socks5Port,  // 根据OutboundType选择正确端口
+		Socks5Port:      socks5Port, // 根据OutboundType选择正确端口
 		Socks5User:      cfg.Socks5User,
 		Socks5Password:  cfg.Socks5Password,
 		VmessServer:     cfg.VmessServer,

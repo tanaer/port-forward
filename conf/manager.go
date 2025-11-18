@@ -13,7 +13,7 @@ type ConfigSubscriber interface {
 // ConfigManager 配置管理器，替代全局变量
 // 设计目标：减少全局状态，依赖注入替代全局变量
 type ConfigManager struct {
-	stopChan        chan string              // 替代 conf.Ch（保持双向以兼容旧代码）
+	stopChan        chan string               // 替代 conf.Ch（保持双向以兼容旧代码）
 	runningManagers map[string]contextManager // 替代 conf.Wg
 	mu              sync.RWMutex
 
@@ -28,12 +28,12 @@ type ConfigManager struct {
 
 // contextManager 跟踪单个转发实例的生命周期
 type contextManager struct {
-	id         int
-	protocol   string
-	localPort  string
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         *sync.WaitGroup
+	id        int
+	protocol  string
+	localPort string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        *sync.WaitGroup
 }
 
 // NewConfigManager 创建新的配置管理器

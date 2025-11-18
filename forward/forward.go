@@ -16,18 +16,18 @@ import (
 )
 
 type IPStruct struct {
-	Time           int64     `gorm:"-"`              // Unix时间戳
-	TCPConnections net.Conn  `gorm:"-"`              // TCP连接
-	LastActive     time.Time `gorm:"-"`              // 最后活动时间（新增）
+	Time           int64     `gorm:"-"` // Unix时间戳
+	TCPConnections net.Conn  `gorm:"-"` // TCP连接
+	LastActive     time.Time `gorm:"-"` // 最后活动时间（新增）
 }
 
 type ConnectionStats struct {
 	conf.ConnectionStats
-	TotalBytesOld   uint64               `gorm:"-"`
-	TotalBytesLock  sync.Mutex           `gorm:"-"`
-	TCPConnections  map[string]*IPStruct `gorm:"-"` // 保留兼容性，但实际由ConnectionManager管理
-	TcpTime         int                  `gorm:"-"` // TCP无传输时间
-	connManager     *ConnectionManager    `gorm:"-"` // 连接管理器（权威数据源）
+	TotalBytesOld  uint64               `gorm:"-"`
+	TotalBytesLock sync.Mutex           `gorm:"-"`
+	TCPConnections map[string]*IPStruct `gorm:"-"` // 保留兼容性，但实际由ConnectionManager管理
+	TcpTime        int                  `gorm:"-"` // TCP无传输时间
+	connManager    *ConnectionManager   `gorm:"-"` // 连接管理器（权威数据源）
 }
 
 var Timestr string
@@ -304,7 +304,7 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 			connID := srctcpAddrstr + "->" + dsttcpAddrstr
 			ipStruct := &IPStruct{
 				Time:           time.Now().Unix(),
-				TCPConnections:  src,
+				TCPConnections: src,
 				LastActive:     time.Now(), // 记录最后活动时间
 			}
 
@@ -403,11 +403,11 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 					// 避免指数增长：1+2+3+... → 应该传递恒定的增量
 					deltaGB := cs.TotalBytes / gb
 					cs.TotalGigabyte = cs.TotalGigabyte + deltaGB
-					UpdateForwardGb(cs.Id, deltaGB)  // 修复：传递增量，而非累计值
-					cs.TotalBytes = cs.TotalBytes % gb  // 取余数保留不足1GB的部分
+					UpdateForwardGb(cs.Id, deltaGB)    // 修复：传递增量，而非累计值
+					cs.TotalBytes = cs.TotalBytes % gb // 取余数保留不足1GB的部分
 				}
 				cs.TotalBytesOld = cs.TotalBytes
-				UpdateForwardBytes(cs.Id, increment)  // 修复：传递增量，而非总流量
+				UpdateForwardBytes(cs.Id, increment) // 修复：传递增量，而非总流量
 
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 				// 使用ConnectionManager作为权威数据源（Week 2 优化）
@@ -429,20 +429,20 @@ func (cs *ConnectionStats) printStats(wg *sync.WaitGroup, ctx context.Context) {
 					}
 				}
 
-	// 旧的连接清理逻辑已被ConnectionManager替代
-	// ConnectionManager每10秒自动清理空闲连接
-	// 保留空else块以维持逻辑结构
-		} else {
-			// 当没有流量变化时，显示ConnectionManager连接数
-			if cs.connManager != nil {
-				connCount := cs.connManager.GetConnectionCount()
-				if connCount > 0 {
-					Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
-					fmt.Printf("%v 【%s】端口 %s 活跃连接数: %d (ConnectionManager)\n", Timestr, cs.Protocol, cs.LocalPort, connCount)
+				// 旧的连接清理逻辑已被ConnectionManager替代
+				// ConnectionManager每10秒自动清理空闲连接
+				// 保留空else块以维持逻辑结构
+			} else {
+				// 当没有流量变化时，显示ConnectionManager连接数
+				if cs.connManager != nil {
+					connCount := cs.connManager.GetConnectionCount()
+					if connCount > 0 {
+						Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
+						fmt.Printf("%v 【%s】端口 %s 活跃连接数: %d (ConnectionManager)\n", Timestr, cs.Protocol, cs.LocalPort, connCount)
+					}
 				}
 			}
-		}
-		cs.TotalBytesLock.Unlock()
+			cs.TotalBytesLock.Unlock()
 		//当协程退出时执行
 		case <-ctx.Done():
 			return

@@ -109,7 +109,6 @@ func (pc *PortChecker) isPortAvailable(port int, protocol string) (bool, error) 
 	return available, nil
 }
 
-
 // 获取转发列表
 func GetList() []conf.ConnectionStats {
 	var res []conf.ConnectionStats

@@ -161,9 +161,9 @@ func (w *WebServer) nodeDetailHandler(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "node_detail.tmpl", gin.H{
-		"title":   "节点详情 - " + nodeID,
-		"nodeID":  nodeID,
-		"node":    node,
+		"title":  "节点详情 - " + nodeID,
+		"nodeID": nodeID,
+		"node":   node,
 	})
 }
 
@@ -182,8 +182,8 @@ func (w *WebServer) configsHandler(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "configs.tmpl", gin.H{
-		"title":    "配置管理 - goForward 2.0",
-		"configs":  configList,
+		"title":   "配置管理 - goForward 2.0",
+		"configs": configList,
 	})
 }
 
@@ -234,11 +234,11 @@ func (w *WebServer) apiNodeDetailHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"id":          nodeID,
-			"info":        node.Info,
-			"status":      node.Status,
-			"lastSeen":    node.LastHeartbeat.Unix(),
-			"health":      node.Health,
+			"id":           nodeID,
+			"info":         node.Info,
+			"status":       node.Status,
+			"lastSeen":     node.LastHeartbeat.Unix(),
+			"health":       node.Health,
 			"controlToken": node.ControlToken,
 		},
 	})
@@ -273,6 +273,7 @@ func (w *WebServer) Stop() error {
 func (w *WebServer) wsHandler(c *gin.Context) {
 	w.wsHub.ServeWebSocket(c)
 }
+
 // apiConfigsHandler API - 获取配置列表
 func (w *WebServer) apiConfigsHandler(c *gin.Context) {
 	configs := w.controlSrv.GetConfigs()
@@ -386,10 +387,10 @@ func (w *WebServer) apiBatchUpdateNodesStatusHandler(c *gin.Context) {
 
 	// 验证状态值
 	validStatuses := map[string]bool{
-		"active":     true,
-		"inactive":   true,
+		"active":      true,
+		"inactive":    true,
 		"maintenance": true,
-		"unknown":    true,
+		"unknown":     true,
 	}
 	if !validStatuses[req.Status] {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -410,10 +411,10 @@ func (w *WebServer) apiBatchUpdateNodesStatusHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"message":    fmt.Sprintf("批量更新节点状态完成，影响 %d 个节点", affected),
-		"affected":   affected,
-		"requested":  len(req.NodeIDs),
+		"success":   true,
+		"message":   fmt.Sprintf("批量更新节点状态完成，影响 %d 个节点", affected),
+		"affected":  affected,
+		"requested": len(req.NodeIDs),
 	})
 }
 
@@ -500,9 +501,9 @@ func (w *WebServer) apiBatchConfigsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"message":  fmt.Sprintf("批量%s配置完成，影响 %d 个配置", req.Action, affected),
-		"affected": affected,
+		"success":   true,
+		"message":   fmt.Sprintf("批量%s配置完成，影响 %d 个配置", req.Action, affected),
+		"affected":  affected,
 		"requested": len(req.Configs),
 	})
 }
@@ -541,9 +542,9 @@ func (w *WebServer) apiBatchDeleteConfigsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"message":  fmt.Sprintf("批量删除配置完成，影响 %d 个配置", affected),
-		"affected": affected,
+		"success":   true,
+		"message":   fmt.Sprintf("批量删除配置完成，影响 %d 个配置", affected),
+		"affected":  affected,
 		"requested": len(req.ConfigIDs),
 		"results":   results,
 	})
@@ -717,10 +718,10 @@ func (w *WebServer) apiNodeHealthHandler(c *gin.Context) {
 
 	if node.Health != nil {
 		response["health_metrics"] = gin.H{
-			"cpu_percent":         node.Health.CpuPercent,
-			"memory_percent":      node.Health.MemoryPercent,
-			"disk_percent":        node.Health.DiskPercent,
-			"active_connections":  node.Health.ActiveConnections,
+			"cpu_percent":        node.Health.CpuPercent,
+			"memory_percent":     node.Health.MemoryPercent,
+			"disk_percent":       node.Health.DiskPercent,
+			"active_connections": node.Health.ActiveConnections,
 		}
 	}
 
@@ -923,12 +924,12 @@ func (w *WebServer) apiConfigRollbackHandler(c *gin.Context) {
 	// 发布回滚事件
 	if w.controlSrv.GetEventBus() != nil {
 		w.controlSrv.GetEventBus().Publish(&server.Event{
-			Type:      server.EventConfigRolledBack,
-			ConfigID:  configIDInt,
+			Type:     server.EventConfigRolledBack,
+			ConfigID: configIDInt,
 			Data: map[string]interface{}{
-				"target_version": targetVersion,
+				"target_version":  targetVersion,
 				"current_version": record.Version + 1, // 回滚后的新版本号
-				"rollback_by":    "web_ui",
+				"rollback_by":     "web_ui",
 			},
 			Timestamp: time.Now().Unix(),
 		})
@@ -938,10 +939,10 @@ func (w *WebServer) apiConfigRollbackHandler(c *gin.Context) {
 		configIDInt, targetVersion, affected)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":         true,
-		"message":         "配置回滚成功",
-		"config_id":       configIDInt,
-		"target_version":  targetVersion,
+		"success":          true,
+		"message":          "配置回滚成功",
+		"config_id":        configIDInt,
+		"target_version":   targetVersion,
 		"affected_configs": affected,
 	})
 }

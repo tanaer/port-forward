@@ -194,34 +194,34 @@ func TestProxyConfigDAO_BatchDeleteConfigs(t *testing.T) {
 
 func TestParseInboundPort(t *testing.T) {
 	tests := []struct {
-		name     string
+		name       string
 		configJSON string
-		expected int32
-		hasError bool
+		expected   int32
+		hasError   bool
 	}{
 		{
-			name:     "listen_port 字段",
+			name:       "listen_port 字段",
 			configJSON: `{"listen_port": 8080}`,
-			expected: 8080,
-			hasError: false,
+			expected:   8080,
+			hasError:   false,
 		},
 		{
-			name:     "port 字段",
+			name:       "port 字段",
 			configJSON: `{"port": 9090}`,
-			expected: 9090,
-			hasError: false,
+			expected:   9090,
+			hasError:   false,
 		},
 		{
-			name:     "空配置",
+			name:       "空配置",
 			configJSON: "",
-			expected: 0,
-			hasError: true,
+			expected:   0,
+			hasError:   true,
 		},
 		{
-			name:     "无端口字段",
+			name:       "无端口字段",
 			configJSON: `{"host": "localhost"}`,
-			expected: 0,
-			hasError: true,
+			expected:   0,
+			hasError:   true,
 		},
 	}
 

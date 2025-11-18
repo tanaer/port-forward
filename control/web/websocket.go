@@ -32,10 +32,10 @@ type WebSocketHub struct {
 // NewWebSocketHub 创建新的WebSocket中心
 func NewWebSocketHub() *WebSocketHub {
 	return &WebSocketHub{
-		clients:   make(map[*Client]bool),
-		register:  make(chan *Client),
+		clients:    make(map[*Client]bool),
+		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		broadcast: make(chan []byte),
+		broadcast:  make(chan []byte),
 	}
 }
 

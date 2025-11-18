@@ -473,9 +473,9 @@ type BatchRequest struct {
 
 // BatchResponse 批量响应结构
 type BatchResponse struct {
-	Success []int              `json:"success"`
-	Failed  map[int]string     `json:"failed"`
-	Message string             `json:"message"`
+	Success []int          `json:"success"`
+	Failed  map[int]string `json:"failed"`
+	Message string         `json:"message"`
 }
 
 // 批量启动转发
@@ -625,8 +625,8 @@ func batchDeleteHandler(c *gin.Context) {
 // 批量更新转发
 func batchUpdateHandler(c *gin.Context) {
 	var req struct {
-		IDs    []int                  `json:"ids" binding:"required"`
-		Config conf.ConnectionStats   `json:"config" binding:"required"`
+		IDs    []int                `json:"ids" binding:"required"`
+		Config conf.ConnectionStats `json:"config" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -708,32 +708,32 @@ func getTrafficStatsHandler(c *gin.Context) {
 
 	for _, f := range forwards {
 		stats = append(stats, TrafficStats{
-			ID:         f.Id,
-			LocalPort:  f.LocalPort,
-			RemoteAddr: f.RemoteAddr,
-			Protocol:   f.Protocol,
-			TotalBytes: f.TotalBytes,
-			TotalGB:    float64(f.TotalGigabyte),
-			Status:     f.Status,
+			ID:          f.Id,
+			LocalPort:   f.LocalPort,
+			RemoteAddr:  f.RemoteAddr,
+			Protocol:    f.Protocol,
+			TotalBytes:  f.TotalBytes,
+			TotalGB:     float64(f.TotalGigabyte),
+			Status:      f.Status,
 			UpdatedTime: time.Now().Format("2006-01-02 15:04:05"),
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data": stats,
+		"data":  stats,
 		"total": len(stats),
 	})
 }
 
 // ConnectionStats 连接统计结构
 type ConnectionStats struct {
-	ID            int     `json:"id"`
-	LocalPort     string  `json:"localPort"`
-	Protocol      string  `json:"protocol"`
-	ActiveConns   int     `json:"activeConnections"`
-	TotalTraffic  uint64  `json:"totalTraffic"`
-	TodayTraffic  uint64  `json:"todayTraffic"`
-	AvgDuration   float64 `json:"avgDuration"`
+	ID           int     `json:"id"`
+	LocalPort    string  `json:"localPort"`
+	Protocol     string  `json:"protocol"`
+	ActiveConns  int     `json:"activeConnections"`
+	TotalTraffic uint64  `json:"totalTraffic"`
+	TodayTraffic uint64  `json:"todayTraffic"`
+	AvgDuration  float64 `json:"avgDuration"`
 }
 
 // 获取连接统计
@@ -745,18 +745,18 @@ func getConnectionStatsHandler(c *gin.Context) {
 		// 这里可以从 metrics 包获取更详细的连接统计
 		// 目前返回基础统计
 		stats = append(stats, ConnectionStats{
-			ID:            f.Id,
-			LocalPort:     f.LocalPort,
-			Protocol:      f.Protocol,
-			ActiveConns:   0, // TODO: 从 metrics 获取
-			TotalTraffic:  f.TotalBytes,
-			TodayTraffic:  0, // TODO: 计算当日流量
-			AvgDuration:   float64(f.OutTime),
+			ID:           f.Id,
+			LocalPort:    f.LocalPort,
+			Protocol:     f.Protocol,
+			ActiveConns:  0, // TODO: 从 metrics 获取
+			TotalTraffic: f.TotalBytes,
+			TodayTraffic: 0, // TODO: 计算当日流量
+			AvgDuration:  float64(f.OutTime),
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data": stats,
+		"data":  stats,
 		"total": len(stats),
 	})
 }
@@ -800,9 +800,9 @@ func getSystemStatsHandler(c *gin.Context) {
 
 // PortStatus 端口状态
 type PortStatus struct {
-	Port           int  `json:"port"`
-	ProxyID        int  `json:"proxy_id"`
-	InUse          bool `json:"in_use"`
+	Port            int  `json:"port"`
+	ProxyID         int  `json:"proxy_id"`
+	InUse           bool `json:"in_use"`
 	MultipleProxies bool `json:"multiple_proxies"`
 }
 
@@ -816,10 +816,10 @@ type NetworkTestResult struct {
 
 // DiagnosisResult 诊断结果
 type DiagnosisResult struct {
-	Ports      []PortStatus      `json:"ports"`
-	Proxies    []ProxyAPI        `json:"proxies"`
-	Database   SystemStats       `json:"database"`
-	Network    []NetworkTestResult `json:"network"`
+	Ports    []PortStatus        `json:"ports"`
+	Proxies  []ProxyAPI          `json:"proxies"`
+	Database SystemStats         `json:"database"`
+	Network  []NetworkTestResult `json:"network"`
 }
 
 // 获取诊断信息
@@ -869,10 +869,10 @@ func getDiagnosisHandler(c *gin.Context) {
 	}
 
 	result := DiagnosisResult{
-		Ports:      []PortStatus{}, // TODO: 实现端口检查
-		Proxies:    apiProxies,
-		Database:   stats,
-		Network:    network,
+		Ports:    []PortStatus{}, // TODO: 实现端口检查
+		Proxies:  apiProxies,
+		Database: stats,
+		Network:  network,
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -882,14 +882,14 @@ func getDiagnosisHandler(c *gin.Context) {
 
 // ProxyAPI 代理 API 响应结构
 type ProxyAPI struct {
-	ID            int    `json:"id"`
-	InboundPort   int    `json:"inboundPort"`
-	OutboundType  string `json:"outboundType"`
-	Status        int    `json:"status"`
-	TotalTraffic  uint64 `json:"totalTraffic"`
-	TotalGB       float64 `json:"totalGB"`
-	ServerAddr    string `json:"serverAddr"`
-	CreatedAt     string `json:"createdAt"`
+	ID           int     `json:"id"`
+	InboundPort  int     `json:"inboundPort"`
+	OutboundType string  `json:"outboundType"`
+	Status       int     `json:"status"`
+	TotalTraffic uint64  `json:"totalTraffic"`
+	TotalGB      float64 `json:"totalGB"`
+	ServerAddr   string  `json:"serverAddr"`
+	CreatedAt    string  `json:"createdAt"`
 }
 
 // 获取代理列表
@@ -921,7 +921,7 @@ func getProxyListAPI(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data": apiList,
+		"data":  apiList,
 		"total": len(apiList),
 	})
 }
@@ -1105,10 +1105,10 @@ func stopProxyAPI(c *gin.Context) {
 
 // ConfigExport 导出配置结构
 type ConfigExport struct {
-	Forwards []utils.ImportDefinition `json:"forwards"`
-	Proxies  []conf.ProxyConfig       `json:"proxies"`
-	ExportedAt string                 `json:"exportedAt"`
-	Version  string                   `json:"version"`
+	Forwards   []utils.ImportDefinition `json:"forwards"`
+	Proxies    []conf.ProxyConfig       `json:"proxies"`
+	ExportedAt string                   `json:"exportedAt"`
+	Version    string                   `json:"version"`
 }
 
 // 导出配置
@@ -1138,10 +1138,10 @@ func exportConfigHandler(c *gin.Context) {
 	proxies := sql.GetActiveProxies()
 
 	export := ConfigExport{
-		Forwards:  forwardDefs,
-		Proxies:   proxies,
+		Forwards:   forwardDefs,
+		Proxies:    proxies,
 		ExportedAt: time.Now().Format("2006-01-02 15:04:05"),
-		Version:   version.Version,
+		Version:    version.Version,
 	}
 
 	filename := fmt.Sprintf("goforward-config-%s.%s",
@@ -1169,9 +1169,9 @@ func exportConfigHandler(c *gin.Context) {
 
 // ImportRequest 导入请求结构
 type ImportRequest struct {
-	Format   string                `json:"format" binding:"required"`
-	Data     string                `json:"data" binding:"required"`
-	Replace  bool                  `json:"replace"`
+	Format  string `json:"format" binding:"required"`
+	Data    string `json:"data" binding:"required"`
+	Replace bool   `json:"replace"`
 }
 
 // 导入配置
@@ -1231,10 +1231,10 @@ func importConfigHandler(c *gin.Context) {
 	// TODO: 导入代理配置
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "配置导入完成",
+		"message":  "配置导入完成",
 		"forwards": forwardSummary,
 		"proxies": gin.H{
-			"total": len(config.Proxies),
+			"total":    len(config.Proxies),
 			"imported": 0, // TODO: 实现代理导入
 		},
 		"importedAt": time.Now().Format("2006-01-02 15:04:05"),
@@ -1347,13 +1347,13 @@ func connectionsWebSocketHandler(c *gin.Context) {
 
 			for _, f := range forwards {
 				stats = append(stats, ConnectionStats{
-					ID:            f.Id,
-					LocalPort:     f.LocalPort,
-					Protocol:      f.Protocol,
-					ActiveConns:   0, // TODO: 从 metrics 获取
-					TotalTraffic:  f.TotalBytes,
-					TodayTraffic:  0, // TODO: 计算当日流量
-					AvgDuration:   float64(f.OutTime),
+					ID:           f.Id,
+					LocalPort:    f.LocalPort,
+					Protocol:     f.Protocol,
+					ActiveConns:  0, // TODO: 从 metrics 获取
+					TotalTraffic: f.TotalBytes,
+					TodayTraffic: 0, // TODO: 计算当日流量
+					AvgDuration:  float64(f.OutTime),
 				})
 			}
 
@@ -1378,13 +1378,13 @@ func connectionsWebSocketHandler(c *gin.Context) {
 
 // LogAPI 日志 API 响应结构
 type LogAPI struct {
-	ID        int       `json:"id"`
-	Level     string    `json:"level"`
-	Message   string    `json:"message"`
-	Module    string    `json:"module"`
-	Context   string    `json:"context"`
-	Timestamp string    `json:"timestamp"`
-	Meta      string    `json:"meta"`
+	ID        int    `json:"id"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	Module    string `json:"module"`
+	Context   string `json:"context"`
+	Timestamp string `json:"timestamp"`
+	Meta      string `json:"meta"`
 }
 
 // 获取日志列表

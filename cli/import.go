@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"goForward/conf"
 	"goForward/sql"
+	"gopkg.in/yaml.v3"
 )
 
 // ImportConfig 导入配置
@@ -23,21 +23,21 @@ type ImportConfig struct {
 
 // ForwardConfig 转发表配置
 type ForwardConfig struct {
-	LocalPort     string `json:"localPort" yaml:"localPort"`
-	RemoteAddr    string `json:"remoteAddr" yaml:"remoteAddr"`
-	RemotePort    string `json:"remotePort" yaml:"remotePort"`
-	OutTime       int    `json:"outTime" yaml:"outTime"`
-	Protocol      string `json:"protocol" yaml:"protocol"`
-	Whitelist     string `json:"whitelist" yaml:"whitelist"`
-	Blacklist     string `json:"blacklist" yaml:"blacklist"`
-	Remark        string `json:"remark" yaml:"remark"`
+	LocalPort  string `json:"localPort" yaml:"localPort"`
+	RemoteAddr string `json:"remoteAddr" yaml:"remoteAddr"`
+	RemotePort string `json:"remotePort" yaml:"remotePort"`
+	OutTime    int    `json:"outTime" yaml:"outTime"`
+	Protocol   string `json:"protocol" yaml:"protocol"`
+	Whitelist  string `json:"whitelist" yaml:"whitelist"`
+	Blacklist  string `json:"blacklist" yaml:"blacklist"`
+	Remark     string `json:"remark" yaml:"remark"`
 }
 
 // ProxyConfigImport 代理配置导入
 type ProxyConfigImport struct {
-	Name      string `json:"name" yaml:"name"`
-	Status    int    `json:"status" yaml:"status"`
-	Remark    string `json:"remark" yaml:"remark"`
+	Name   string `json:"name" yaml:"name"`
+	Status int    `json:"status" yaml:"status"`
+	Remark string `json:"remark" yaml:"remark"`
 
 	// 入站配置
 	InboundPort int `json:"inboundPort" yaml:"inboundPort"`
@@ -156,14 +156,14 @@ func importProxies(proxies []ProxyConfigImport) error {
 
 		// 创建ProxyConfig
 		proxyConfig := conf.ProxyConfig{
-			Name:          proxy.Name,
-			Status:        proxy.Status,
-			Remark:        proxy.Remark,
-			InboundPort:   proxy.InboundPort,
-			OutboundType:  proxy.OutboundType,
-			Socks5Addr:    proxy.Socks5Addr,
-			Socks5Port:    proxy.Socks5Port,
-			Socks5User:    proxy.Socks5User,
+			Name:           proxy.Name,
+			Status:         proxy.Status,
+			Remark:         proxy.Remark,
+			InboundPort:    proxy.InboundPort,
+			OutboundType:   proxy.OutboundType,
+			Socks5Addr:     proxy.Socks5Addr,
+			Socks5Port:     proxy.Socks5Port,
+			Socks5User:     proxy.Socks5User,
 			Socks5Password: proxy.Socks5Password,
 		}
 
@@ -241,14 +241,14 @@ func CreateExampleConfig(filePath string) error {
 		},
 		Proxies: []ProxyConfigImport{
 			{
-				Name:        "SOCKS5代理示例",
-				Status:      0,
-				Remark:      "示例SOCKS5代理配置",
-				InboundPort: 8443,
-				OutboundType: "socks5",
-				Socks5Addr: "103.129.162.224",
-				Socks5Port: 9860,
-				Socks5User: "username",
+				Name:           "SOCKS5代理示例",
+				Status:         0,
+				Remark:         "示例SOCKS5代理配置",
+				InboundPort:    8443,
+				OutboundType:   "socks5",
+				Socks5Addr:     "103.129.162.224",
+				Socks5Port:     9860,
+				Socks5User:     "username",
 				Socks5Password: "password",
 			},
 		},

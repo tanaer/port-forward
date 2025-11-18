@@ -64,17 +64,17 @@ type WebSocketHub interface {
 // NodeRegistry 节点注册表
 // RollbackTask 回滚任务
 type RollbackTask struct {
-	ID           int32  `json:"id"`           // 任务ID
-	ConfigID     int32  `json:"config_id"`    // 配置ID
-	TargetVersion int32 `json:"target_version"` // 目标版本
-	Reason       string `json:"reason"`       // 回滚原因
-	CreatedAt    time.Time `json:"created_at"`
+	ID            int32     `json:"id"`             // 任务ID
+	ConfigID      int32     `json:"config_id"`      // 配置ID
+	TargetVersion int32     `json:"target_version"` // 目标版本
+	Reason        string    `json:"reason"`         // 回滚原因
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type NodeRegistry struct {
-	nodes        map[string]*NodeInfo // node_id -> NodeInfo
+	nodes         map[string]*NodeInfo       // node_id -> NodeInfo
 	rollbackTasks map[string][]*RollbackTask // node_id -> 待执行的回滚任务列表
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 }
 
 // NodeInfo 节点信息
@@ -359,9 +359,9 @@ func (s *ControlServer) RegisterNode(ctx context.Context, nodeInfo *pb.NodeInfo)
 	// 发布节点注册事件
 	if s.eventBus != nil {
 		s.eventBus.Publish(&Event{
-			Type:      EventNodeRegistered,
-			NodeID:    nodeInfo.NodeId,
-			Data:      map[string]interface{}{
+			Type:   EventNodeRegistered,
+			NodeID: nodeInfo.NodeId,
+			Data: map[string]interface{}{
 				"is_new_node": isNewNode,
 				"hostname":    nodeInfo.Hostname,
 				"ip_address":  nodeInfo.IpAddress,
@@ -684,11 +684,11 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 					}
 
 					update = &pb.ConfigUpdate{
-						NodeId:      nodeID,
-						Success:     true,
-						Message:     fmt.Sprintf("回滚任务执行: TaskID=%d, ConfigID=%d -> Version=%d (%s)",
+						NodeId:  nodeID,
+						Success: true,
+						Message: fmt.Sprintf("回滚任务执行: TaskID=%d, ConfigID=%d -> Version=%d (%s)",
 							task.ID, task.ConfigID, task.TargetVersion, task.Reason),
-						Configs:     []*pb.ProxyConfig{rollbackConfig},
+						Configs: []*pb.ProxyConfig{rollbackConfig},
 						RollbackInfo: &pb.RollbackInfo{
 							ConfigId:       task.ConfigID,
 							TargetVersion:  task.TargetVersion,
@@ -844,8 +844,8 @@ func (s *ControlServer) StreamConfig(stream pb.ControlService_StreamConfigServer
 								// 发布回滚事件
 								if s.eventBus != nil {
 									s.eventBus.Publish(&Event{
-										Type:      EventConfigRolledBack,
-										ConfigID:  configID,
+										Type:     EventConfigRolledBack,
+										ConfigID: configID,
 										Data: map[string]interface{}{
 											"target_version":  targetVersion,
 											"current_version": actualVersion,

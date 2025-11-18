@@ -58,16 +58,16 @@ func (dao *ProxyConfigDAO) GetConfigByID(id int32) (*ProxyConfigRecord, error) {
 
 	var config ProxyConfigRecord
 	err := dao.db.QueryRow(query, id).Scan(
-				&config.ID,
-			&config.NodeID,
-			&config.Name,
-			&config.OutboundType,
-			&config.ConfigJSON,
-			&config.InboundPort,
-			&config.ConfigGroup,
-			&config.Version,
-			&config.CreatedAt,
-			&config.UpdatedAt,
+		&config.ID,
+		&config.NodeID,
+		&config.Name,
+		&config.OutboundType,
+		&config.ConfigJSON,
+		&config.InboundPort,
+		&config.ConfigGroup,
+		&config.Version,
+		&config.CreatedAt,
+		&config.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {

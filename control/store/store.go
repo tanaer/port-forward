@@ -9,12 +9,12 @@ import (
 
 // Store 统一数据存储接口
 type Store struct {
-	db             *sql.DB
-	nodeDAO        *NodeDAO
-	configDAO      *ProxyConfigDAO
-	logDAO         *NodeLogDAO
-	eventDAO       *NodeEventDAO
-	versionDAO     *ConfigVersionDAO
+	db              *sql.DB
+	nodeDAO         *NodeDAO
+	configDAO       *ProxyConfigDAO
+	logDAO          *NodeLogDAO
+	eventDAO        *NodeEventDAO
+	versionDAO      *ConfigVersionDAO
 	rollbackTaskDAO *RollbackTaskDAO
 }
 

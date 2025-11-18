@@ -17,7 +17,7 @@ type Migration struct {
 
 // Migrator 迁移器
 type Migrator struct {
-	db      *sql.DB
+	db         *sql.DB
 	migrations []Migration
 }
 
@@ -397,8 +397,8 @@ func isColumnExistsError(err error) bool {
 	}
 	errStr := err.Error()
 	return len(errStr) > 0 && (
-		// SQLite错误：列已存在
-		contains(errStr, "duplicate column name") ||
+	// SQLite错误：列已存在
+	contains(errStr, "duplicate column name") ||
 		contains(errStr, "already exists"))
 }
 

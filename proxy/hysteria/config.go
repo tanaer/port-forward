@@ -14,14 +14,14 @@ import (
 
 // Hy2Config Hysteria2配置
 type Hy2Config struct {
-	Server    string          `yaml:"server"`
-	Auth      string          `yaml:"auth,omitempty"`
-	Password  string          `yaml:"password,omitempty"`
-	Obfs      *ObfsConfig     `yaml:"obfs,omitempty"`
-	TLS       *TLSConfig      `yaml:"tls,omitempty"`
+	Server    string           `yaml:"server"`
+	Auth      string           `yaml:"auth,omitempty"`
+	Password  string           `yaml:"password,omitempty"`
+	Obfs      *ObfsConfig      `yaml:"obfs,omitempty"`
+	TLS       *TLSConfig       `yaml:"tls,omitempty"`
 	Bandwidth *BandwidthConfig `yaml:"bandwidth,omitempty"`
-	Socks5    *Socks5Config   `yaml:"socks5,omitempty"`
-	HTTP      *HTTPConfig     `yaml:"http,omitempty"`
+	Socks5    *Socks5Config    `yaml:"socks5,omitempty"`
+	HTTP      *HTTPConfig      `yaml:"http,omitempty"`
 }
 
 // ObfsConfig 混淆配置
