@@ -114,6 +114,13 @@ func (w *WebServer) setupRoutes() {
 	router.GET("/api/configs/:id/versions", w.apiConfigVersionsHandler)
 	router.POST("/api/configs/:id/rollback/:version", w.apiConfigRollbackHandler)
 
+	// 死信队列API接口
+	router.GET("/api/dlq/tasks", w.apiDLQListHandler)
+	router.GET("/api/dlq/tasks/:id", w.apiDLQDetailHandler)
+	router.POST("/api/dlq/tasks/:id/replay", w.apiDLQReplayHandler)
+	router.DELETE("/api/dlq/tasks/:id", w.apiDLQDeleteHandler)
+	router.POST("/api/dlq/cleanup", w.apiDLQCleanupHandler)
+
 	// WebSocket接口
 	router.GET("/ws", w.wsHandler)
 }
@@ -944,5 +951,221 @@ func (w *WebServer) apiConfigRollbackHandler(c *gin.Context) {
 		"config_id":        configIDInt,
 		"target_version":   targetVersion,
 		"affected_configs": affected,
+	})
+}
+
+// apiDLQListHandler API - 获取死信队列任务列表
+func (w *WebServer) apiDLQListHandler(c *gin.Context) {
+	limitStr := c.DefaultQuery("limit", "100")
+	limit := 100
+	if val, err := strconv.Atoi(limitStr); err == nil && val > 0 && val <= 1000 {
+		limit = val
+	}
+
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "存储层未初始化",
+		})
+		return
+	}
+
+	tasks, err := store.DLQDAO().ListDLQTasks(limit)
+	if err != nil {
+		log.Printf("[Web API] 获取DLQ任务列表失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("获取DLQ任务列表失败: %v", err),
+		})
+		return
+	}
+
+	taskList := make([]map[string]interface{}, 0, len(tasks))
+	for _, task := range tasks {
+		metadata := ""
+		if task.Metadata.Valid {
+			metadata = task.Metadata.String
+		}
+		taskList = append(taskList, map[string]interface{}{
+			"id":                task.ID,
+			"original_task_id":  task.OriginalTaskID,
+			"node_id":           task.NodeID,
+			"config_id":         task.ConfigID,
+			"target_version":    task.TargetVersion,
+			"status":            task.Status,
+			"failure_reason":    task.FailureReason,
+			"retry_count":       task.RetryCount,
+			"moved_to_dlq_at":   time.Unix(task.MovedToDLQAt, 0).Format("2006-01-02 15:04:05"),
+			"dlq_expiry_at":     time.Unix(task.DLQExpiryAt, 0).Format("2006-01-02 15:04:05"),
+			"metadata":          metadata,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    taskList,
+		"count":   len(taskList),
+	})
+}
+
+// apiDLQDetailHandler API - 获取死信队列任务详情
+func (w *WebServer) apiDLQDetailHandler(c *gin.Context) {
+	dlqIDStr := c.Param("id")
+	dlqID, err := strconv.ParseInt(dlqIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的DLQ任务ID",
+		})
+		return
+	}
+
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "存储层未初始化",
+		})
+		return
+	}
+
+	task, err := store.DLQDAO().GetDLQTaskByID(dlqID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("DLQ任务不存在: %v", err),
+		})
+		return
+	}
+
+	metadata := ""
+	if task.Metadata.Valid {
+		metadata = task.Metadata.String
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": map[string]interface{}{
+			"id":                task.ID,
+			"original_task_id":  task.OriginalTaskID,
+			"node_id":           task.NodeID,
+			"config_id":         task.ConfigID,
+			"target_version":    task.TargetVersion,
+			"status":            task.Status,
+			"failure_reason":    task.FailureReason,
+			"retry_count":       task.RetryCount,
+			"moved_to_dlq_at":   time.Unix(task.MovedToDLQAt, 0).Format("2006-01-02 15:04:05"),
+			"dlq_expiry_at":     time.Unix(task.DLQExpiryAt, 0).Format("2006-01-02 15:04:05"),
+			"metadata":          metadata,
+		},
+	})
+}
+
+// apiDLQReplayHandler API - 从死信队列重放任务
+func (w *WebServer) apiDLQReplayHandler(c *gin.Context) {
+	dlqIDStr := c.Param("id")
+	dlqID, err := strconv.ParseInt(dlqIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的DLQ任务ID",
+		})
+		return
+	}
+
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "存储层未初始化",
+		})
+		return
+	}
+
+	if err := store.DLQDAO().ReplayFromDLQ(dlqID); err != nil {
+		log.Printf("[Web API] 从DLQ重放任务 %d 失败: %v", dlqID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("DLQ任务重放失败: %v", err),
+		})
+		return
+	}
+
+	log.Printf("[Web API] DLQ任务 %d 已重放到队列", dlqID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "DLQ任务已重放到队列",
+		"dlq_id":  dlqID,
+	})
+}
+
+// apiDLQDeleteHandler API - 从死信队列删除任务
+func (w *WebServer) apiDLQDeleteHandler(c *gin.Context) {
+	dlqIDStr := c.Param("id")
+	dlqID, err := strconv.ParseInt(dlqIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "无效的DLQ任务ID",
+		})
+		return
+	}
+
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "存储层未初始化",
+		})
+		return
+	}
+
+	if err := store.DLQDAO().DeleteFromDLQ(dlqID); err != nil {
+		log.Printf("[Web API] 删除DLQ任务 %d 失败: %v", dlqID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("DLQ任务删除失败: %v", err),
+		})
+		return
+	}
+
+	log.Printf("[Web API] DLQ任务 %d 已永久删除", dlqID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "DLQ任务已永久删除",
+		"dlq_id":  dlqID,
+	})
+}
+
+// apiDLQCleanupHandler API - 清理过期的DLQ任务
+func (w *WebServer) apiDLQCleanupHandler(c *gin.Context) {
+	store := w.controlSrv.GetStore()
+	if store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "存储层未初始化",
+		})
+		return
+	}
+
+	affected, err := store.DLQDAO().CleanupExpiredDLQTasks()
+	if err != nil {
+		log.Printf("[Web API] 清理过期DLQ任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("清理过期DLQ任务失败: %v", err),
+		})
+		return
+	}
+
+	log.Printf("[Web API] 清理过期DLQ任务: 删除 %d 条", affected)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "过期DLQ任务已清理",
+		"deleted": affected,
 	})
 }

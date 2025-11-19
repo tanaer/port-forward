@@ -16,6 +16,7 @@ type Store struct {
 	eventDAO        *NodeEventDAO
 	versionDAO      *ConfigVersionDAO
 	rollbackTaskDAO *RollbackTaskDAO
+	dlqDAO          *DLQDAO
 }
 
 // NewStore 创建存储实例
@@ -40,6 +41,7 @@ func NewStore(dbPath string) (*Store, error) {
 	eventDAO := NewNodeEventDAO(db.db)
 	versionDAO := NewConfigVersionDAO(db.db)
 	rollbackTaskDAO := NewRollbackTaskDAO(db.db)
+	dlqDAO := NewDLQDAO(db.db)
 
 	store := &Store{
 		db:              db.db,
@@ -49,6 +51,7 @@ func NewStore(dbPath string) (*Store, error) {
 		eventDAO:        eventDAO,
 		versionDAO:      versionDAO,
 		rollbackTaskDAO: rollbackTaskDAO,
+		dlqDAO:          dlqDAO,
 	}
 
 	log.Println("[存储] 数据存储层已初始化")
@@ -75,6 +78,7 @@ func NewMemoryStore() (*Store, error) {
 	eventDAO := NewNodeEventDAO(db.db)
 	versionDAO := NewConfigVersionDAO(db.db)
 	rollbackTaskDAO := NewRollbackTaskDAO(db.db)
+	dlqDAO := NewDLQDAO(db.db)
 
 	return &Store{
 		db:              db.db,
@@ -84,6 +88,7 @@ func NewMemoryStore() (*Store, error) {
 		eventDAO:        eventDAO,
 		versionDAO:      versionDAO,
 		rollbackTaskDAO: rollbackTaskDAO,
+		dlqDAO:          dlqDAO,
 	}, nil
 }
 
@@ -115,6 +120,11 @@ func (s *Store) ConfigVersionDAO() *ConfigVersionDAO {
 // RollbackTaskDAO 返回回滚任务DAO
 func (s *Store) RollbackTaskDAO() *RollbackTaskDAO {
 	return s.rollbackTaskDAO
+}
+
+// DLQDAO 返回死信队列DAO
+func (s *Store) DLQDAO() *DLQDAO {
+	return s.dlqDAO
 }
 
 // Close 关闭存储

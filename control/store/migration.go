@@ -89,6 +89,14 @@ func (m *Migrator) registerMigrations() {
 		Up:      m.addRollbackTaskReliabilityFields,
 		Down:    m.removeRollbackTaskReliabilityFields,
 	})
+
+	// 版本8: 添加死信队列表
+	m.migrations = append(m.migrations, Migration{
+		Version: 8,
+		Name:    "add_dlq_table",
+		Up:      m.addDLQTable,
+		Down:    m.removeDLQTable,
+	})
 }
 
 // createInitialSchema 创建初始数据库结构
@@ -645,5 +653,55 @@ func (m *Migrator) addRollbackTaskReliabilityFields(db *sql.DB) error {
 func (m *Migrator) removeRollbackTaskReliabilityFields(db *sql.DB) error {
 	log.Println("[迁移] 回滚迁移 v7: 移除回滚任务可靠性字段")
 	log.Println("[迁移] SQLite不支持DROP COLUMN，跳过回滚操作")
+	return nil
+}
+
+// addDLQTable 添加死信队列表
+func (m *Migrator) addDLQTable(db *sql.DB) error {
+	log.Println("[迁移] 执行迁移 v8: 添加死信队列表")
+
+	// 创建死信队列表
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS rollback_tasks_dlq (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			original_task_id BIGINT,
+			node_id VARCHAR(255) NOT NULL,
+			config_id INTEGER NOT NULL,
+			target_version INTEGER NOT NULL,
+			status VARCHAR(50) NOT NULL,
+			failure_reason TEXT,
+			retry_count INTEGER DEFAULT 0,
+			moved_to_dlq_at INTEGER NOT NULL,
+			dlq_expiry_at INTEGER NOT NULL,
+			metadata TEXT
+		);
+	`); err != nil {
+		return fmt.Errorf("创建DLQ表失败: %v", err)
+	}
+
+	// 创建索引
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_dlq_moved_at ON rollback_tasks_dlq(moved_to_dlq_at);
+	`); err != nil {
+		return fmt.Errorf("创建DLQ moved_at索引失败: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_dlq_expiry_at ON rollback_tasks_dlq(dlq_expiry_at);
+	`); err != nil {
+		return fmt.Errorf("创建DLQ expiry_at索引失败: %v", err)
+	}
+
+	log.Println("[迁移] 死信队列表创建成功")
+	return nil
+}
+
+// removeDLQTable 移除死信队列表
+func (m *Migrator) removeDLQTable(db *sql.DB) error {
+	log.Println("[迁移] 回滚迁移 v8: 移除死信队列表")
+	if _, err := db.Exec("DROP TABLE IF EXISTS rollback_tasks_dlq"); err != nil {
+		return fmt.Errorf("删除DLQ表失败: %v", err)
+	}
+	log.Println("[迁移] 死信队列表删除成功")
 	return nil
 }
