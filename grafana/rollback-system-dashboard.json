@@ -1,0 +1,235 @@
+{
+  "dashboard": {
+    "title": "goForward 回滚系统监控",
+    "description": "回滚系统的实时监控仪表板",
+    "tags": ["rollback", "goforward"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "任务成功率 (最近1小时)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(rollback_task_total[1h]) / (rate(rollback_failed_total[1h]) + rate(rollback_task_total[1h])) * 100"
+          }
+        ],
+        "unit": "percent",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "失败任务数 (最近1小时)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(rollback_failed_total[1h])"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "超时重置次数 (最近1小时)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(rollback_timeout_resets_total[1h])"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 4,
+        "title": "当前处理中的任务数",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rollback_processing_tasks"
+          }
+        ],
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        }
+      },
+      {
+        "id": 5,
+        "title": "任务执行时间分布 (P50, P95, P99)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, rollback_task_duration_seconds)",
+            "legendFormat": "P50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rollback_task_duration_seconds)",
+            "legendFormat": "P95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rollback_task_duration_seconds)",
+            "legendFormat": "P99"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "执行时间"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        }
+      },
+      {
+        "id": 6,
+        "title": "重试次数分布",
+        "type": "histogram",
+        "targets": [
+          {
+            "expr": "histogram_bucket(rollback_retry_count)"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        }
+      },
+      {
+        "id": 7,
+        "title": "任务状态分布",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "rollback_tasks_state"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 12
+        }
+      },
+      {
+        "id": 8,
+        "title": "gRPC 调用成功率",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(sum(rate(grpc_server_handled_total{code='0'}[5m])) / sum(rate(grpc_server_handled_total[5m]))) * 100"
+          }
+        ],
+        "unit": "percent",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 12
+        }
+      },
+      {
+        "id": 9,
+        "title": "gRPC 响应时间",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, grpc_server_handling_seconds)",
+            "legendFormat": "{{method}}"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "响应时间"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 10,
+        "title": "内存使用",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes / 1024 / 1024"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "short",
+            "label": "内存 (MB)"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 20
+        }
+      },
+      {
+        "id": 11,
+        "title": "Goroutine 数量",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "process_goroutines"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 20
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": [
+        "5s",
+        "10s",
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "1d"
+      ]
+    },
+    "refresh": "30s"
+  }
+}
