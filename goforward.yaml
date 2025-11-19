@@ -1,0 +1,47 @@
+# goForward 配置文件
+
+# 服务器配置
+server:
+  # Web 管理界面监听端口
+  port: "8889"
+
+  # Web 管理界面密码（可选）
+  password: ""
+
+# 回滚系统配置
+rollback:
+  # 是否启用回滚系统
+  enabled: true
+
+  # 最大重试次数，超过此次数的任务会被标记为 failed
+  max_retries: 5
+
+  # Processing 超时时间，单位：秒
+  # 当任务处于 processing 状态超过这个时间时，会被重置为 pending
+  processing_timeout: 600s  # 10 分钟
+
+  # 超时任务扫描间隔，单位：秒
+  # 后台 goroutine 多久扫描一次超时任务
+  stalled_scan_interval: 60s  # 1 分钟
+
+# 指标配置（Prometheus）
+metrics:
+  # 是否启用 Prometheus 指标导出
+  enabled: true
+
+  # Prometheus /metrics 端点监听端口
+  port: "9090"
+
+  # Prometheus 采集间隔
+  scrape_interval: 15s
+
+# 日志配置
+logging:
+  # 日志级别：debug, info, warn, error
+  level: "info"
+
+  # 日志格式：json, text
+  format: "text"
+
+  # 日志输出：stdout, file
+  output: "stdout"

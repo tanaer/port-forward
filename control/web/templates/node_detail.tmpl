@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-cloud-network"></i>
+                goForward 2.0 分布式控制台
+            </a>
+            <div class="ms-auto">
+                <a href="/nodes" class="btn btn-light btn-sm">
+                    <i class="bi bi-arrow-left"></i> 返回节点列表
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2 class="mb-4">
+            <i class="bi bi-cpu"></i>
+            节点详情: {{.nodeID}}
+        </h2>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">基本信息</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-borderless">
+                            <tr>
+                                <td width="30%"><strong>节点ID</strong></td>
+                                <td>{{.nodeID}}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>主机名</strong></td>
+                                <td>{{.node.Info.Hostname}}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>IP地址</strong></td>
+                                <td>{{.node.Info.IpAddress}}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>版本</strong></td>
+                                <td>{{.node.Info.Version}}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>状态</strong></td>
+                                <td>
+                                    {{if eq .node.Status "active"}}
+                                        <span class="badge bg-success">活跃</span>
+                                    {{else}}
+                                        <span class="badge bg-danger">失联</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>最后心跳</strong></td>
+                                <td>{{.node.LastHeartbeat.Format "2006-01-02 15:04:05"}}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">健康状态</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4 text-center">
+                                <h4 class="text-primary">{{.node.Health.CpuPercent}}%</h4>
+                                <p class="text-muted">CPU使用率</p>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h4 class="text-success">{{.node.Health.MemoryPercent}}%</h4>
+                                <p class="text-muted">内存使用率</p>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h4 class="text-warning">{{.node.Health.DiskPercent}}%</h4>
+                                <p class="text-muted">磁盘使用率</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">控制令牌</h5>
+                    </div>
+                    <div class="card-body">
+                        <code class="small">{{.node.ControlToken}}</code>
+                        <button class="btn btn-sm btn-outline-primary mt-2" onclick="copyToken()">
+                            <i class="bi bi-clipboard"></i> 复制
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function copyToken() {
+            const token = document.querySelector('code').textContent;
+            navigator.clipboard.writeText(token).then(() => {
+                alert('令牌已复制到剪贴板');
+            });
+        }
+
+        // WebSocket连接
+        let ws = null;
+
+        // 连接WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('WebSocket连接已建立');
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('解析WebSocket消息失败:', e);
+                }
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭');
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+            };
+        }
+
+        // 处理WebSocket消息
+        function handleWebSocketMessage(data) {
+            if (data.node_id === '{{.nodeID}}' && data.event === 'heartbeat') {
+                // 更新健康信息
+                if (data.health) {
+                    const cpuPercent = data.health.cpu_percent;
+                    const memPercent = data.health.memory_percent;
+                    const diskPercent = data.health.disk_percent;
+
+                    document.querySelector('.text-primary').textContent = cpuPercent + '%';
+                    document.querySelector('.text-success').textContent = memPercent + '%';
+                    document.querySelector('.text-warning').textContent = diskPercent + '%';
+
+                    // 更新时间
+                    const date = new Date(data.last_seen * 1000);
+                    const lastSeenCell = document.querySelector('table.table-borderless tr:last-child td:last-child');
+                    if (lastSeenCell) {
+                        lastSeenCell.textContent = date.toLocaleString('zh-CN');
+                    }
+                }
+            } else if (data.node_id === '{{.nodeID}}' && data.event === 'node_inactive') {
+                // 节点失联提示
+                console.log('节点已失联');
+            }
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('节点详情页面已加载');
+            connectWebSocket();
+        });
+
+        // 页面卸载时关闭WebSocket
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>

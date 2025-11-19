@@ -111,7 +111,7 @@
             </div>
             <div class="stat-card">
                 <h3>总流量</h3>
-                <div class="value">{{.stats.total_traffic}} GB</div>
+                <div class="value">{{.stats.total_traffic}}</div>
             </div>
         </div>
 
@@ -167,7 +167,7 @@
                     <td>
                         <span id="latency-{{.Id}}" class="latency">-</span>
                     </td>
-                    <td>{{.TotalGigabyte}} GB</td>
+                    <td>{{.TotalTraffic}}</td>
                     <td class="actions">
                         <a href="javascript:void(0)" onclick="testOutbound({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>

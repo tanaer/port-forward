@@ -32,11 +32,11 @@ type LogEntry struct {
 
 // Logger 日志管理器
 type Logger struct {
-	mu        sync.Mutex
-	entries   []LogEntry
-	logFile   string
+	mu         sync.Mutex
+	entries    []LogEntry
+	logFile    string
 	maxEntries int
-	nextID    int
+	nextID     int
 }
 
 // NewLogger 创建新的日志管理器
@@ -48,10 +48,10 @@ func NewLogger() *Logger {
 	logFile := filepath.Join(logDir, "app.log")
 
 	return &Logger{
-		entries:   make([]LogEntry, 0),
-		logFile:   logFile,
+		entries:    make([]LogEntry, 0),
+		logFile:    logFile,
 		maxEntries: 10000,
-		nextID:    1,
+		nextID:     1,
 	}
 }
 

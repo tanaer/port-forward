@@ -46,21 +46,22 @@ type ProxyConfig struct {
 	Socks5Password string `gorm:"size:200"`     // SOCKS5 密码（可选）
 
 	// VMess 出站配置
-	VmessServer       string `gorm:"size:100"`            // VMess 服务器地址
-	VmessPort         int    `gorm:"default:443"`         // VMess 端口
-	VmessUUID         string `gorm:"size:36"`             // VMess UUID
-	VmessAlterID      int    `gorm:"default:0"`           // VMess alterID (通常为0)
-	VmessSecurity     string `gorm:"size:50"`             // 加密方式: auto, aes-128-gcm, chacha20-poly1305, none
-	VmessNetwork      string `gorm:"size:20"`             // 传输协议: tcp, ws, h2, grpc
-	VmessTLS          bool   `gorm:"default:false"`       // 是否启用 TLS
-	VmessServerName   string `gorm:"size:100"`            // TLS SNI
-	VmessWsPath       string `gorm:"size:200"`            // WebSocket 路径
-	VmessWsHost       string `gorm:"size:100"`            // WebSocket Host
-	VmessSubscription string `gorm:"size:500"`            // VMess 订阅链接
+	VmessServer       string `gorm:"size:100"`      // VMess 服务器地址
+	VmessPort         int    `gorm:"default:443"`   // VMess 端口
+	VmessUUID         string `gorm:"size:36"`       // VMess UUID
+	VmessAlterID      int    `gorm:"default:0"`     // VMess alterID (通常为0)
+	VmessSecurity     string `gorm:"size:50"`       // 加密方式: auto, aes-128-gcm, chacha20-poly1305, none
+	VmessNetwork      string `gorm:"size:20"`       // 传输协议: tcp, ws, h2, grpc
+	VmessTLS          bool   `gorm:"default:false"` // 是否启用 TLS
+	VmessServerName   string `gorm:"size:100"`      // TLS SNI
+	VmessWsPath       string `gorm:"size:200"`      // WebSocket 路径
+	VmessWsHost       string `gorm:"size:100"`      // WebSocket Host
+	VmessSubscription string `gorm:"size:500"`      // VMess 订阅链接
 
 	// 流量统计
 	TotalBytes    uint64 `gorm:"default:0"`
 	TotalGigabyte uint64 `gorm:"default:0"`
+	TotalTraffic  string `gorm:"-" json:"-"` // 计算后的展示字段
 }
 
 // Subscription 订阅配置

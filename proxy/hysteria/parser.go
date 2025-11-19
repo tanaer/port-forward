@@ -108,9 +108,7 @@ func parseHysteria2URI(uri string) (*Hy2Config, error) {
 			Up:   "100 mbps",
 			Down: "100 mbps",
 		},
-		Socks5: &Socks5Config{
-			Listen: "127.0.0.1:10808",
-		},
+		// SOCKS5端口会在web端处理时动态分配，这里暂时设置为0
 	}
 
 	// 解析可选参数
@@ -199,7 +197,7 @@ func Hy2ConfigToParams(config *Hy2Config) Hy2ConfigParams {
 	params := Hy2ConfigParams{
 		UpMbps:     100,
 		DownMbps:   100,
-		Socks5Port: 10808,
+		Socks5Port: 0, // 不设置默认值，由web端动态分配
 	}
 
 	// 解析服务器地址
@@ -253,17 +251,4 @@ func Hy2ConfigToParams(config *Hy2Config) Hy2ConfigParams {
 	}
 
 	return params
-}
-
-// parseBandwidth 解析带宽字符串 (如 "100 mbps")
-func parseBandwidth(bw string) (int, error) {
-	bw = strings.ToLower(strings.TrimSpace(bw))
-	bw = strings.ReplaceAll(bw, " ", "")
-
-	// 移除单位
-	bw = strings.TrimSuffix(bw, "mbps")
-	bw = strings.TrimSuffix(bw, "mb")
-	bw = strings.TrimSuffix(bw, "m")
-
-	return strconv.Atoi(bw)
 }

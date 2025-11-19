@@ -5,13 +5,13 @@
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": 47323,
+      "port": 20399,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
             "flow": "xtls-rprx-vision",
-            "id": "4267b50d-1236-4538-92df-6d5aa74375a4"
+            "id": "07eb3c7d-8ac5-4705-aa2f-60d50e9fef32"
           }
         ],
         "decryption": "none"
@@ -20,13 +20,13 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "dest": "www.oracle.com:443",
-          "privateKey": "ReRj4qi32PZBLTGb4y2BaADPjw_sYdNPJsG1IAmEj1I",
+          "dest": "apple.com:443",
+          "privateKey": "WMA6KVT_lds1ES4kyRvEpevwDzBWoR3SUGTE7NpidiY",
           "serverNames": [
-            "www.oracle.com"
+            "apple.com"
           ],
           "shortIds": [
-            "caa597d143603164"
+            "339ca0ab3e6d8794"
           ],
           "show": false
         }
@@ -40,12 +40,12 @@
       "settings": {
         "servers": [
           {
-            "address": "103.129.162.224",
-            "port": 9860,
+            "address": "103.14.92.156",
+            "port": 9011,
             "users": [
               {
-                "pass": "E2Y8y6V8P4F9",
-                "user": "v1G9P5U2h8q4"
+                "pass": "t1p8I1H7P7a3",
+                "user": "r9m1P4B7L7x8"
               }
             ]
           }

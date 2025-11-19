@@ -18,8 +18,8 @@ import (
 
 // HotReloader 配置热更新管理器
 type HotReloader struct {
-	watchers     map[string]*fsnotify.Watcher
-	configPaths  []string
+	watchers      map[string]*fsnotify.Watcher
+	configPaths   []string
 	reloadHandler func() // 重新加载配置的处理函数
 }
 

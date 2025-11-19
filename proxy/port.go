@@ -28,6 +28,28 @@ func GetRandomAvailablePort() int {
 	return 10443 // 默认端口
 }
 
+// GetRandomAvailablePortFromRange 在指定范围内获取随机可用端口
+func GetRandomAvailablePortFromRange(start, end int) int {
+	rand.Seed(time.Now().UnixNano())
+
+	// 优先随机分配
+	for i := 0; i < 50; i++ {
+		port := rand.Intn(end-start) + start
+		if isPortAvailable(port) {
+			return port
+		}
+	}
+
+	// 如果随机没找到，顺序查找
+	for port := start; port <= end; port++ {
+		if isPortAvailable(port) {
+			return port
+		}
+	}
+
+	return start // 默认返回起始端口
+}
+
 // isPortAvailable 检查端口是否可用
 func isPortAvailable(port int) bool {
 	addr := net.JoinHostPort("0.0.0.0", fmt.Sprintf("%d", port))

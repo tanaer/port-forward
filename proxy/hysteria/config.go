@@ -4,20 +4,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"goForward/conf"
 )
 
 // Hy2Config Hysteria2配置
 type Hy2Config struct {
-	Server    string          `yaml:"server"`
-	Auth      string          `yaml:"auth,omitempty"`
-	Password  string          `yaml:"password,omitempty"`
-	Obfs      *ObfsConfig     `yaml:"obfs,omitempty"`
-	TLS       *TLSConfig      `yaml:"tls,omitempty"`
+	Server    string           `yaml:"server"`
+	Auth      string           `yaml:"auth,omitempty"`
+	Password  string           `yaml:"password,omitempty"`
+	Obfs      *ObfsConfig      `yaml:"obfs,omitempty"`
+	TLS       *TLSConfig       `yaml:"tls,omitempty"`
 	Bandwidth *BandwidthConfig `yaml:"bandwidth,omitempty"`
-	Socks5    *Socks5Config   `yaml:"socks5,omitempty"`
-	HTTP      *HTTPConfig     `yaml:"http,omitempty"`
+	Socks5    *Socks5Config    `yaml:"socks5,omitempty"`
+	HTTP      *HTTPConfig      `yaml:"http,omitempty"`
 }
 
 // ObfsConfig 混淆配置
@@ -41,6 +45,21 @@ type BandwidthConfig struct {
 // Socks5Config SOCKS5配置
 type Socks5Config struct {
 	Listen string `yaml:"listen"`
+}
+
+// ListenPort 从Listen字段提取端口号
+func (s *Socks5Config) ListenPort() int {
+	if s == nil || s.Listen == "" {
+		return 10808 // 默认端口
+	}
+	parts := strings.Split(s.Listen, ":")
+	if len(parts) == 2 {
+		port, err := strconv.Atoi(parts[1])
+		if err == nil {
+			return port
+		}
+	}
+	return 10808 // 默认端口
 }
 
 // HTTPConfig HTTP代理配置
@@ -131,4 +150,33 @@ func LoadConfig(filename string) (*Hy2Config, error) {
 	}
 
 	return &config, nil
+}
+
+// parseBandwidth 解析带宽字符串 (如 "100 mbps")
+func parseBandwidth(bw string) (int, error) {
+	bw = strings.ToLower(strings.TrimSpace(bw))
+	bw = strings.ReplaceAll(bw, " ", "")
+
+	// 移除单位
+	bw = strings.TrimSuffix(bw, "mbps")
+	bw = strings.TrimSuffix(bw, "mb")
+	bw = strings.TrimSuffix(bw, "m")
+
+	return strconv.Atoi(bw)
+}
+
+// GenerateHy2ConfigParams 从ProxyConfig生成Hysteria2配置参数
+func GenerateHy2ConfigParams(cfg conf.ProxyConfig) Hy2ConfigParams {
+	return Hy2ConfigParams{
+		Server:     cfg.Hy2Server,
+		Port:       cfg.Hy2Port,
+		Password:   cfg.Hy2Password,
+		Obfs:       cfg.Hy2Obfs,
+		ObfsPass:   cfg.Hy2ObfsPassword,
+		SNI:        cfg.Hy2SNI,
+		Insecure:   cfg.Hy2Insecure,
+		UpMbps:     cfg.Hy2UpMbps,
+		DownMbps:   cfg.Hy2DownMbps,
+		Socks5Port: cfg.Hy2Socks5Port,
+	}
 }

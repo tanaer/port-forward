@@ -1,0 +1,68 @@
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 54760,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "flow": "xtls-rprx-vision",
+            "id": "d9b204c8-8453-4d49-b733-9cb7b16d0e33"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.cisco.com:443",
+          "privateKey": "X_3FThjhZdS1EpUX0SV7RXTPU3vI46Hn5vJGIvKj6_Q",
+          "serverNames": [
+            "www.cisco.com"
+          ],
+          "shortIds": [
+            "f5d3c8d7e6be3066"
+          ],
+          "show": false
+        }
+      },
+      "tag": "vless-in"
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 11953
+          }
+        ]
+      },
+      "tag": "socks-out"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "direct"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "vless-in"
+        ],
+        "outboundTag": "socks-out"
+      }
+    ]
+  }
+}

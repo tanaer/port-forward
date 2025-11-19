@@ -5,13 +5,13 @@
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": 38045,
+      "port": 42287,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "flow": "",
-            "id": "3b7a31a2-992b-4053-a995-e606b5c2d71b"
+            "flow": "xtls-rprx-vision",
+            "id": "988a2b5a-d901-44d2-8ca6-ea7220ed8bfe"
           }
         ],
         "decryption": "none"
@@ -20,13 +20,13 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "dest": "www.tesla.com:443",
-          "privateKey": "T5ImTaBYSSPwMQ_5u2b_LRxCXWxaS_fK3JGn5voCKik",
+          "dest": "apple.com:443",
+          "privateKey": "BAWu-ik1DI-eJmthuWgcMT6E4uguGYScSK-FFnr-tkY",
           "serverNames": [
-            "www.tesla.com"
+            "apple.com"
           ],
           "shortIds": [
-            "72b2059abfb67d34"
+            "2e66ad397624f08f"
           ],
           "show": false
         }
@@ -40,8 +40,14 @@
       "settings": {
         "servers": [
           {
-            "address": "127.0.0.1",
-            "port": 1080
+            "address": "202.68.183.92",
+            "port": 8022,
+            "users": [
+              {
+                "pass": "ipimrwmowumqi",
+                "user": "rqrqxserwzxwqxsxzc"
+              }
+            ]
           }
         ]
       },

@@ -5,13 +5,13 @@
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": 17579,
+      "port": 13223,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
             "flow": "xtls-rprx-vision",
-            "id": "724ed0b1-c86a-42d3-9c8e-2af1b0a379eb"
+            "id": "b02b1fcb-3cc0-4e46-ac00-c6a0f083a575"
           }
         ],
         "decryption": "none"
@@ -20,13 +20,13 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "dest": "www.tesla.com:443",
-          "privateKey": "pPjiiNTV9myQnkIem1S-cSy-nZ0ywLWzTEsLzWPIsY8",
+          "dest": "apple.com:443",
+          "privateKey": "0I4AwFBOdC543CniNVrpjoy3ffgyUnLB0I-DwaQV1qk",
           "serverNames": [
-            "www.tesla.com"
+            "apple.com"
           ],
           "shortIds": [
-            "7dea3c86f432b25d"
+            "65a7d7188b6e620f"
           ],
           "show": false
         }
@@ -36,26 +36,22 @@
   ],
   "outbounds": [
     {
-      "protocol": "vmess",
+      "protocol": "socks",
       "settings": {
-        "vnext": [
+        "servers": [
           {
-            "address": "154.18.228.203",
-            "port": 20956,
+            "address": "103.14.92.121",
+            "port": 9011,
             "users": [
               {
-                "alterId": 0,
-                "id": "2ff62c53-481f-6996-e9b7-6a0625564b0e",
-                "security": "auto"
+                "pass": "E7Y7N6H3E4Q9",
+                "user": "x4E5M7m5P7a5"
               }
             ]
           }
         ]
       },
-      "streamSettings": {
-        "network": "tcp"
-      },
-      "tag": "vmess-out"
+      "tag": "socks-out"
     },
     {
       "protocol": "freedom",
@@ -71,7 +67,7 @@
         "inboundTag": [
           "vless-in"
         ],
-        "outboundTag": "vmess-out"
+        "outboundTag": "socks-out"
       }
     ]
   }

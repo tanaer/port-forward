@@ -11,9 +11,9 @@ import (
 
 // Manager Hysteria2管理器
 type Manager struct {
-	clients map[int]*Client  // ID -> Hysteria2客户端实例
-	configs map[int]string   // ID -> 配置文件路径
-	mu      sync.RWMutex     // 读写锁
+	clients map[int]*Client // ID -> Hysteria2客户端实例
+	configs map[int]string  // ID -> 配置文件路径
+	mu      sync.RWMutex    // 读写锁
 }
 
 // NewManager 创建Hysteria2管理器
@@ -29,13 +29,9 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 检查是否已存在
-	if _, exists := m.clients[id]; exists {
-		return fmt.Errorf("Hysteria2实例ID=%d已存在", id)
-	}
-
 	// 生成配置文件路径
 	baseDir := filepath.Join(".", "proxy_configs")
+	os.MkdirAll(baseDir, 0755)
 	configPath := filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id))
 
 	// 生成Hysteria2配置
@@ -44,7 +40,24 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 		return fmt.Errorf("生成Hysteria2配置失败: %v", err)
 	}
 
-	// 创建并启动Hysteria2客户端
+	// 如果实例已存在但未运行，复用旧客户端
+	if client, exists := m.clients[id]; exists {
+		if client.IsRunning() {
+			return fmt.Errorf("Hysteria2实例ID=%d已存在", id)
+		}
+		// 更新配置路径并重新启动
+		client.configPath = configPath
+		m.configs[id] = configPath
+		if err := client.Start(); err != nil {
+			return fmt.Errorf("启动Hysteria2失败: %v", err)
+		}
+
+		fmt.Printf("[Hysteria2Manager] ID=%d 已重新启动，SOCKS5端口=%d\n",
+			id, hy2Config.Socks5.ListenPort())
+		return nil
+	}
+
+	// 创建并启动新的Hysteria2客户端
 	client := NewClient(configPath)
 	if err := client.Start(); err != nil {
 		return fmt.Errorf("启动Hysteria2失败: %v", err)

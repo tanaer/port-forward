@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const gigabyte = 1024 * 1024 * 1024
+
 // InitProxyTables 初始化代理相关表
 func InitProxyTables() {
 	db.AutoMigrate(&conf.ProxyConfig{})
@@ -18,6 +20,10 @@ func InitProxyTables() {
 func GetProxyList() []conf.ProxyConfig {
 	var res []conf.ProxyConfig
 	db.Model(&conf.ProxyConfig{}).Order("id desc").Find(&res)
+	for i := range res {
+		totalBytes := res[i].TotalBytes + res[i].TotalGigabyte*gigabyte
+		res[i].TotalTraffic = FormatTraffic(totalBytes)
+	}
 	return res
 }
 
@@ -109,7 +115,12 @@ func DeleteProxy(id int) bool {
 
 // UpdateProxyTraffic 更新代理流量统计
 func UpdateProxyTraffic(id int, bytes uint64) bool {
-	result := db.Model(&conf.ProxyConfig{}).Where("id = ?", id).Update("total_bytes", bytes)
+	if bytes == 0 {
+		return true
+	}
+	result := db.Model(&conf.ProxyConfig{}).
+		Where("id = ?", id).
+		UpdateColumn("total_bytes", gorm.Expr("total_bytes + ?", bytes))
 	if result.Error != nil {
 		log.Println("更新流量统计失败:", result.Error)
 		return false
@@ -119,7 +130,12 @@ func UpdateProxyTraffic(id int, bytes uint64) bool {
 
 // UpdateProxyTrafficGB 更新代理流量统计(GB)
 func UpdateProxyTrafficGB(id int, gb uint64) bool {
-	result := db.Model(&conf.ProxyConfig{}).Where("id = ?", id).Update("total_gigabyte", gb)
+	if gb == 0 {
+		return true
+	}
+	result := db.Model(&conf.ProxyConfig{}).
+		Where("id = ?", id).
+		UpdateColumn("total_gigabyte", gorm.Expr("total_gigabyte + ?", gb))
 	if result.Error != nil {
 		log.Println("更新流量统计失败:", result.Error)
 		return false
@@ -236,14 +252,19 @@ func GetProxyStats() map[string]interface{} {
 	db.Model(&conf.ProxyConfig{}).Count(&total)
 	db.Model(&conf.ProxyConfig{}).Where("status = 0").Count(&active)
 
-	var totalTraffic uint64
-	// 修复：查询total_gigabyte的SUM，而不是total_bytes
-	db.Model(&conf.ProxyConfig{}).Select("SUM(total_gigabyte)").Scan(&totalTraffic)
+	var bytesSum uint64
+	var gigSum uint64
+	db.Model(&conf.ProxyConfig{}).Select("COALESCE(SUM(total_bytes),0)").Scan(&bytesSum)
+	db.Model(&conf.ProxyConfig{}).Select("COALESCE(SUM(total_gigabyte),0)").Scan(&gigSum)
+
+	totalTrafficBytes := bytesSum + gigSum*gigabyte
 
 	return map[string]interface{}{
-		"total":         total,
-		"active":        active,
-		"total_traffic": totalTraffic,
+		"total":                  total,
+		"active":                 active,
+		"total_traffic":          FormatTraffic(totalTrafficBytes),
+		"total_traffic_bytes":    totalTrafficBytes,
+		"total_traffic_gigabyte": gigSum,
 	}
 }
 

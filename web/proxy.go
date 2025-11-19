@@ -81,16 +81,16 @@ func RegisterProxyRoutes(r *gin.Engine) {
 
 		params := hysteria.Hy2ConfigToParams(hy2Config)
 		c.JSON(200, gin.H{
-			"server":      params.Server,
-			"port":        params.Port,
-			"password":    params.Password,
-			"obfs":        params.Obfs,
-			"obfsPass":    params.ObfsPass,
-			"sni":         params.SNI,
-			"insecure":    params.Insecure,
-			"upMbps":      params.UpMbps,
-			"downMbps":    params.DownMbps,
-			"socks5Port":  params.Socks5Port,
+			"server":     params.Server,
+			"port":       params.Port,
+			"password":   params.Password,
+			"obfs":       params.Obfs,
+			"obfsPass":   params.ObfsPass,
+			"sni":        params.SNI,
+			"insecure":   params.Insecure,
+			"upMbps":     params.UpMbps,
+			"downMbps":   params.DownMbps,
+			"socks5Port": params.Socks5Port,
 		})
 	})
 
