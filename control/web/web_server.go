@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -1168,4 +1169,20 @@ func (w *WebServer) apiDLQCleanupHandler(c *gin.Context) {
 		"message": "过期DLQ任务已清理",
 		"deleted": affected,
 	})
+}
+
+// Run 启动Web服务器
+func (w *WebServer) Run(port string) error {
+	log.Printf("[Web服务器] 启动Web管理界面: http://localhost:%s", port)
+	return w.router.Run(":" + port)
+}
+
+// GetRouter 获取Gin路由器
+func (w *WebServer) GetRouter() *gin.Engine {
+	return w.router
+}
+
+// GetControlServer 获取控制服务器
+func (w *WebServer) GetControlServer() *server.ControlServer {
+	return w.controlSrv
 }

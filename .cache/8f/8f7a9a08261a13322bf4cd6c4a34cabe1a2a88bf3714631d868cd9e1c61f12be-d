@@ -1,0 +1,6 @@
+./events.go
+./grpc_server.go
+./lifecycle.go
+./metrics_handler.go
+./version_manager.go
+./grpc_test.go

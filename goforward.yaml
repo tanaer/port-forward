@@ -3,7 +3,7 @@
 # 服务器配置
 server:
   # Web 管理界面监听端口
-  port: "8889"
+  port: "8890"
 
   # Web 管理界面密码（可选）
   password: ""

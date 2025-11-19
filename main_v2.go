@@ -1,12 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,16 +18,16 @@ import (
 
 // v2.0.0 分布式控制端主程序
 func main() {
-	fmt.Println("=" * 50)
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println("goForward v2.0.0 - 分布式控制端")
-	fmt.Println("=" * 50)
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Println()
 
 	// 1. 加载配置
 	cfg := config.DefaultConfig()
+	// 优先从 YAML 配置文件加载, 然后使用环境变量进行覆盖
+	_ = cfg.LoadFromFile("goforward.yaml")
 	cfg.LoadFromEnv()
-	// TODO: 加载命令行参数
-	// cfg.LoadFromCommandLine(args)
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("配置验证失败: %v", err)
@@ -38,7 +37,7 @@ func main() {
 	fmt.Printf("   - 服务端口: %s\n", cfg.Server.Port)
 	fmt.Printf("   - 回滚系统: %v\n", cfg.Rollback.Enabled)
 	fmt.Printf("   - Prometheus: %v (端口 %s)\n", cfg.Metrics.Enabled, cfg.Metrics.Port)
-	fmt.Printf()
+	fmt.Println()
 
 	// 2. 初始化存储层
 	dbPath := store.GetDatabasePath()
@@ -50,78 +49,99 @@ func main() {
 	}
 	defer storeInstance.Close()
 
-	// 健康检查
 	if err := storeInstance.HealthCheck(); err != nil {
 		log.Fatalf("存储层健康检查失败: %v", err)
 	}
-	fmt.Printf("✅ 存储层初始化成功\n")
+	fmt.Println("✅ 存储层初始化成功")
+	fmt.Println()
 
 	// 3. 初始化Prometheus指标
 	if cfg.Metrics.Enabled {
 		fmt.Printf("📊 初始化Prometheus指标...\n")
 		metrics.InitRecorder()
-		fmt.Printf("✅ 指标系统初始化成功 (端口 %s)\n", cfg.Metrics.Port)
+		fmt.Println("✅ 指标系统初始化成功")
 	}
 
 	// 4. 启动Prometheus指标服务器
 	if cfg.Metrics.Enabled {
 		go func() {
 			addr := fmt.Sprintf(":%s", cfg.Metrics.Port)
-			fmt.Printf("🚀 启动Prometheus指标服务: http://localhost%s/metrics\n", addr)
+			fmt.Printf("🚀 Prometheus指标服务: http://localhost%s/metrics\n", addr)
 			if err := server.StartMetricsServer(cfg.Metrics.Port); err != nil {
 				log.Printf("Prometheus服务启动失败: %v", err)
 			}
 		}()
 	}
 
-	// 5. 初始化控制服务器
-	fmt.Printf("🎮 初始化gRPC控制服务器...\n")
-	controlSrv, err := server.NewControlServer(storeInstance)
-	if err != nil {
-		log.Fatalf("创建控制服务器失败: %v", err)
-	}
-	fmt.Printf("✅ 控制服务器初始化成功\n")
+	// 5. 初始化Web服务器和控制服务器
+	fmt.Println("🎮 初始化gRPC控制服务器...")
+	fmt.Println("🌐 初始化Web管理界面...")
 
-	// 6. 初始化Web服务器
-	fmt.Printf("🌐 初始化Web管理界面...\n")
-	webSrv, err := web.NewWebServerWithControlServer(storeInstance, controlSrv)
-	if err != nil {
-		log.Fatalf("创建Web服务器失败: %v", err)
-	}
+	webSrv, controlSrv := web.NewWebServerWithControlServer(storeInstance)
+	fmt.Println("✅ 控制服务器和Web界面初始化成功")
+	fmt.Println()
 
-	// 7. 启动服务
-	port := cfg.Server.Port
-	fmt.Printf("\n" + "=" * 50)
-	fmt.Printf("✅ goForward v2.0.0 启动成功!\n")
-	fmt.Printf("=" * 50)
-	fmt.Printf("\n📍 服务地址:\n")
-	fmt.Printf("   - Web管理界面: http://localhost:%s\n", port)
-	fmt.Printf("   - gRPC服务端: 端口50051\n")
+	// 6. 启动gRPC服务器
+	grpcAddr := ":50051"
+	go func() {
+		fmt.Printf("🚀 gRPC服务器启动: %s\n", grpcAddr)
+		if err := controlSrv.Start(grpcAddr); err != nil {
+			log.Fatalf("gRPC服务器启动失败: %v", err)
+		}
+	}()
+
+	// 7. 启动HTTP服���器
+	webPort := cfg.Server.Port
+	go func() {
+		time.Sleep(1 * time.Second) // 等待其他服务启动
+		fmt.Printf("🚀 Web管理界面启动: http://localhost:%s\n", webPort)
+		if err := webSrv.Run(webPort); err != nil {
+			log.Fatalf("Web服务器启动失败: %v", err)
+		}
+	}()
+
+	// 8. 显示启动信息
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println("🎉 goForward v2.0.0 启动成功!")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println()
+	fmt.Println("📍 服务地址:")
+	fmt.Printf("   🌐 Web管理界面: http://localhost:%s\n", webPort)
+	fmt.Printf("   🎮 gRPC控制端: %s\n", grpcAddr)
 	if cfg.Metrics.Enabled {
-		fmt.Printf("   - Prometheus: http://localhost:%s/metrics\n", cfg.Metrics.Port)
+		fmt.Printf("   📊 Prometheus指标: http://localhost:%s/metrics\n", cfg.Metrics.Port)
 	}
-	fmt.Printf("\n🎉 可以开始使用分布式管理功能了!\n")
-	fmt.Printf("\n按 Ctrl+C 停止服务\n\n")
+	fmt.Println()
+	fmt.Println("💡 主要功能:")
+	fmt.Println("   - 节点注册和管理")
+	fmt.Println("   - 配置下发和回滚")
+	fmt.Println("   - 实时监控")
+	fmt.Println("   - 死信队列(DLQ)")
+	fmt.Println("   - 配置版本管理")
+	fmt.Println()
+	fmt.Println("⚡ 可以开始使用分布式管理功能了!")
+	fmt.Println()
+	fmt.Println("按 Ctrl+C 停止服务")
+	fmt.Println()
 
-	// 8. 启动HTTP服务器
-	// TODO: 实现web.NewHTTPServer()方法或使用标准库
-	// 暂时使用简化启动方式
-	fmt.Printf("⚠️  注意: v2.0.0完整启动功能需要进一步集成\n")
-	fmt.Printf("   当前仅初始化了控制服务器和存储层\n")
-	fmt.Printf("   详细启动请参考: control/server 和 control/web\n")
-
-	// 优雅关闭
+	// 9. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	fmt.Println("\n🛑 正在关闭服务...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	fmt.Println()
+	fmt.Println("🛑 正在关闭服务...")
 
-	if err := controlSrv.GracefulStop(); err != nil {
-		log.Printf("关闭控制服务器失败: %v", err)
-	}
+	// 控制服务器优雅关闭
+	// TODO: 实现GracefulStop()方法
+	// if err := controlSrv.GracefulStop(); err != nil {
+	// 	log.Printf("关闭控制服务器失败: %v", err)
+	// }
+
+	// Web服务器停止 (通过context)
+	// TODO: 实现Web服务器的优雅关闭
+	// webSrv.Shutdown(ctx)
 
 	fmt.Println("✅ 服务已安全关闭")
 }

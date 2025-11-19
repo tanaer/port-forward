@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	yaml "gopkg.in/yaml.v2"
 )
 
 // Config 系统总体配置
@@ -25,16 +27,16 @@ type Config struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Port    string `yaml:"port"`
+	Port     string `yaml:"port"`
 	Password string `yaml:"password"`
 }
 
 // RollbackConfig 回滚系统配置
 type RollbackConfig struct {
-	Enabled              bool          `yaml:"enabled"`
-	MaxRetries           int           `yaml:"max_retries"`
-	ProcessingTimeout    time.Duration `yaml:"processing_timeout"`
-	StalledScanInterval  time.Duration `yaml:"stalled_scan_interval"`
+	Enabled             bool          `yaml:"enabled"`
+	MaxRetries          int           `yaml:"max_retries"`
+	ProcessingTimeout   time.Duration `yaml:"processing_timeout"`
+	StalledScanInterval time.Duration `yaml:"stalled_scan_interval"`
 }
 
 // MetricsConfig 指标配置
@@ -169,6 +171,41 @@ func (c *Config) LoadFromCommandLine(args map[string]string) {
 	if v, ok := args["log-format"]; ok {
 		c.Logging.Format = v
 	}
+}
+
+// LoadFromFile 从 YAML 配置文件加载配置
+//
+// 配置优先级:
+//  1. DefaultConfig() 默认值
+//  2. YAML 文件 (LoadFromFile)
+//  3. 环境变量 (LoadFromEnv)
+//  4. 命令行参数 (LoadFromCommandLine)
+//
+// 如果文件不存在则不会返回错误, 以便保持默认配置和更高优先级配置生效。
+func (c *Config) LoadFromFile(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 配置文件不存在时保持静默, 使用默认值/环境变量/命令行参数
+			return nil
+		}
+		return fmt.Errorf("read config file %s: %w", path, err)
+	}
+
+	// 在当前配置副本上反序列化, 解析成功后再整体替换, 避免部分更新
+	cfgCopy := *c
+	if err := yaml.Unmarshal(data, &cfgCopy); err != nil {
+		return fmt.Errorf("parse config file %s: %w", path, err)
+	}
+
+	// time.Duration 字段使用 yaml.v2 对 encoding.TextUnmarshaler 的支持,
+	// 可以正确解析 "10s", "1m" 这类字符串
+	*c = cfgCopy
+	return nil
 }
 
 // Validate 验证配置
