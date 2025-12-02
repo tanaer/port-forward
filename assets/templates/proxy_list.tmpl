@@ -7,7 +7,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .container { max-width: 1680px; width: 96%; margin: 0 auto; background: white; padding: 30px 40px; border-radius: 12px; box-shadow: 0 2px 14px rgba(0,0,0,0.08); }
         h1 { color: #333; margin-bottom: 10px; }
 
         /* 统一导航栏样式 */
@@ -57,7 +57,7 @@
         .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
         .stat-card .value { font-size: 32px; font-weight: bold; color: #333; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; vertical-align: middle; }
         th { background: #f8f9fa; font-weight: 600; color: #333; }
         tr:hover { background: #f8f9fa; }
         .status { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
@@ -71,12 +71,81 @@
         .btn-info { background: #17a2b8; color: white; }
         .btn-test { background: #6c757d; color: white; }
         .actions a:hover { opacity: 0.8; }
-        .latency { font-weight: 600; }
+        .latency, .traffic-pill { font-weight: 600; }
         .latency.good { color: #28a745; }
         .latency.medium { color: #ffc107; }
         .latency.bad { color: #dc3545; }
         .latency.testing { color: #6c757d; }
+        .latency-status-wrap { display: flex; align-items: center; gap: 6px; }
+        .latency-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; background: #dfe3e6; border: 1px solid #c2c7cf; }
+        .latency-dot.healthy { background: #28a745; border-color: #218838; }
+        .latency-dot.warning { background: #ffc107; border-color: #e0a800; }
+        .latency-dot.critical { background: #dc3545; border-color: #c82333; }
+        .traffic-cell { display: flex; align-items: center; gap: 8px; }
+        .traffic-pill { padding: 4px 12px; border-radius: 999px; font-size: 12px; background: #f1f3f5; color: #495057; cursor: pointer; transition: background 0.2s, color 0.2s; min-width: 75px; text-align: center; }
+        .traffic-pill.healthy { background: #d4edda; color: #155724; }
+        .traffic-pill.warning { background: #fff3cd; color: #856404; }
+        .traffic-pill.critical { background: #f8d7da; color: #721c24; }
+        .traffic-pill:focus-visible { outline: 2px solid #0d6efd; outline-offset: 2px; }
+        .quality-card { margin-bottom: 20px; padding: 20px; background: #eef2ff; border-radius: 10px; border: 1px solid #dbe1ff; }
+        .quality-card h2 { margin-bottom: 10px; font-size: 20px; color: #3949ab; }
+        .quality-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .quality-card label { font-size: 13px; color: #555; margin-bottom: 5px; display: block; }
+        .quality-card input, .quality-card select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #c5cae9; font-size: 14px; }
+        .quality-switch { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .quality-actions { margin-top: 15px; display: flex; gap: 10px; align-items: center; }
+        .quality-status { font-weight: 600; }
+        .quality-status.enabled { color: #28a745; }
+        .quality-status.disabled { color: #dc3545; }
+        .quality-modal { position: fixed; inset: 0; background: rgba(6,11,40,0.55); display: none; justify-content: center; align-items: flex-start; padding: 40px 20px; z-index: 2000; overflow-y: auto; }
+        .quality-modal.show { display: flex; }
+        .quality-modal-card { width: min(1040px, 95%); background: #fff; border-radius: 18px; padding: 28px 32px; box-shadow: 0 25px 90px rgba(15,23,42,0.35); animation: modal-pop 0.25s ease forwards; }
+        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 24px; }
+        .modal-header h2 { margin: 0; font-size: 24px; color: #111827; }
+        .modal-subtitle { margin: 4px 0 0 0; color: #6c757d; font-size: 13px; }
+        .modal-header-actions { display: flex; align-items: center; gap: 12px; }
+        .loading-indicator { font-size: 13px; color: #0d6efd; display: none; }
+        .quality-modal-close { width: 40px; height: 40px; border-radius: 999px; border: none; background: #f1f3f5; color: #1f2937; font-size: 22px; cursor: pointer; line-height: 1; transition: background 0.2s, transform 0.2s; }
+        .quality-modal-close:hover { background: #e2e6ea; transform: translateY(-1px); }
+        .quality-metrics-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .metric-card { background: linear-gradient(135deg, #f8faff 0%, #eef2ff 100%); border-radius: 14px; padding: 16px 18px; border: 1px solid #dbe4ff; box-shadow: 0 10px 30px rgba(37,99,235,0.06); }
+        .metric-label { font-size: 13px; color: #6b7280; letter-spacing: 0.4px; text-transform: none; }
+        .metric-value { font-size: 28px; font-weight: 600; color: #111827; margin-top: 6px; }
+        .time-range-selector { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+        .range-btn { padding: 8px 18px; border-radius: 999px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; color: #4b5563; font-size: 13px; transition: all 0.2s ease; }
+        .range-btn:hover { border-color: #0d6efd; color: #0d6efd; }
+        .range-btn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; box-shadow: 0 8px 20px rgba(13,110,253,0.25); }
+        .range-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+        #quality-chart { border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; margin-bottom: 26px; padding: 12px; }
+        .data-table-section { margin-top: 12px; }
+        .data-table-section h3 { margin: 0 0 10px 0; font-size: 16px; color: #1f2937; display: flex; align-items: center; gap: 10px; }
+        .table-hint { font-size: 12px; color: #6b7280; font-weight: normal; }
+        .data-table-wrapper { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; }
+        #quality-data-table { width: 100%; border-collapse: collapse; }
+        #quality-data-table th, #quality-data-table td { padding: 12px 14px; text-align: left; }
+        #quality-data-table thead th { background: #f8fafc; font-size: 13px; color: #475569; text-transform: none; }
+        #quality-data-table tbody td { border-top: 1px solid #eef2f7; font-size: 13px; color: #1f2937; }
+        #quality-data-table tbody tr { transition: background 0.2s ease; cursor: pointer; }
+        #quality-data-table tbody tr:hover { background: #eef5ff; }
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable .sort-indicator { font-size: 11px; color: #94a3b8; margin-left: 4px; }
+        .sortable.active { color: #0d6efd; }
+        .sortable.active .sort-indicator { color: #0d6efd; }
+        .status-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
+        .status-badge.healthy { background: #d1fae5; color: #065f46; }
+        .status-badge.warning { background: #fef3c7; color: #92400e; }
+        .status-badge.critical { background: #fee2e2; color: #b91c1c; }
+        .status-badge.unknown { background: #e2e8f0; color: #475569; }
+        .status-badge.testing { background: #f3e8ff; color: #6d28d9; }
+        .table-row-active { background: #e0edff !important; }
+        .data-empty { text-align: center; padding: 24px 12px; color: #6b7280; font-size: 13px; }
+        .quality-modal-error { margin-top: 16px; color: #dc3545; font-size: 13px; }
+        @keyframes modal-pop {
+            from { opacity: 0; transform: translateY(20px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -98,6 +167,62 @@
             <a href="javascript:void(0)" onclick="showImportModal()" style="background: #6f42c1;">📥 导入配置</a>
             <a href="javascript:void(0)" onclick="batchRestart()" style="background: #fd7e14;">🔄 批量重启全部代理</a>
             <a href="javascript:void(0)" onclick="batchInit()" style="background: #dc3545;">🛠️ 一键重建运行环境</a>
+        </div>
+
+        <div class="quality-card">
+            <div class="quality-switch">
+                <label style="margin: 0;">
+                    <input type="checkbox" id="quality-enabled" {{if .qualityConfig.Enabled}}checked{{end}}>
+                    启用线路质量监控
+                </label>
+                <span class="quality-status {{if .qualityRunning}}enabled{{else}}disabled{{end}}">
+                    {{if .qualityRunning}}运行中{{else}}未运行{{end}}
+                </span>
+            </div>
+            <form id="quality-config-form">
+                <div class="quality-grid">
+                    <div>
+                        <label>监控线路ID（逗号/区间）</label>
+                        <input type="text" name="proxy_ids" id="quality-proxies" value="{{.qualityProxySpec}}" placeholder="4,7,9-11">
+                    </div>
+                    <div>
+                        <label>检测目标地址</label>
+                        <input type="text" name="target" id="quality-target" value="{{.qualityConfig.TestTarget}}" placeholder="rtmp.tiktok.com:1935">
+                    </div>
+                    <div>
+                        <label>间隔（秒）</label>
+                        <input type="number" name="interval_seconds" id="quality-interval" value="{{.qualityIntervalSeconds}}" min="15">
+                    </div>
+                    <div>
+                        <label>每次探测次数</label>
+                        <input type="number" name="probe_count" id="quality-probe" value="{{.qualityConfig.ProbeCount}}" min="1">
+                    </div>
+                    <div>
+                        <label>并发数量</label>
+                        <input type="number" name="max_concurrent" id="quality-concurrent" value="{{.qualityConfig.MaxConcurrent}}" min="1">
+                    </div>
+                    <div>
+                        <label>延迟警戒 (ms)</label>
+                        <input type="number" name="warn_latency" id="quality-latency" value="{{.qualityConfig.WarnLatencyMs}}" min="10">
+                    </div>
+                    <div>
+                        <label>丢包警戒 (%)</label>
+                        <input type="number" name="warn_loss" id="quality-loss" value="{{printf "%.1f" .qualityConfig.WarnLossPercent}}" step="0.1" min="0">
+                    </div>
+                    <div>
+                        <label>连续失败阈值</label>
+                        <input type="number" name="warn_failures" id="quality-failures" value="{{.qualityConfig.WarnConsecutiveFailure}}" min="1">
+                    </div>
+                    <div>
+                        <label>保留天数</label>
+                        <input type="number" name="retention_days" id="quality-retention" value="{{.qualityConfig.RetentionDays}}" min="0">
+                    </div>
+                </div>
+                <div class="quality-actions">
+                    <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">💾 保存监控配置</button>
+                    <span id="quality-save-tip" style="font-size: 13px; color: #555;"></span>
+                </div>
+            </form>
         </div>
 
         <div class="stats">
@@ -127,13 +252,13 @@
                     <th>出站服务器</th>
                     <th>状态</th>
                     <th>RTT</th>
-                    <th>流量</th>
+                    <th>今日流量</th>
                     <th>操作</th>
                 </tr>
             </thead>
             <tbody>
                 {{range .proxyList}}
-                <tr>
+                <tr data-proxy-id="{{.Id}}" data-proxy-name="{{.Name}}" data-total-traffic="{{.TotalTraffic}}" data-today-traffic="{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}">
                     <td><input type="checkbox" name="proxyIds" value="{{.Id}}" onchange="updateSelectAll()"></td>
                     <td>{{.Id}}</td>
                     <td><strong>{{.Name}}</strong><br><small style="color: #666;">{{.Remark}}</small></td>
@@ -165,19 +290,35 @@
                         {{end}}
                     </td>
                     <td>
-                        <span id="latency-{{.Id}}" class="latency">-</span>
+                        <div class="latency-status-wrap">
+                            <span id="latency-{{.Id}}" class="latency">-</span>
+                            <span id="latency-status-{{.Id}}" class="latency-dot" title=""></span>
+                        </div>
                     </td>
-                    <td>{{.TotalTraffic}}</td>
+                    <td>
+                        <div class="traffic-cell">
+                            <div
+                                id="traffic-{{.Id}}"
+                                class="traffic-pill"
+                                onclick="openQualityModal({{.Id}})"
+                                onkeydown="handleTrafficPillKey(event, {{.Id}})"
+                                role="button"
+                                tabindex="0"
+                                title="点击查看线路质量"
+                            >{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}</div>
+                        </div>
+                    </td>
                     <td class="actions">
                         <a href="javascript:void(0)" onclick="testOutbound({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>
                         <a href="/proxy/subscription/{{.Id}}" class="btn-info">订阅</a>
+                        <a href="javascript:void(0)" onclick="restartProxy({{.Id}}, '{{.Name}}')" class="btn-info" id="restart-btn-{{.Id}}" style="background:#fd7e14;">重启</a>
                         {{if eq .Status 0}}
-                        <a href="/proxy/toggle/{{.Id}}" class="btn-warning" onclick="return confirm('确定要停止此代理吗？')">停止</a>
+                        <a href="javascript:void(0)" onclick="toggleProxy({{.Id}}, '{{.Name}}', 'stop')" class="btn-warning" id="toggle-btn-{{.Id}}">停止</a>
                         {{else}}
-                        <a href="/proxy/toggle/{{.Id}}" class="btn-success" onclick="return confirm('确定要启动此代理吗？')">启动</a>
+                        <a href="javascript:void(0)" onclick="toggleProxy({{.Id}}, '{{.Name}}', 'start')" class="btn-success" id="toggle-btn-{{.Id}}">启动</a>
                         {{end}}
-                        <a href="/proxy/delete/{{.Id}}" class="btn-danger" onclick="return confirm('确定要删除此代理吗？此操作不可恢复！')">删除</a>
+                        <a href="javascript:void(0)" onclick="deleteProxy({{.Id}}, '{{.Name}}')" class="btn-danger" id="delete-btn-{{.Id}}">删除</a>
                     </td>
                 </tr>
                 {{else}}
@@ -191,7 +332,945 @@
         </table>
     </div>
 
+    <div id="quality-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" aria-labelledby="quality-modal-title">
+            <div class="modal-header">
+                <div>
+                    <h2 id="quality-modal-title">线路质量</h2>
+                    <p id="quality-modal-subtitle" class="modal-subtitle">线路ID -</p>
+                </div>
+                <div class="modal-header-actions">
+                    <span id="quality-modal-loading" class="loading-indicator">加载中...</span>
+                    <button type="button" class="quality-modal-close" aria-label="关闭">×</button>
+                </div>
+            </div>
+
+            <div class="quality-metrics-cards">
+                <div class="metric-card">
+                    <div class="metric-label">最新延迟</div>
+                    <div class="metric-value" id="metric-latency">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">抖动</div>
+                    <div class="metric-value" id="metric-jitter">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">丢包率</div>
+                    <div class="metric-value" id="metric-loss">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">今日流量</div>
+                    <div class="metric-value" id="metric-traffic">-</div>
+                </div>
+            </div>
+
+            <div class="time-range-selector">
+                <button class="range-btn active" data-range="30d">最近30天</button>
+                <button class="range-btn" data-range="7d">最近7天</button>
+                <button class="range-btn" data-range="24h">最近24小时</button>
+            </div>
+
+            <div id="quality-chart" style="width: 100%; height: 400px;"></div>
+
+            <div class="data-table-section">
+                <h3>详细数据 <span class="table-hint">点击行查看详情</span></h3>
+                <div class="data-table-wrapper">
+                    <table id="quality-data-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th class="sortable" data-sort="traffic">流量 <span class="sort-indicator">↑↓</span></th>
+                                <th class="sortable" data-sort="latency">延迟 <span class="sort-indicator">↑↓</span></th>
+                                <th class="sortable" data-sort="jitter">抖动 <span class="sort-indicator">↑↓</span></th>
+                                <th class="sortable" data-sort="loss">丢包率 <span class="sort-indicator">↑↓</span></th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="quality-table-body">
+                            <tr><td colspan="6" class="data-empty">请选择线路以查看数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="quality-modal-error" class="quality-modal-error" style="display:none;"></div>
+        </div>
+    </div>
+
     <script>
+        const proxyQualityCache = {};
+        const proxyTrafficTrendCache = {};
+        let currentQualityModalId = null;
+        document.addEventListener('DOMContentLoaded', () => {
+            const qualityForm = document.getElementById('quality-config-form');
+            if (qualityForm) {
+                qualityForm.addEventListener('submit', saveQualityConfig);
+            }
+            loadProxyMetrics();
+            initQualityModalEvents();
+        });
+
+        async function saveQualityConfig(event) {
+            event.preventDefault();
+            const tip = document.getElementById('quality-save-tip');
+            tip.textContent = '保存中...';
+
+            const formData = new FormData(event.target);
+            formData.append('enabled', document.getElementById('quality-enabled').checked ? '1' : '0');
+
+            try {
+                const response = await fetch('/proxy/quality-config', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || '保存失败');
+                }
+                tip.style.color = '#28a745';
+                tip.textContent = '✅ 配置已更新';
+                const statusEl = document.querySelector('.quality-status');
+                if (statusEl) {
+                    statusEl.textContent = data.running ? '运行中' : '未运行';
+                    statusEl.className = 'quality-status ' + (data.running ? 'enabled' : 'disabled');
+                }
+            } catch (error) {
+                tip.style.color = '#dc3545';
+                tip.textContent = '❌ ' + error.message;
+            } finally {
+                setTimeout(() => {
+                    tip.textContent = '';
+                    tip.style.color = '#555';
+                }, 3000);
+            }
+        }
+
+        async function loadProxyMetrics() {
+            const rows = document.querySelectorAll('tbody tr[data-proxy-id]');
+            if (!rows.length) return;
+            const batchSize = 10;
+            const ids = Array.from(rows).map(row => row.getAttribute('data-proxy-id'));
+            for (let i = 0; i < ids.length; i += batchSize) {
+                const chunk = ids.slice(i, i + batchSize);
+                await Promise.all(chunk.map(async (id) => {
+                    if (!id) return;
+                    try {
+                        const response = await fetch(`/proxy/quality/${id}?limit=5&resolution=minute`);
+                        const data = await response.json();
+                        if (!response.ok) {
+                            throw new Error(data.error || '加载失败');
+                        }
+                        proxyQualityCache[id] = data;
+                        const samples = (data.samples || {});
+                        const qualitySamples = samples.quality || [];
+                        const latestQualitySample = qualitySamples.length ? qualitySamples[qualitySamples.length - 1] : null;
+                        const latestStatus = (latestQualitySample && latestQualitySample.Status) || (data.latest && data.latest.Status) || null;
+                        updateLatencyBadge(id, latestQualitySample, data.latest || null);
+                        const fallbackTraffic = (data.proxy && (data.proxy.TodayTraffic || data.proxy.TotalTraffic)) || getRowTodayTraffic(id);
+                        updateTrafficBadge(id, samples.traffic || [], fallbackTraffic, latestStatus);
+                    } catch (error) {
+                        console.warn('加载线路状态失败', id, error);
+                        updateLatencyBadge(id, null, null);
+                        updateTrafficBadge(id, [], getRowTodayTraffic(id), null);
+                    }
+                }));
+            }
+        }
+
+        function updateLatencyBadge(id, sample, fallbackLog) {
+            const latencyEl = document.getElementById(`latency-${id}`);
+            const statusEl = document.getElementById(`latency-status-${id}`);
+            if (!latencyEl || !statusEl) return;
+            let data = sample;
+            if (!data && fallbackLog) {
+                data = {
+                    LatencyMs: fallbackLog.LatencyAvgMs,
+                    Status: fallbackLog.Status,
+                };
+            }
+            if (!data) {
+                latencyEl.textContent = '-';
+                latencyEl.className = 'latency';
+                statusEl.className = 'latency-dot';
+                statusEl.title = '';
+                return;
+            }
+            const latency = typeof data.LatencyMs === 'number' ? data.LatencyMs : '-';
+            latencyEl.textContent = latency === '-' ? '-' : `${latency}ms`;
+            latencyEl.className = 'latency ' + classifyLatency(latency);
+            const status = data.Status ? data.Status.toLowerCase() : '';
+            statusEl.className = `latency-dot${status ? ' ' + status : ''}`;
+            statusEl.title = data.Status || '';
+        }
+
+        function updateTrafficBadge(id, samples, fallbackTotal, status) {
+            const pill = document.getElementById(`traffic-${id}`);
+            if (!pill) return;
+            let text = '0 B';
+            if (samples.length) {
+                const latest = samples[samples.length - 1];
+                const totalBytes = (latest.BytesUp || 0) + (latest.BytesDown || 0);
+                text = formatBytesHuman(totalBytes);
+            } else if (fallbackTotal && fallbackTotal.trim() !== '') {
+                text = fallbackTotal.trim();
+            }
+            pill.textContent = text;
+            const statusClass = status ? status.toLowerCase() : '';
+            pill.className = `traffic-pill${statusClass ? ' ' + statusClass : ''}`;
+        }
+
+        function getRowTodayTraffic(id) {
+            const row = document.querySelector(`tr[data-proxy-id="${id}"]`);
+            if (!row) return '';
+            return row.getAttribute('data-today-traffic') || row.getAttribute('data-total-traffic') || '';
+        }
+
+        function classifyLatency(latency) {
+            if (typeof latency !== 'number') return '';
+            if (latency < 100) return 'good';
+            if (latency < 300) return 'medium';
+            return 'bad';
+        }
+
+        function handleTrafficPillKey(event, id) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openQualityModal(id);
+            }
+        }
+
+        function openQualityModal(id) {
+            currentQualityModalId = id;
+            const modal = document.getElementById('quality-modal');
+            if (!modal) return;
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            const row = document.querySelector(`tr[data-proxy-id="${id}"]`);
+            const fallbackName = row ? row.dataset.proxyName || `线路 #${id}` : `线路 #${id}`;
+            document.getElementById('quality-modal-title').textContent = fallbackName;
+            document.getElementById('quality-modal-subtitle').textContent = `线路ID ${id}`;
+            setQualityModalError('');
+            setQualityModalLoading(true);
+
+            // 初始化ECharts图表
+            initECharts();
+
+            if (proxyQualityCache[id]) {
+                populateQualityModal(proxyQualityCache[id], fallbackName);
+            } else {
+                resetQualityModalMetrics();
+            }
+            fetchQualityDetail(id, fallbackName);
+            updateQualityChart(id);
+        }
+
+        async function fetchQualityDetail(id, fallbackName) {
+            try {
+                const response = await fetch(`/proxy/quality/${id}?limit=60&resolution=minute`);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || '加载失败');
+                }
+                proxyQualityCache[id] = data;
+                populateQualityModal(data, fallbackName);
+                setQualityModalLoading(false);
+            } catch (error) {
+                setQualityModalLoading(false);
+                setQualityModalError(error.message || '加载失败');
+            }
+        }
+
+        function closeQualityModal() {
+            const modal = document.getElementById('quality-modal');
+            if (!modal) return;
+            modal.classList.remove('show');
+            document.body.style.overflow = '';
+            setQualityModalError('');
+            setQualityModalLoading(false);
+
+            // 销毁图表实例
+            if (qualityChart) {
+                qualityChart.dispose();
+                qualityChart = null;
+            }
+        }
+
+        function initQualityModalEvents() {
+            const modal = document.getElementById('quality-modal');
+            if (!modal) return;
+
+            // 关闭按钮点击事件
+            const closeBtn = modal.querySelector('.quality-modal-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', closeQualityModal);
+            }
+
+            // 点击背景关闭
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    closeQualityModal();
+                }
+            });
+
+            // ESC键关闭
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && modal.classList.contains('show')) {
+                    closeQualityModal();
+                }
+            });
+        }
+
+        function resetQualityModalMetrics() {
+            const ids = ['latency', 'jitter', 'loss', 'traffic'];
+            ids.forEach(id => {
+                const el = document.getElementById(`metric-${id}`);
+                if (el) el.textContent = '-';
+            });
+            const samples = document.getElementById('quality-modal-samples');
+            const logs = document.getElementById('quality-modal-logs');
+            if (samples) samples.innerHTML = '<div class="quality-modal-empty">暂无采样数据</div>';
+            if (logs) logs.innerHTML = '<div class="quality-modal-empty">暂无巡检日志</div>';
+            resetTrafficTrendChart();
+        }
+
+        function setQualityModalLoading(isLoading) {
+            const hint = document.getElementById('quality-modal-loading');
+            if (!hint) return;
+            hint.style.display = isLoading ? 'inline-block' : 'none';
+        }
+
+        function setQualityModalError(message) {
+            const el = document.getElementById('quality-modal-error');
+            if (!el) return;
+            if (message) {
+                el.style.display = 'block';
+                el.textContent = `⚠️ ${message}`;
+            } else {
+                el.style.display = 'none';
+                el.textContent = '';
+            }
+        }
+
+        function populateQualityModal(data, fallbackName) {
+            if (!data) return;
+            const proxy = data.proxy || {};
+            const name = proxy.Name || fallbackName || `线路 #${proxy.Id || ''}`;
+            document.getElementById('quality-modal-title').textContent = name;
+            document.getElementById('quality-modal-subtitle').textContent = `线路ID ${proxy.Id || currentQualityModalId || ''}`;
+
+            const qualitySamples = (data.samples && data.samples.quality) || [];
+            const trafficSamples = (data.samples && data.samples.traffic) || [];
+            const latestQuality = qualitySamples.length ? qualitySamples[qualitySamples.length - 1] : (data.latest || null);
+            const latestTraffic = trafficSamples.length ? trafficSamples[trafficSamples.length - 1] : null;
+
+            const latencyEl = document.getElementById('metric-latency');
+            const jitterEl = document.getElementById('metric-jitter');
+            const lossEl = document.getElementById('metric-loss');
+            const trafficEl = document.getElementById('metric-traffic');
+
+            if (latencyEl) latencyEl.textContent = latestQuality && typeof latestQuality.LatencyMs === 'number' ? `${latestQuality.LatencyMs} ms` : '暂无';
+            if (jitterEl) jitterEl.textContent = latestQuality && typeof latestQuality.JitterMs === 'number' ? `${latestQuality.JitterMs} ms` : '暂无';
+            if (lossEl) lossEl.textContent = latestQuality && typeof latestQuality.LossPct === 'number' ? `${latestQuality.LossPct.toFixed(1)} %` : '暂无';
+            if (trafficEl) {
+                if (latestTraffic) {
+                    trafficEl.textContent = formatTrafficSummary(latestTraffic);
+                } else if (proxy.TotalTraffic) {
+                    trafficEl.textContent = proxy.TotalTraffic;
+                } else {
+                    trafficEl.textContent = '暂无';
+                }
+            }
+
+            renderQualityModalSamples(qualitySamples, trafficSamples);
+            renderQualityModalLogs(data.logs || []);
+            setQualityModalError('');
+        }
+
+        function renderQualityModalSamples(qualitySamples, trafficSamples) {
+            const tbody = document.getElementById('quality-table-body');
+            if (!tbody) return;
+            const rows = mergeSampleRows(qualitySamples, trafficSamples);
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="data-empty">暂无数据</td></tr>';
+                return;
+            }
+            const body = rows.map(row => {
+                const latency = row.quality && typeof row.quality.LatencyMs === 'number' ? `${row.quality.LatencyMs}` : null;
+                const jitter = row.quality && typeof row.quality.JitterMs === 'number' ? `${row.quality.JitterMs}` : null;
+                const loss = row.quality && typeof row.quality.LossPct === 'number' ? `${row.quality.LossPct.toFixed(1)}` : null;
+                let trafficText = '-';
+                if (row.traffic) {
+                    const up = formatBytesHuman(row.traffic.BytesUp);
+                    const down = formatBytesHuman(row.traffic.BytesDown);
+                    trafficText = `${up} ↑ / ${down} ↓`;
+                }
+                const safeTraffic = escapeHtml(trafficText);
+                const minuteText = escapeHtml(formatModalTime(row.minute));
+                const status = (row.quality && row.quality.Status) || '-';
+                const statusClass = status.toLowerCase();
+                return `
+                    <tr data-minute="${escapeHtml(row.minute)}" data-latency="${latency !== null ? latency : ''}" data-jitter="${jitter !== null ? jitter : ''}" data-loss="${loss !== null ? loss : ''}" data-traffic="${escapeHtml(trafficText)}" data-status="${escapeHtml(status)}" onclick="handleTableRowClick(this)">
+                        <td>${minuteText}</td>
+                        <td>${safeTraffic}</td>
+                        <td>${latency !== null ? latency + ' ms' : '-'}</td>
+                        <td>${jitter !== null ? jitter + ' ms' : '-'}</td>
+                        <td>${loss !== null ? loss + ' %' : '-'}</td>
+                        <td><span class="status-badge ${statusClass}">${escapeHtml(status)}</span></td>
+                    </tr>
+                `;
+            }).join('');
+            tbody.innerHTML = body;
+        }
+
+        function handleTableRowClick(row) {
+            // 移除之前选中行的样式
+            document.querySelectorAll('#quality-table-body tr').forEach(r => {
+                r.classList.remove('table-row-active');
+            });
+
+            // 添加当前选中行的样式
+            row.classList.add('table-row-active');
+
+            // 获取数据
+            const minute = row.dataset.minute;
+            const latency = row.dataset.latency;
+            const jitter = row.dataset.jitter;
+            const loss = row.dataset.loss;
+            const traffic = row.dataset.traffic;
+            const status = row.dataset.status;
+
+            // 可以在这里添加显示详细信息的逻辑
+            console.log('选中数据:', {
+                time: minute,
+                latency: latency,
+                jitter: jitter,
+                loss: loss,
+                traffic: traffic,
+                status: status
+            });
+        }
+
+        function mergeSampleRows(qualitySamples, trafficSamples) {
+            const map = new Map();
+            (qualitySamples || []).forEach(sample => {
+                const key = normalizeMinuteKey(sample.Minute);
+                map.set(key, { minute: key, quality: sample });
+            });
+            (trafficSamples || []).forEach(sample => {
+                const key = normalizeMinuteKey(sample.Minute);
+                const row = map.get(key) || { minute: key };
+                row.traffic = sample;
+                map.set(key, row);
+            });
+            const rows = Array.from(map.values()).sort((a, b) => {
+                const tA = Date.parse(a.minute) || 0;
+                const tB = Date.parse(b.minute) || 0;
+                return tB - tA; // 倒序排列，最新的在前
+            });
+            const limit = 12;
+            // 倒序后取前12条（最新的12条）
+            return rows.slice(0, limit);
+        }
+
+        function renderQualityModalLogs(logs) {
+            const container = document.getElementById('quality-modal-logs');
+            if (!container) return;
+            if (!logs.length) {
+                container.innerHTML = '<div class="quality-modal-empty">暂无巡检日志</div>';
+                return;
+            }
+            const head = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>状态</th>
+                            <th>延迟</th>
+                            <th>丢包</th>
+                            <th>说明</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            const rows = logs.slice(0, 12).map(log => `
+                <tr>
+                    <td>${escapeHtml(formatModalTime(log.CreatedAt))}</td>
+                    <td>${escapeHtml(log.Status || '-')}</td>
+                    <td>${typeof log.LatencyAvgMs === 'number' ? log.LatencyAvgMs + ' ms' : '-'}</td>
+                    <td>${typeof log.LossPercent === 'number' ? log.LossPercent.toFixed(1) + ' %' : '-'}</td>
+                    <td>${escapeHtml(log.Message || '-')}</td>
+                </tr>
+            `).join('');
+            container.innerHTML = head + rows + '</tbody></table>';
+        }
+
+        let qualityChart = null;
+        let currentTimeRange = '30d';
+
+        function initECharts() {
+            const chartDom = document.getElementById('quality-chart');
+            if (!chartDom) return null;
+
+            // 如果图表已存在，则销毁
+            if (qualityChart) {
+                qualityChart.dispose();
+            }
+
+            qualityChart = echarts.init(chartDom);
+
+            // 时间范围选择器事件
+            document.querySelectorAll('.range-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentTimeRange = this.dataset.range;
+                    if (currentQualityModalId) {
+                        updateQualityChart(currentQualityModalId);
+                    }
+                });
+            });
+
+            return qualityChart;
+        }
+
+        function updateQualityChart(proxyId) {
+            if (!qualityChart) {
+                qualityChart = initECharts();
+            }
+
+            if (!qualityChart) return;
+
+            let resolution = 'daily';
+            let limit = 30;
+
+            if (currentTimeRange === '24h') {
+                resolution = 'hourly';
+                limit = 24;
+            } else if (currentTimeRange === '7d') {
+                resolution = 'daily';
+                limit = 7;
+            } else {
+                resolution = 'daily';
+                limit = 30;
+            }
+
+            fetch(`/proxy/quality/${proxyId}?resolution=${resolution}&limit=${limit}`)
+                .then(response => response.json())
+                .then(data => {
+                    renderQualityChart(data.samples || {});
+                })
+                .catch(error => {
+                    console.error('Failed to load chart data:', error);
+                    renderQualityChart({});
+                });
+        }
+
+        // 填充完整时间范围
+        function fillCompleteTimeRange(dataMap, timeRange) {
+            const result = new Map(dataMap);
+            const now = new Date();
+            const emptyEntry = { quality: null, traffic: null };
+
+            if (timeRange === '24h') {
+                // 填充最近24小时（按小时）
+                for (let i = 0; i < 24; i++) {
+                    const time = new Date(now);
+                    time.setHours(now.getHours() - (23 - i));
+                    time.setMinutes(0, 0, 0);
+                    const timeStr = time.toISOString();
+                    if (!result.has(timeStr)) {
+                        result.set(timeStr, emptyEntry);
+                    }
+                }
+            } else if (timeRange === '7d') {
+                // 填充最近7天（按天）
+                for (let i = 0; i < 7; i++) {
+                    const time = new Date(now);
+                    time.setDate(now.getDate() - (6 - i));
+                    time.setHours(0, 0, 0, 0);
+                    const timeStr = time.toISOString();
+                    if (!result.has(timeStr)) {
+                        result.set(timeStr, emptyEntry);
+                    }
+                }
+            } else if (timeRange === '30d') {
+                // 填充最近30天（按天）
+                for (let i = 0; i < 30; i++) {
+                    const time = new Date(now);
+                    time.setDate(now.getDate() - (29 - i));
+                    time.setHours(0, 0, 0, 0);
+                    const timeStr = time.toISOString();
+                    if (!result.has(timeStr)) {
+                        result.set(timeStr, emptyEntry);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        // 将时间截断到指定粒度（小时或天）
+        function truncateTime(timeStr, granularity) {
+            const date = new Date(timeStr);
+            if (isNaN(date.getTime())) return timeStr;
+
+            if (granularity === 'hour') {
+                date.setMinutes(0, 0, 0);
+            } else if (granularity === 'day') {
+                date.setHours(0, 0, 0, 0);
+            }
+            return date.toISOString();
+        }
+
+        // 聚合quality数据（按小时或天）
+        function aggregateQualityData(qualityData, granularity) {
+            const aggregated = new Map();
+
+            qualityData.forEach(item => {
+                const time = item.Minute || '';
+                const truncatedTime = truncateTime(time, granularity);
+
+                if (!aggregated.has(truncatedTime)) {
+                    aggregated.set(truncatedTime, {
+                        latencySum: 0,
+                        lossSum: 0,
+                        count: 0
+                    });
+                }
+
+                const agg = aggregated.get(truncatedTime);
+                if (typeof item.LatencyMs === 'number') {
+                    agg.latencySum += item.LatencyMs;
+                    agg.count++;
+                }
+                if (typeof item.LossPct === 'number') {
+                    agg.lossSum += item.LossPct;
+                }
+            });
+
+            // 计算平均值
+            const result = new Map();
+            aggregated.forEach((agg, time) => {
+                result.set(time, {
+                    LatencyMs: agg.count > 0 ? agg.latencySum / agg.count : null,
+                    LossPct: agg.count > 0 ? agg.lossSum / agg.count : null
+                });
+            });
+
+            return result;
+        }
+
+        function renderQualityChart(samples) {
+            if (!qualityChart) return;
+
+            const qualityData = samples.quality || [];
+            const trafficData = samples.traffic || [];
+
+            console.log('Quality data:', qualityData);
+            console.log('Traffic data:', trafficData);
+
+            // 处理时间轴
+            const timeLabels = [];
+            const latencyData = [];
+            const lossData = [];
+            const upData = [];
+            const downData = [];
+            const totalData = [];
+
+            // 根据时间范围确定聚合粒度
+            let granularity = 'hour';
+            if (currentTimeRange === '7d' || currentTimeRange === '30d') {
+                granularity = 'day';
+            }
+
+            // 先聚合quality数据
+            const aggregatedQuality = aggregateQualityData(qualityData, granularity);
+
+            // 合并数据（以traffic数据的时间为基准）
+            const mergedData = new Map();
+
+            // 先添加traffic数据
+            trafficData.forEach(item => {
+                const time = item.Minute || '';
+                const truncatedTime = truncateTime(time, granularity);
+                mergedData.set(truncatedTime, {
+                    quality: aggregatedQuality.get(truncatedTime) || null,
+                    traffic: item
+                });
+            });
+
+            // 添加没有traffic数据但有quality数据的时间点
+            aggregatedQuality.forEach((quality, time) => {
+                if (!mergedData.has(time)) {
+                    mergedData.set(time, { quality: quality, traffic: null });
+                }
+            });
+
+            // 填充完整时间范围
+            const filledData = fillCompleteTimeRange(mergedData, currentTimeRange);
+
+            // 排序并提取数据 - 按时间正序排列（从旧到新）
+            const sortedEntries = Array.from(filledData.entries()).sort((a, b) => {
+                const timeA = a[0] || '';
+                const timeB = b[0] || '';
+                return new Date(timeA) - new Date(timeB);
+            });
+
+            sortedEntries.forEach(([time, data]) => {
+                const displayTime = formatChartTime(time);
+                timeLabels.push(displayTime);
+
+                // 延迟数据
+                latencyData.push(data.quality && typeof data.quality.LatencyMs === 'number'
+                    ? parseFloat(data.quality.LatencyMs.toFixed(0)) : null);
+
+                // 丢包数据
+                lossData.push(data.quality && typeof data.quality.LossPct === 'number'
+                    ? parseFloat(data.quality.LossPct.toFixed(1)) : null);
+
+                // 流量数据
+                if (data.traffic) {
+                    const up = parseFloat(((data.traffic.BytesUp || 0) / (1024 * 1024)).toFixed(2));
+                    const down = parseFloat(((data.traffic.BytesDown || 0) / (1024 * 1024)).toFixed(2));
+                    upData.push(up);
+                    downData.push(down);
+                    totalData.push(up + down);
+                } else {
+                    upData.push(0);
+                    downData.push(0);
+                    totalData.push(0);
+                }
+            });
+
+            console.log('Processed data:', {
+                timeLabels,
+                latencyData,
+                lossData,
+                upData,
+                downData
+            });
+
+            // 计算流量最大值用于缩放
+            const maxTraffic = Math.max(...totalData, 1);
+            const maxLatency = Math.max(...latencyData.filter(v => v !== null), 100);
+
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross',
+                        crossStyle: {
+                            color: '#999'
+                        }
+                    },
+                    formatter: function(params) {
+                        let result = `<strong>${params[0].axisValue}</strong><br/>`;
+                        params.forEach(param => {
+                            if (param.seriesName.includes('流量')) {
+                                result += `${param.marker}${param.seriesName}: ${param.value} MB<br/>`;
+                            } else if (param.seriesName.includes('丢包')) {
+                                result += `${param.marker}${param.seriesName}: ${param.value}%<br/>`;
+                            } else {
+                                result += `${param.marker}${param.seriesName}: ${param.value}ms<br/>`;
+                            }
+                        });
+                        return result;
+                    }
+                },
+                legend: {
+                    data: ['上行流量', '下行流量', '延迟', '丢包率'],
+                    top: 10
+                },
+                xAxis: [
+                    {
+                        type: 'category',
+                        data: timeLabels,
+                        axisPointer: {
+                            type: 'shadow'
+                        }
+                    }
+                ],
+                yAxis: [
+                    {
+                        type: 'value',
+                        name: '流量 (MB)',
+                        position: 'left',
+                        axisLabel: {
+                            formatter: '{value} MB'
+                        },
+                        min: 0,
+                        max: maxTraffic * 1.2
+                    },
+                    {
+                        type: 'value',
+                        name: '延迟 (ms)',
+                        position: 'right',
+                        axisLabel: {
+                            formatter: '{value} ms'
+                        },
+                        min: 0,
+                        max: maxLatency * 1.2
+                    }
+                ],
+                series: [
+                    {
+                        name: '上行流量',
+                        type: 'bar',
+                        yAxisIndex: 0,
+                        data: upData,
+                        itemStyle: {
+                            color: '#5470c6'
+                        }
+                    },
+                    {
+                        name: '下行流量',
+                        type: 'bar',
+                        yAxisIndex: 0,
+                        data: downData,
+                        itemStyle: {
+                            color: '#91cc75'
+                        }
+                    },
+                    {
+                        name: '延迟',
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data: latencyData,
+                        smooth: true,
+                        itemStyle: {
+                            color: '#ee6666'
+                        },
+                        lineStyle: {
+                            width: 2
+                        }
+                    },
+                    {
+                        name: '丢包率',
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data: lossData,
+                        smooth: true,
+                        itemStyle: {
+                            color: '#fac858'
+                        },
+                        lineStyle: {
+                            width: 2
+                        }
+                    }
+                ],
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    top: '15%',
+                    containLabel: true
+                }
+            };
+
+            qualityChart.setOption(option, true);
+        }
+
+        function normalizeMinuteKey(value) {
+            if (!value) return '';
+            return value.includes('T') ? value : value.replace(' ', 'T');
+        }
+
+        function formatModalTime(value) {
+            if (!value) return '-';
+            const normalized = normalizeMinuteKey(value);
+            const parsed = new Date(normalized);
+            if (isNaN(parsed.getTime())) {
+                return value;
+            }
+            return parsed.toLocaleString();
+        }
+
+        function formatTrendLabel(value) {
+            if (!value) return '--';
+            const normalized = normalizeMinuteKey(value);
+            const parsed = new Date(normalized);
+            if (isNaN(parsed.getTime())) {
+                return value;
+            }
+            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+            const day = String(parsed.getDate()).padStart(2, '0');
+            return `${month}-${day}`;
+        }
+
+        function formatTrendTooltipDate(value) {
+            if (!value) return '-';
+            const normalized = normalizeMinuteKey(value);
+            const parsed = new Date(normalized);
+            if (isNaN(parsed.getTime())) {
+                return value;
+            }
+            return parsed.toLocaleDateString();
+        }
+
+        function formatChartTime(value) {
+            if (!value) return '';
+
+            // 直接解析 ISO 8601 格式的字符串（包含时区）
+            const parsed = new Date(value);
+            if (isNaN(parsed.getTime())) {
+                // 如果解析失败，尝试手动解析
+                const timeStr = value.replace('T', ' ').replace('+08:00', '').replace('Z', '');
+                const fallbackParsed = new Date(timeStr + ' +08:00');
+                if (isNaN(fallbackParsed.getTime())) {
+                    return value;
+                }
+                return formatDateByRange(fallbackParsed, currentTimeRange);
+            }
+
+            return formatDateByRange(parsed, currentTimeRange);
+        }
+
+        function formatDateByRange(dateObj, range) {
+            if (range === '24h') {
+                // 24小时视图：显示小时
+                return dateObj.getHours().toString().padStart(2, '0') + ':00';
+            } else if (range === '7d') {
+                // 7天视图：显示月/日 小时
+                const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                const day = dateObj.getDate().toString().padStart(2, '0');
+                const hour = dateObj.getHours().toString().padStart(2, '0');
+                return `${month}/${day} ${hour}:00`;
+            } else {
+                // 30天视图：只显示月/日
+                const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                const day = dateObj.getDate().toString().padStart(2, '0');
+                return `${month}/${day}`;
+            }
+        }
+
+        function formatTrafficSummary(sample) {
+            if (!sample) return '-';
+            const total = (sample.BytesUp + sample.BytesDown) / (1024 * 1024);
+            return `${total.toFixed(2)} MB`;
+        }
+
+        function formatBytesHuman(bytes) {
+            if (!bytes || bytes <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let idx = 0;
+            let value = bytes;
+            while (value >= 1024 && idx < units.length - 1) {
+                value /= 1024;
+                idx++;
+            }
+            return `${value.toFixed(2)} ${units[idx]}`;
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         async function testProxy(id) {
             const latencyEl = document.getElementById('latency-' + id);
             const testBtn = document.getElementById('test-btn-' + id);
@@ -683,6 +1762,100 @@ curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/mast
                 testBtn.textContent = '测试';
                 testBtn.style.opacity = '1';
                 testBtn.style.pointerEvents = 'auto';
+            }
+        }
+
+        // 重启单个代理 (AJAX)
+        async function restartProxy(id, name) {
+            if (!confirm(`确定要重启代理 "${name}" 吗？\n\n此操作会重新从数据库读取配置并重建连接。`)) {
+                return;
+            }
+
+            const btn = document.getElementById('restart-btn-' + id);
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ 重启中...';
+            btn.style.opacity = '0.6';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/proxy/restart/' + id, { method: 'POST' });
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    alert(`✅ 代理 "${name}" 重启成功！`);
+                    location.reload();
+                } else {
+                    alert(`❌ 重启失败: ${result.error || '未知错误'}`);
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        }
+
+        // 启动/停止代理 (AJAX)
+        async function toggleProxy(id, name, action) {
+            const actionName = action === 'stop' ? '停止' : '启动';
+            if (!confirm(`确定要${actionName}代理 "${name}" 吗？`)) {
+                return;
+            }
+
+            const btn = document.getElementById('toggle-btn-' + id);
+            const originalText = btn.textContent;
+            btn.textContent = `⏳ ${actionName}中...`;
+            btn.style.opacity = '0.6';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/proxy/toggle/' + id, { method: 'GET' });
+
+                if (response.ok || response.redirected) {
+                    alert(`✅ 代理 "${name}" ${actionName}成功！`);
+                    location.reload();
+                } else {
+                    const text = await response.text();
+                    alert(`❌ ${actionName}失败: ${text}`);
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        }
+
+        // 删除代理 (AJAX)
+        async function deleteProxy(id, name) {
+            if (!confirm(`确定要删除代理 "${name}" 吗？\n\n⚠️ 此操作不可恢复！\n• 配置文件将被删除\n• 数据库记录将被删除`)) {
+                return;
+            }
+
+            const btn = document.getElementById('delete-btn-' + id);
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ 删除中...';
+            btn.style.opacity = '0.6';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch('/proxy/delete/' + id, { method: 'GET' });
+
+                if (response.ok || response.redirected) {
+                    alert(`✅ 代理 "${name}" 已删除！`);
+                    location.reload();
+                } else {
+                    const text = await response.text();
+                    alert(`❌ 删除失败: ${text}`);
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
             }
         }
 

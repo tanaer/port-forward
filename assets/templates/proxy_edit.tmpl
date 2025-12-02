@@ -85,7 +85,7 @@
             <a href="/proxy">← 返回代理列表</a>
         </div>
 
-        <form method="POST" action="/proxy/edit/{{.proxy.Id}}">
+        <form id="editForm" method="POST" action="/proxy/edit/{{.proxy.Id}}" onsubmit="return handleEditSubmit(event)">
             <!-- 基本信息 -->
             <div class="section">
                 <h2>📋 基本信息</h2>
@@ -423,6 +423,7 @@
             <button type="submit" class="btn btn-primary">💾 保存更改</button>
             <a href="/proxy" class="btn btn-secondary" style="text-decoration: none; display: inline-block;">取消</a>
         </form>
+
     </div>
 
     <script>
@@ -640,6 +641,48 @@
         window.addEventListener('DOMContentLoaded', function() {
             toggleOutboundConfig();
         });
+
+        // 处理编辑表单提交 - AJAX 提交并跳转回代理列表
+        async function handleEditSubmit(event) {
+            event.preventDefault();
+
+            const form = document.getElementById('editForm');
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+
+            // 显示加载状态
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ 保存中...';
+
+            try {
+                const formData = new FormData(form);
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.redirected) {
+                    // 服务端重定向，跳转到目标页面
+                    window.location.href = '/proxy';
+                } else if (response.ok) {
+                    // 成功，显示消息并跳转
+                    alert('✅ 配置保存成功！');
+                    window.location.href = '/proxy';
+                } else {
+                    // 失败，显示错误
+                    const text = await response.text();
+                    alert('❌ 保存失败: ' + text);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalText;
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+
+            return false;
+        }
     </script>
 </body>
 </html>
