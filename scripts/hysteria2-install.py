@@ -14,19 +14,45 @@ import sys
 import time
 import urllib.request
 import urllib.parse
+import json
+import ssl
 from pathlib import Path
 
-try:
-    import requests
-except ImportError:
-    print("正在安装 requests 模块...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "requests"], check=True)
-    import requests
+# ============================================
+# HTTP 工具函数（使用标准库，无需 pip）
+# ============================================
+
+def http_get_json(url, timeout=5):
+    """使用标准库发送HTTP GET请求并返回JSON"""
+    try:
+        # 创建SSL上下文，忽略证书验证（某些API需要）
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        raise Exception(f"HTTP请求失败: {e}")
+
+def http_get_text(url, timeout=10):
+    """使用标准库发送HTTP GET请求并返回文本"""
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as response:
+            return response.read().decode('utf-8')
+    except Exception as e:
+        raise Exception(f"HTTP请求失败: {e}")
 
 # ============================================
 # 全局配置
 # ============================================
-VERSION = "2.0"
+VERSION = "2.1"  # 移除requests依赖，使用标准库实现HTTP请求
 SUBSCRIPTION_API = "https://sublink-worker.watrans.workers.dev"
 SCRIPT_URL = "https://raw.githubusercontent.com/tanaer/port-forward/master/scripts/hysteria2-install.py"
 
@@ -302,9 +328,7 @@ def get_ipv4_address():
     """获取IPv4地址"""
     global hy2_domain
     try:
-        response = requests.get('http://ip-api.com/json/', timeout=5)
-        response.raise_for_status()
-        data = response.json()
+        data = http_get_json('http://ip-api.com/json/', timeout=5)
 
         isp = data.get('isp', '').lower()
         if 'cloudflare' in isp:
@@ -328,9 +352,7 @@ def get_ipv6_address():
     """获取IPv6地址"""
     global hy2_domain
     try:
-        response = requests.get('https://api.ip.sb/geoip', timeout=5)
-        response.raise_for_status()
-        data = response.json()
+        data = http_get_json('https://api.ip.sb/geoip', timeout=5)
 
         isp = data.get('isp', '').lower()
         if 'cloudflare' in isp:
@@ -438,14 +460,11 @@ def generate_subscription_links(hy2_url):
         success_count = 0
         for name, url in configs.items():
             try:
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    config_file = config_dir / f"{name}.yaml"
-                    config_file.write_text(response.text)
-                    print(f"\033[92m✓ {name.capitalize()} 配置已生成\033[0m")
-                    success_count += 1
-                else:
-                    print(f"\033[91m✗ {name.capitalize()} 配置生成失败 (HTTP {response.status_code})\033[0m")
+                content = http_get_text(url, timeout=10)
+                config_file = config_dir / f"{name}.yaml"
+                config_file.write_text(content)
+                print(f"\033[92m✓ {name.capitalize()} 配置已生成\033[0m")
+                success_count += 1
             except Exception as e:
                 print(f"\033[91m✗ {name.capitalize()} 配置生成失败: {e}\033[0m")
 
@@ -847,15 +866,11 @@ def auto_install():
     print("\n2. 获取服务器IP地址...")
     global hy2_domain
     try:
-        response = requests.get('http://ip-api.com/json/', timeout=5)
-        response.raise_for_status()
-        data = response.json()
+        data = http_get_json('http://ip-api.com/json/', timeout=5)
         isp = data.get('isp', '').lower()
         if 'cloudflare' in isp:
             print("\033[93m检测到Cloudflare WARP，使用IPv6\033[0m")
-            response = requests.get('https://api.ip.sb/geoip', timeout=5)
-            response.raise_for_status()
-            ip_data = response.json()
+            ip_data = http_get_json('https://api.ip.sb/geoip', timeout=5)
             hy2_domain = f"[{ip_data.get('ip', '')}]"
         else:
             hy2_domain = data.get('query', '')
@@ -955,11 +970,10 @@ sniff:
 
         for name, url in configs.items():
             try:
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    config_file = config_dir / f"{name}.yaml"
-                    config_file.write_text(response.text)
-                    print(f"\033[92m✓ {name.capitalize()} 配置已生成: {config_file}\033[0m")
+                content = http_get_text(url, timeout=10)
+                config_file = config_dir / f"{name}.yaml"
+                config_file.write_text(content)
+                print(f"\033[92m✓ {name.capitalize()} 配置已生成: {config_file}\033[0m")
             except:
                 pass
     except:
