@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -14,14 +16,18 @@ import (
 type Client struct {
 	cmd        *exec.Cmd
 	configPath string
+	logDir     string
+	pidFile    string
 	running    bool
 	mu         sync.Mutex
 }
 
 // NewClient 创建Hysteria2客户端
-func NewClient(configPath string) *Client {
+func NewClient(configPath string, logDir string) *Client {
 	return &Client{
 		configPath: configPath,
+		logDir:     logDir,
+		pidFile:    pidFilePath(configPath),
 		running:    false,
 	}
 }
@@ -40,6 +46,9 @@ func (c *Client) Start() error {
 		return fmt.Errorf("配置文件不存在: %s", c.configPath)
 	}
 
+	// 清理可能残留的进程
+	c.cleanupStaleProcess()
+
 	// 查找hysteria2可执行文件
 	hy2Path, err := findHysteria2Binary()
 	if err != nil {
@@ -51,8 +60,13 @@ func (c *Client) Start() error {
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// 设置输出
-	logDir := filepath.Join(filepath.Dir(c.configPath), "logs")
-	os.MkdirAll(logDir, 0755)
+	logDir := c.logDir
+	if logDir == "" {
+		logDir = filepath.Join(filepath.Dir(c.configPath), "logs")
+	}
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return fmt.Errorf("创建日志目录失败: %v", err)
+	}
 
 	logFile, err := os.OpenFile(
 		filepath.Join(logDir, "hysteria2.log"),
@@ -71,6 +85,7 @@ func (c *Client) Start() error {
 		return fmt.Errorf("启动Hysteria2失败: %v", err)
 	}
 
+	c.writePID()
 	c.running = true
 	fmt.Printf("[Hysteria2] 进程已启动 PID=%d\n", c.cmd.Process.Pid)
 
@@ -104,12 +119,14 @@ func (c *Client) Stop() error {
 	select {
 	case <-done:
 		c.running = false
+		removePIDFile(c.pidFile)
 		fmt.Println("[Hysteria2] 进程已停止")
 		return nil
 	case <-time.After(5 * time.Second):
 		// 超时强制杀死
 		c.cmd.Process.Kill()
 		c.running = false
+		removePIDFile(c.pidFile)
 		return fmt.Errorf("停止Hysteria2超时，已强制终止")
 	}
 }
@@ -143,12 +160,88 @@ func (c *Client) monitor() {
 	c.mu.Lock()
 	c.running = false
 	c.mu.Unlock()
+	removePIDFile(c.pidFile)
 
 	if err != nil {
 		fmt.Printf("[Hysteria2] 进程异常退出: %v\n", err)
 	} else {
 		fmt.Println("[Hysteria2] 进程正常退出")
 	}
+}
+
+func (c *Client) cleanupStaleProcess() {
+	if c.pidFile == "" {
+		return
+	}
+	cleanupProcessByPIDFile(c.pidFile)
+}
+
+func (c *Client) writePID() {
+	if c.pidFile == "" || c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+	_ = os.WriteFile(c.pidFile, []byte(strconv.Itoa(c.cmd.Process.Pid)), 0644)
+}
+
+func pidFilePath(configPath string) string {
+	if configPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(configPath)
+	base := strings.TrimSuffix(filepath.Base(configPath), ext)
+	return filepath.Join(filepath.Dir(configPath), base+".pid")
+}
+
+func readPIDFile(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
+
+func removePIDFile(path string) {
+	if path == "" {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+func cleanupProcessByPIDFile(path string) {
+	if path == "" {
+		return
+	}
+	pid, err := readPIDFile(path)
+	if err != nil || pid <= 0 {
+		removePIDFile(path)
+		return
+	}
+	// 发送SIGTERM
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	timeout := time.After(2 * time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeout:
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			removePIDFile(path)
+			return
+		case <-ticker.C:
+			if err := syscall.Kill(pid, 0); err != nil {
+				removePIDFile(path)
+				return
+			}
+		}
+	}
+}
+
+func cleanupProcessByConfig(configPath string) {
+	cleanupProcessByPIDFile(pidFilePath(configPath))
 }
 
 // findHysteria2Binary 查找hysteria2可执行文件

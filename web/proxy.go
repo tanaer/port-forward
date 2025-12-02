@@ -14,6 +14,7 @@ import (
 	"goForward/proxy/hysteria"
 	"goForward/proxy/vmess"
 	"goForward/proxy/xray"
+	"goForward/quality"
 	"goForward/sql"
 	"goForward/version"
 )
@@ -22,10 +23,26 @@ import (
 func RegisterProxyRoutes(r *gin.Engine) {
 	// 代理管理页面
 	r.GET("/proxy", func(c *gin.Context) {
+		qualityCfg := conf.QualityMonitor
+		intervalSeconds := int(qualityCfg.Interval / time.Second)
+		if intervalSeconds <= 0 {
+			intervalSeconds = int(conf.DefaultQualityMonitorConfig.Interval / time.Second)
+		}
+
+		proxies := sql.GetProxyList()
+		for i := range proxies {
+			up, down := sql.GetProxyTodayTraffic(proxies[i].Id)
+			proxies[i].TodayTraffic = sql.FormatTraffic(up + down)
+		}
+
 		c.HTML(http.StatusOK, "proxy_list.tmpl", gin.H{
-			"proxyList": sql.GetProxyList(),
-			"stats":     sql.GetProxyStats(),
-			"version":   version.Version,
+			"proxyList":              proxies,
+			"stats":                  sql.GetProxyStats(),
+			"version":                version.Version,
+			"qualityConfig":          qualityCfg,
+			"qualityProxySpec":       conf.FormatProxyIDs(qualityCfg.ProxyIDs),
+			"qualityIntervalSeconds": intervalSeconds,
+			"qualityRunning":         quality.IsRunning(),
 		})
 	})
 
@@ -180,6 +197,24 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			"failed":  failed,
 			"details": failures,
 		})
+	})
+
+	// 单个代理重启 (AJAX)
+	r.POST("/proxy/restart/:id", func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.JSON(400, gin.H{"success": false, "error": "无效的代理ID"})
+			return
+		}
+
+		proxyManager := proxy.GetProxyManager()
+		if err := proxyManager.RestartProxy(id); err != nil {
+			c.JSON(500, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+
+		c.JSON(200, gin.H{"success": true, "message": "代理重启成功"})
 	})
 
 	// 一键重建运行环境
@@ -375,10 +410,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			return
 		}
 
-		c.HTML(200, "msg.tmpl", gin.H{
-			"msg": "添加成功",
-			"suc": true,
-		})
+		c.Redirect(http.StatusFound, "/proxy")
 	})
 
 	// 编辑代理页面
@@ -393,10 +425,18 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			return
 		}
 
+		qualityLogs := sql.GetProxyQualityLogs(id, 20)
+		latestQuality, hasQuality := sql.GetLatestProxyQualityLog(id)
+
 		c.HTML(http.StatusOK, "proxy_edit.tmpl", gin.H{
-			"proxy":          proxyConfig,
-			"realityDomains": xray.GetRealityDomainList(),
-			"version":        version.Version,
+			"proxy":           proxyConfig,
+			"realityDomains":  xray.GetRealityDomainList(),
+			"version":         version.Version,
+			"qualityLogs":     qualityLogs,
+			"qualityEnabled":  conf.QualityMonitor.Enabled,
+			"lastQuality":     latestQuality,
+			"qualityHasValue": hasQuality,
+			"qualityConfig":   conf.QualityMonitor,
 		})
 	})
 
@@ -513,10 +553,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			}
 		}
 
-		c.HTML(200, "msg.tmpl", gin.H{
-			"msg": "更新成功",
-			"suc": true,
-		})
+		c.Redirect(http.StatusFound, "/proxy")
 	})
 
 	// 启动/停止代理
@@ -676,6 +713,112 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		c.JSON(200, status)
 	})
 
+	// 查询线路质量监控配置
+	r.GET("/proxy/quality-config", func(c *gin.Context) {
+		cfg := conf.QualityMonitor
+		c.JSON(200, gin.H{
+			"success":          true,
+			"config":           cfg,
+			"proxy_spec":       conf.FormatProxyIDs(cfg.ProxyIDs),
+			"interval_seconds": int(cfg.Interval / time.Second),
+			"running":          quality.IsRunning(),
+		})
+	})
+
+	// 更新线路质量监控配置
+	r.POST("/proxy/quality-config", func(c *gin.Context) {
+		cfg, err := parseQualityMonitorConfigFromRequest(c)
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := sql.SaveQualityMonitorSetting(cfg); err != nil {
+			c.JSON(500, gin.H{"error": fmt.Sprintf("保存配置失败: %v", err)})
+			return
+		}
+
+		quality.UpdateGlobalMonitorConfig(cfg)
+		c.JSON(200, gin.H{
+			"success": true,
+			"running": quality.IsRunning(),
+			"config":  cfg,
+		})
+	})
+
+	// 获取线路质量数据
+	r.GET("/proxy/quality/:id", func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		proxyConfig := sql.GetProxy(id)
+		if proxyConfig.Id == 0 {
+			c.JSON(404, gin.H{"error": "代理配置不存在"})
+			return
+		}
+
+		sampleLimit := 20
+		if limitParam := c.DefaultQuery("limit", "20"); limitParam != "" {
+			if value, err := strconv.Atoi(limitParam); err == nil && value > 0 && value <= 500 {
+				sampleLimit = value
+			}
+		}
+		startTime := parseTimeQuery(c.DefaultQuery("start", ""))
+		endTime := parseTimeQuery(c.DefaultQuery("end", ""))
+
+		resolution := c.DefaultQuery("resolution", "minute")
+
+		// 如果没有提供start和end时间，根据resolution和limit自动计算时间范围
+		if startTime.IsZero() && endTime.IsZero() {
+			now := time.Now()
+			switch strings.ToLower(resolution) {
+			case "minute":
+				// 分钟级：最近N分钟
+				endTime = now
+				startTime = now.Add(-time.Duration(sampleLimit) * time.Minute)
+			case "hour", "hourly":
+				// 小时级：最近N小时
+				endTime = now
+				startTime = now.Add(-time.Duration(sampleLimit) * time.Hour)
+			case "day", "daily":
+				// 天级：最近N天
+				endTime = now
+				startTime = now.AddDate(0, 0, -sampleLimit)
+			default:
+				// 默认为分钟级
+				endTime = now
+				startTime = now.Add(-time.Duration(sampleLimit) * time.Minute)
+			}
+		}
+
+		qualitySamples := sql.GetQualitySamples(id, startTime, endTime, sampleLimit)
+		trafficSamples := sql.GetTrafficSamplesWithResolution(id, resolution, startTime, endTime, sampleLimit)
+		targetSamples := sql.GetRecentTargetSamples(id, 20)
+
+		limit := 20
+		if limitParam := c.DefaultQuery("limit", "20"); limitParam != "" {
+			if value, err := strconv.Atoi(limitParam); err == nil && value > 0 && value <= 200 {
+				limit = value
+			}
+		}
+
+		logs := sql.GetProxyQualityLogs(id, limit)
+		latest, ok := sql.GetLatestProxyQualityLog(id)
+
+		c.JSON(200, gin.H{
+			"enabled":     conf.QualityMonitor.Enabled,
+			"logs":        logs,
+			"latest":      latest,
+			"has_latest":  ok,
+			"proxy":       proxyConfig,
+			"monitor_cfg": conf.QualityMonitor,
+			"resolution":  resolution,
+			"samples": gin.H{
+				"quality": qualitySamples,
+				"traffic": trafficSamples,
+				"targets": targetSamples,
+			},
+		})
+	})
+
 	// 测试代理连接
 	r.GET("/proxy/test/:id", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.Param("id"))
@@ -702,4 +845,87 @@ func RegisterProxyRoutes(r *gin.Engine) {
 
 		c.JSON(200, result)
 	})
+}
+
+func parseQualityMonitorConfigFromRequest(c *gin.Context) (conf.QualityMonitorConfig, error) {
+	enabled := c.PostForm("enabled") == "1" || c.PostForm("enabled") == "on"
+	proxySpec := c.PostForm("proxy_ids")
+	target := strings.TrimSpace(c.PostForm("target"))
+
+	intervalSec := parseIntDefault(c.PostForm("interval_seconds"), int(conf.DefaultQualityMonitorConfig.Interval/time.Second))
+	probeCount := parseIntDefault(c.PostForm("probe_count"), conf.DefaultQualityMonitorConfig.ProbeCount)
+	maxConcurrent := parseIntDefault(c.PostForm("max_concurrent"), conf.DefaultQualityMonitorConfig.MaxConcurrent)
+	warnLatency := parseIntDefault(c.PostForm("warn_latency"), conf.DefaultQualityMonitorConfig.WarnLatencyMs)
+	warnFailures := parseIntDefault(c.PostForm("warn_failures"), conf.DefaultQualityMonitorConfig.WarnConsecutiveFailure)
+	retentionDays := parseIntDefault(c.PostForm("retention_days"), conf.DefaultQualityMonitorConfig.RetentionDays)
+
+	warnLoss := conf.DefaultQualityMonitorConfig.WarnLossPercent
+	if value := strings.TrimSpace(c.PostForm("warn_loss")); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+			warnLoss = parsed
+		}
+	}
+
+	if intervalSec < 15 {
+		intervalSec = 15
+	}
+	if probeCount <= 0 {
+		probeCount = conf.DefaultQualityMonitorConfig.ProbeCount
+	}
+	if maxConcurrent <= 0 {
+		maxConcurrent = conf.DefaultQualityMonitorConfig.MaxConcurrent
+	}
+	if warnLatency <= 0 {
+		warnLatency = conf.DefaultQualityMonitorConfig.WarnLatencyMs
+	}
+	if warnFailures <= 0 {
+		warnFailures = conf.DefaultQualityMonitorConfig.WarnConsecutiveFailure
+	}
+	if retentionDays < 0 {
+		retentionDays = conf.DefaultQualityMonitorConfig.RetentionDays
+	}
+	if target == "" {
+		target = conf.DefaultQualityMonitorConfig.TestTarget
+	}
+
+	cfg := conf.QualityMonitorConfig{
+		Enabled:                enabled,
+		ProxyIDs:               conf.ParseProxyIDSpec(proxySpec),
+		TestTarget:             target,
+		Interval:               time.Duration(intervalSec) * time.Second,
+		ProbeCount:             probeCount,
+		MaxConcurrent:          maxConcurrent,
+		WarnLatencyMs:          warnLatency,
+		WarnLossPercent:        warnLoss,
+		WarnConsecutiveFailure: warnFailures,
+		RetentionDays:          retentionDays,
+	}
+
+	return cfg, nil
+}
+
+func parseIntDefault(value string, defaultValue int) int {
+	val := strings.TrimSpace(value)
+	if val == "" {
+		return defaultValue
+	}
+	if parsed, err := strconv.Atoi(val); err == nil {
+		return parsed
+	}
+	return defaultValue
+}
+
+func parseTimeQuery(val string) time.Time {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", val)
+	if err == nil {
+		return t
+	}
+	if ts, err := strconv.ParseInt(val, 10, 64); err == nil {
+		return time.Unix(ts, 0)
+	}
+	return time.Time{}
 }

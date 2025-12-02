@@ -16,6 +16,7 @@ import (
 	"goForward/hotreload"
 	"goForward/metrics"
 	"goForward/proxy"
+	"goForward/quality"
 	"goForward/sql"
 	"goForward/version"
 	"goForward/web"
@@ -40,6 +41,12 @@ func main() {
 
 	// 启动所有活动的代理配置
 	go loadActiveProxies()
+	proxy.StartStatsCollector()
+	defer proxy.StopStatsCollector()
+
+	quality.InitGlobalMonitor(conf.QualityMonitor)
+	defer quality.StopGlobalMonitor()
+	quality.StartGlobalMonitor()
 
 	// 初始化通道
 	conf.Ch = make(chan string)
@@ -228,6 +235,29 @@ func init() {
 	// API访问令牌（用于CLI访问API）
 	flag.StringVar(&conf.APIToken, "api-token", "", "API access token for CLI tools (required for API access when set)")
 
+	// 线路质量监控参数
+	var qualityMonitorEnabled bool
+	var qualityMonitorInterval time.Duration
+	var qualityMonitorProxies string
+	var qualityMonitorTarget string
+	var qualityProbeCount int
+	var qualityWarnLatency int
+	var qualityWarnLoss float64
+	var qualityWarnFailures int
+	var qualityRetentionDays int
+	var qualityMaxConcurrent int
+
+	flag.BoolVar(&qualityMonitorEnabled, "quality-monitor", conf.DefaultQualityMonitorConfig.Enabled, "Enable quality monitor")
+	flag.DurationVar(&qualityMonitorInterval, "quality-interval", conf.DefaultQualityMonitorConfig.Interval, "Quality monitor interval (e.g. 30s, 1m)")
+	flag.StringVar(&qualityMonitorProxies, "quality-proxies", "", "Comma separated proxy IDs/ranges to monitor (empty = all active proxies)")
+	flag.StringVar(&qualityMonitorTarget, "quality-target", conf.DefaultQualityMonitorConfig.TestTarget, "Remote target to test through the proxy (e.g. rtmp.tiktok.com:1935)")
+	flag.IntVar(&qualityProbeCount, "quality-probe-count", conf.DefaultQualityMonitorConfig.ProbeCount, "Number of probes per proxy on each cycle")
+	flag.IntVar(&qualityWarnLatency, "quality-warn-latency", conf.DefaultQualityMonitorConfig.WarnLatencyMs, "Latency threshold (ms) that triggers warning status")
+	flag.Float64Var(&qualityWarnLoss, "quality-warn-loss", conf.DefaultQualityMonitorConfig.WarnLossPercent, "Packet loss percentage threshold that triggers warning status")
+	flag.IntVar(&qualityWarnFailures, "quality-warn-failures", conf.DefaultQualityMonitorConfig.WarnConsecutiveFailure, "Number of consecutive failed cycles to mark proxy critical")
+	flag.IntVar(&qualityRetentionDays, "quality-retention-days", conf.DefaultQualityMonitorConfig.RetentionDays, "How many days of quality logs to keep")
+	flag.IntVar(&qualityMaxConcurrent, "quality-max-concurrent", conf.DefaultQualityMonitorConfig.MaxConcurrent, "Maximum concurrent quality probes")
+
 	flag.Parse()
 
 	// 如果请求显示版本，显示后退出
@@ -318,6 +348,32 @@ func init() {
 		fmt.Fprintf(os.Stderr, "错误: 无效的Web端口 '%s'\n", conf.WebPort)
 		os.Exit(1)
 	}
+
+	if qualityMonitorInterval <= 0 {
+		qualityMonitorInterval = conf.DefaultQualityMonitorConfig.Interval
+	}
+	if qualityProbeCount <= 0 {
+		qualityProbeCount = conf.DefaultQualityMonitorConfig.ProbeCount
+	}
+	if qualityMaxConcurrent <= 0 {
+		qualityMaxConcurrent = conf.DefaultQualityMonitorConfig.MaxConcurrent
+	}
+	if qualityRetentionDays < 0 {
+		qualityRetentionDays = conf.DefaultQualityMonitorConfig.RetentionDays
+	}
+
+	conf.QualityMonitor.Enabled = qualityMonitorEnabled
+	conf.QualityMonitor.Interval = qualityMonitorInterval
+	conf.QualityMonitor.ProxyIDs = conf.ParseProxyIDSpec(qualityMonitorProxies)
+	conf.QualityMonitor.TestTarget = qualityMonitorTarget
+	conf.QualityMonitor.ProbeCount = qualityProbeCount
+	conf.QualityMonitor.MaxConcurrent = qualityMaxConcurrent
+	conf.QualityMonitor.WarnLatencyMs = qualityWarnLatency
+	conf.QualityMonitor.WarnLossPercent = qualityWarnLoss
+	conf.QualityMonitor.WarnConsecutiveFailure = qualityWarnFailures
+	conf.QualityMonitor.RetentionDays = qualityRetentionDays
+
+	conf.QualityMonitor = sql.EnsureQualityMonitorSetting(conf.QualityMonitor)
 }
 
 // isValidPort 验证端口号

@@ -19,6 +19,8 @@ func (pm *ProxyManager) CreateProxyFromConfig(cfg conf.ProxyConfig) error {
 	// 生成配置文件目录
 	baseDir := filepath.Join(".", "proxy_configs")
 	os.MkdirAll(baseDir, 0755)
+	logDir := conf.ProxyLogDir(cfg.Id)
+	_ = os.MkdirAll(logDir, 0755)
 
 	// 根据出站类型选择正确的SOCKS5端口
 	var socks5Port int
@@ -32,6 +34,7 @@ func (pm *ProxyManager) CreateProxyFromConfig(cfg conf.ProxyConfig) error {
 
 	// 生成Xray配置
 	xrayConfig := xray.GenerateVLESSRealityConfig(xray.VLESSRealityConfig{
+		ProxyID:         cfg.Id,
 		Port:            cfg.InboundPort,
 		UUID:            cfg.UUID,
 		Flow:            cfg.Flow,
@@ -54,6 +57,8 @@ func (pm *ProxyManager) CreateProxyFromConfig(cfg conf.ProxyConfig) error {
 		VmessServerName: cfg.VmessServerName,
 		VmessWsPath:     cfg.VmessWsPath,
 		VmessWsHost:     cfg.VmessWsHost,
+		LogDir:          logDir,
+		APIPort:         conf.XrayAPIPort(cfg.Id),
 	})
 
 	xrayConfigPath := filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", cfg.Id))
@@ -104,7 +109,7 @@ func (pm *ProxyManager) StartProxy(id int) error {
 	} else {
 		socks5Port = cfg.Hy2Socks5Port
 	}
-	bridge := bridgeManager.AddBridge(id, socks5Port)
+	bridge := bridgeManager.AddBridge(id, socks5Port, cfg.OutboundType)
 
 	// 如果是 SOCKS5 或 VMess 出站，只启动 Xray
 	if cfg.OutboundType == "socks5" || cfg.OutboundType == "vmess" {
@@ -112,7 +117,8 @@ func (pm *ProxyManager) StartProxy(id int) error {
 		baseDir := filepath.Join(".", "proxy_configs")
 		xrayConfigPath := filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", cfg.Id))
 
-		bridge.xrayManager = xray.NewManager(xrayConfigPath)
+		logDir := filepath.Join(".", "proxy_configs", fmt.Sprintf("logs_%d", cfg.Id))
+		bridge.xrayManager = xray.NewManager(xrayConfigPath, logDir)
 		if err := bridge.xrayManager.Start(); err != nil {
 			return fmt.Errorf("启动Xray失败: %v", err)
 		}
@@ -130,7 +136,7 @@ func (pm *ProxyManager) StartProxy(id int) error {
 	return nil
 }
 
-// StopProxy 停止代理
+// StopProxy 停止代理（容错处理，即使桥接未运行也正常返回）
 func (pm *ProxyManager) StopProxy(id int) error {
 	cfg := sql.GetProxy(id)
 	if cfg.Id == 0 {
@@ -144,22 +150,24 @@ func (pm *ProxyManager) StopProxy(id int) error {
 	// 如果是Hysteria2出站，使用Hysteria2Manager停止
 	if cfg.OutboundType == "hysteria2" {
 		hy2Manager := hysteria.GetGlobalManager()
-		if hy2Manager.IsRunning(id) {
-			if err := hy2Manager.Stop(id); err != nil {
-				fmt.Printf("[Proxy] 停止Hysteria2实例失败: %v\n", err)
-			}
-		} else {
-			fmt.Printf("[Proxy] Hysteria2实例 %d 未运行，跳过停止\n", id)
+		if err := hy2Manager.ForceStop(id); err != nil {
+			fmt.Printf("[Proxy] 停止Hysteria2实例失败（可忽略）: %v\n", err)
 		}
 	}
 
-	// 停止桥接
+	// 停止桥接（容错处理）
 	if exists {
-		if err := bridge.Stop(); err != nil {
-			return fmt.Errorf("停止代理失败: %v", err)
+		if bridge.IsRunning() {
+			if err := bridge.Stop(); err != nil {
+				fmt.Printf("[Proxy] 停止桥接 %d 失败（可忽略）: %v\n", id, err)
+			}
+		} else {
+			fmt.Printf("[Proxy] 桥接 %d 未运行，跳过停止\n", id)
 		}
+		// 从管理器中移除
+		bridgeManager.RemoveBridge(id)
 	} else {
-		fmt.Printf("[Proxy] 桥接 %d 未运行，跳过停止\n", id)
+		fmt.Printf("[Proxy] 桥接 %d 不存在，跳过停止\n", id)
 	}
 
 	// 更新状态
@@ -168,45 +176,46 @@ func (pm *ProxyManager) StopProxy(id int) error {
 	return nil
 }
 
-// RestartProxy 重启代理
+// RestartProxy 重启代理（完全重建：停止旧实例→重新从数据库读取配置→创建新实例）
 func (pm *ProxyManager) RestartProxy(id int) error {
 	cfg := sql.GetProxy(id)
 	if cfg.Id == 0 {
 		return fmt.Errorf("代理配置不存在")
 	}
 
-	// 如果是Hysteria2出站，使用Hysteria2Manager重启
+	// 先停止现有实例（容错处理）
+	bridgeManager := GetBridgeManager()
+	if bridge, exists := bridgeManager.GetBridge(id); exists {
+		if bridge.IsRunning() {
+			bridge.Stop()
+		}
+		bridgeManager.RemoveBridge(id)
+	}
+
+	// 如果是Hysteria2出站，先停止再重建
 	if cfg.OutboundType == "hysteria2" {
 		hy2Manager := hysteria.GetGlobalManager()
-		if err := hy2Manager.UpdateAndRestart(id, cfg); err != nil {
-			return fmt.Errorf("重启Hysteria2实例失败: %v", err)
+		// 先强制停止
+		hy2Manager.ForceStop(id)
+		// 重新创建并启动
+		if err := hy2Manager.CreateAndStart(id, cfg); err != nil {
+			return fmt.Errorf("重建Hysteria2实例失败: %v", err)
 		}
 	}
 
-	// 重新创建配置文件和Xray配置
+	// 重新创建配置文件
 	if err := pm.CreateProxyFromConfig(cfg); err != nil {
-		return err
+		return fmt.Errorf("创建代理配置失败: %v", err)
 	}
 
-	// 根据出站类型选择重启方式
-	if cfg.OutboundType == "socks5" || cfg.OutboundType == "vmess" {
-		// SOCKS5/VMess 只需重启 Xray
-		bridgeManager := GetBridgeManager()
-		bridge, exists := bridgeManager.GetBridge(id)
-		if exists && bridge.xrayManager != nil {
-			if err := bridge.xrayManager.Restart(); err != nil {
-				return fmt.Errorf("重启Xray失败: %v", err)
-			}
-		}
-	} else {
-		// Hysteria2 重启桥接（包含Xray）
-		bridgeManager := GetBridgeManager()
-		bridge, exists := bridgeManager.GetBridge(id)
-		if exists {
-			if err := bridge.Restart(); err != nil {
-				return fmt.Errorf("重启桥接失败: %v", err)
-			}
-		}
+	// 创建新的桥接并启动
+	socks5Port := cfg.Hy2Socks5Port
+	if cfg.OutboundType == "socks5" {
+		socks5Port = cfg.Socks5Port
+	}
+	bridge := bridgeManager.AddBridge(id, socks5Port, cfg.OutboundType)
+	if err := bridge.Start(); err != nil {
+		return fmt.Errorf("启动桥接失败: %v", err)
 	}
 
 	// 更新状态
@@ -215,37 +224,46 @@ func (pm *ProxyManager) RestartProxy(id int) error {
 	return nil
 }
 
-// DeleteProxy 删除代理
+// DeleteProxy 删除代理（停止所有运行实例→删除配置文件→删除数据库记录）
 func (pm *ProxyManager) DeleteProxy(id int) error {
 	cfg := sql.GetProxy(id)
 	if cfg.Id == 0 {
 		return fmt.Errorf("代理配置不存在")
 	}
 
+	// 先停止代理（容错处理）
+	pm.StopProxy(id)
+
 	// 如果是Hysteria2出站，使用Hysteria2Manager删除
 	if cfg.OutboundType == "hysteria2" {
 		hy2Manager := hysteria.GetGlobalManager()
 		if err := hy2Manager.Delete(id); err != nil {
-			fmt.Printf("[Proxy] 删除Hysteria2实例失败: %v\n", err)
+			fmt.Printf("[Proxy] 删除Hysteria2实例失败（可忽略）: %v\n", err)
 		}
-	}
-
-	// 停止桥接
-	bridgeManager := GetBridgeManager()
-	if bridge, exists := bridgeManager.GetBridge(id); exists {
-		bridge.Stop()
-		bridgeManager.RemoveBridge(id)
 	}
 
 	// 删除配置文件
 	baseDir := filepath.Join(".", "proxy_configs")
-	os.Remove(filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id)))
+	xrayConfig := filepath.Join(baseDir, fmt.Sprintf("xray_%d.json", id))
+	hy2Config := filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id))
+	logDir := filepath.Join(baseDir, fmt.Sprintf("logs_%d", id))
+
+	if err := os.Remove(xrayConfig); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("[Proxy] 删除Xray配置文件失败: %v\n", err)
+	}
+	if err := os.Remove(hy2Config); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("[Proxy] 删除Hysteria2配置文件失败: %v\n", err)
+	}
+	if err := os.RemoveAll(logDir); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("[Proxy] 删除日志目录失败: %v\n", err)
+	}
 
 	// 删除数据库记录
 	if !sql.DeleteProxy(id) {
 		return fmt.Errorf("删除代理配置失败")
 	}
 
+	fmt.Printf("[Proxy] 代理 %d 已完全删除\n", id)
 	return nil
 }
 

@@ -100,6 +100,7 @@ func (tm *TrafficMonitor) updateProxyTraffic(proxy *conf.ProxyConfig) {
 	if totalUp > 0 || totalDown > 0 {
 		// 更新字节数
 		sql.UpdateProxyTraffic(proxy.Id, totalUp+totalDown)
+		sql.AddTrafficSample(proxy.Id, time.Now(), totalUp, totalDown)
 
 		// 计算并更新GB数
 		totalBytes := totalUp + totalDown
@@ -112,9 +113,10 @@ func (tm *TrafficMonitor) updateProxyTraffic(proxy *conf.ProxyConfig) {
 
 // parseHysteria2Traffic 解析Hysteria2流量统计
 func (tm *TrafficMonitor) parseHysteria2Traffic(proxyID int) (uint64, uint64) {
-	execPath, _ := os.Executable()
-	logDir := filepath.Join(filepath.Dir(execPath), "proxy_configs", fmt.Sprintf("logs_%d", proxyID))
-	hysteriaLog := filepath.Join(logDir, "hysteria2.log")
+	hysteriaLog := tm.resolveLogPath(proxyID, "hysteria2.log")
+	if hysteriaLog == "" {
+		return 0, 0
+	}
 
 	up, down, err := tm.parseTrafficFromLog(hysteriaLog, `(\d+)\s+bytes.*(up|down)`)
 	if err != nil {
@@ -126,9 +128,10 @@ func (tm *TrafficMonitor) parseHysteria2Traffic(proxyID int) (uint64, uint64) {
 
 // parseSocks5Traffic 解析SOCKS5流量统计
 func (tm *TrafficMonitor) parseSocks5Traffic(proxyID int) (uint64, uint64) {
-	execPath, _ := os.Executable()
-	logDir := filepath.Join(filepath.Dir(execPath), "proxy_configs", fmt.Sprintf("logs_%d", proxyID))
-	socks5Log := filepath.Join(logDir, "socks5.log")
+	socks5Log := tm.resolveLogPath(proxyID, "socks5.log")
+	if socks5Log == "" {
+		return 0, 0
+	}
 
 	up, down, err := tm.parseTrafficFromLog(socks5Log, `up:\s*(\d+)\s*bytes.*down:\s*(\d+)\s*bytes`)
 	if err != nil {
@@ -140,9 +143,10 @@ func (tm *TrafficMonitor) parseSocks5Traffic(proxyID int) (uint64, uint64) {
 
 // parseVMessTraffic 解析VMess流量统计
 func (tm *TrafficMonitor) parseVMessTraffic(proxyID int) (uint64, uint64) {
-	execPath, _ := os.Executable()
-	logDir := filepath.Join(filepath.Dir(execPath), "proxy_configs", fmt.Sprintf("logs_%d", proxyID))
-	vmessLog := filepath.Join(logDir, "vmess.log")
+	vmessLog := tm.resolveLogPath(proxyID, "vmess.log")
+	if vmessLog == "" {
+		return 0, 0
+	}
 
 	up, down, err := tm.parseTrafficFromLog(vmessLog, `traffic:\s*up=(\d+).*down=(\d+)`)
 	if err != nil {
@@ -150,6 +154,23 @@ func (tm *TrafficMonitor) parseVMessTraffic(proxyID int) (uint64, uint64) {
 	}
 
 	return up, down
+}
+
+func (tm *TrafficMonitor) resolveLogPath(proxyID int, fileName string) string {
+	execPath, _ := os.Executable()
+	baseDir := filepath.Dir(execPath)
+
+	candidates := []string{
+		filepath.Join(baseDir, "proxy_configs", fmt.Sprintf("logs_%d", proxyID), fileName),
+		filepath.Join(baseDir, "proxy_configs", "logs", fileName),
+	}
+
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // parseTrafficFromLog 从日志文件解析流量统计

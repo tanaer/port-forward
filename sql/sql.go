@@ -52,6 +52,8 @@ func init() {
 	db.AutoMigrate(&conf.IpBan{})
 	// 初始化代理相关表
 	InitProxyTables()
+	InitQualityMonitorSettings()
+	InitTrafficTargets()
 
 	// 初始化全局PortChecker（Week 2 优化）
 	globalPortChecker = &PortChecker{

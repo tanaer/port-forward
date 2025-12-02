@@ -33,6 +33,7 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 	baseDir := filepath.Join(".", "proxy_configs")
 	os.MkdirAll(baseDir, 0755)
 	configPath := filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id))
+	logDir := filepath.Join(baseDir, fmt.Sprintf("logs_%d", id))
 
 	// 生成Hysteria2配置
 	hy2Config := GenerateHy2Config(GenerateHy2ConfigParams(cfg))
@@ -47,6 +48,7 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 		}
 		// 更新配置路径并重新启动
 		client.configPath = configPath
+		client.logDir = logDir
 		m.configs[id] = configPath
 		if err := client.Start(); err != nil {
 			return fmt.Errorf("启动Hysteria2失败: %v", err)
@@ -57,8 +59,11 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 		return nil
 	}
 
+	// 清理可能存在的孤儿进程
+	cleanupProcessByConfig(configPath)
+
 	// 创建并启动新的Hysteria2客户端
-	client := NewClient(configPath)
+	client := NewClient(configPath, logDir)
 	if err := client.Start(); err != nil {
 		return fmt.Errorf("启动Hysteria2失败: %v", err)
 	}
@@ -72,14 +77,15 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 	return nil
 }
 
-// UpdateAndRestart 更新并重启Hysteria2实例
+// UpdateAndRestart 更新并重启Hysteria2实例（如果实例不存在则自动创建）
 func (m *Manager) UpdateAndRestart(id int, cfg conf.ProxyConfig) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	// 检查是否存在
+	// 检查是否存在，如果不存在则释放锁并调用CreateAndStart创建新实例
 	if _, exists := m.clients[id]; !exists {
-		return fmt.Errorf("Hysteria2实例ID=%d不存在", id)
+		m.mu.Unlock()
+		fmt.Printf("[Hysteria2Manager] ID=%d 实例不存在，创建新实例\n", id)
+		return m.CreateAndStart(id, cfg)
 	}
 
 	// 停止现有实例
@@ -90,17 +96,23 @@ func (m *Manager) UpdateAndRestart(id int, cfg conf.ProxyConfig) error {
 	// 生成新配置
 	baseDir := filepath.Join(".", "proxy_configs")
 	configPath := filepath.Join(baseDir, fmt.Sprintf("hy2_%d.yaml", id))
+	logDir := filepath.Join(baseDir, fmt.Sprintf("logs_%d", id))
 
 	hy2Config := GenerateHy2Config(GenerateHy2ConfigParams(cfg))
 	if err := hy2Config.SaveConfig(configPath); err != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("更新Hysteria2配置失败: %v", err)
 	}
+	m.clients[id].configPath = configPath
+	m.clients[id].logDir = logDir
 
 	// 重新启动
 	if err := m.clients[id].Start(); err != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("重启Hysteria2失败: %v", err)
 	}
 
+	m.mu.Unlock()
 	fmt.Printf("[Hysteria2Manager] ID=%d 已重启，SOCKS5端口=%d\n",
 		id, hy2Config.Socks5.ListenPort())
 	return nil
@@ -120,6 +132,8 @@ func (m *Manager) Stop(id int) error {
 		return fmt.Errorf("停止Hysteria2失败: %v", err)
 	}
 
+	delete(m.clients, id)
+	delete(m.configs, id)
 	fmt.Printf("[Hysteria2Manager] ID=%d 已停止\n", id)
 	return nil
 }
@@ -155,6 +169,12 @@ func (m *Manager) Delete(id int) error {
 	// 停止实例
 	if err := client.Stop(); err != nil {
 		fmt.Printf("[Hysteria2Manager] 停止ID=%d失败: %v\n", id, err)
+		delete(m.clients, id)
+		delete(m.configs, id)
+	} else {
+		// 清理潜在的孤儿进程
+		configPath := filepath.Join(".", "proxy_configs", fmt.Sprintf("hy2_%d.yaml", id))
+		cleanupProcessByConfig(configPath)
 	}
 
 	// 删除配置文件
@@ -162,10 +182,6 @@ func (m *Manager) Delete(id int) error {
 	if ok {
 		os.Remove(configPath)
 	}
-
-	// 从管理器中移除
-	delete(m.clients, id)
-	delete(m.configs, id)
 
 	fmt.Printf("[Hysteria2Manager] ID=%d 已删除\n", id)
 	return nil
@@ -200,6 +216,26 @@ func (m *Manager) IsRunning(id int) bool {
 	}
 
 	return client.IsRunning()
+}
+
+// ForceStop 无论当前是否在管理器中记录，均尝试停止ID对应的进程
+func (m *Manager) ForceStop(id int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if client, exists := m.clients[id]; exists {
+		if err := client.Stop(); err != nil {
+			return err
+		}
+		delete(m.clients, id)
+		delete(m.configs, id)
+		return nil
+	}
+
+	configPath := filepath.Join(".", "proxy_configs", fmt.Sprintf("hy2_%d.yaml", id))
+	cleanupProcessByConfig(configPath)
+	delete(m.configs, id)
+	return nil
 }
 
 // StopAll 停止所有Hysteria2实例

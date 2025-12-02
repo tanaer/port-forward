@@ -61,7 +61,8 @@ type ProxyConfig struct {
 	// 流量统计
 	TotalBytes    uint64 `gorm:"default:0"`
 	TotalGigabyte uint64 `gorm:"default:0"`
-	TotalTraffic  string `gorm:"-" json:"-"` // 计算后的展示字段
+	TotalTraffic  string `gorm:"-" json:"-"` // 累计流量展示
+	TodayTraffic  string `gorm:"-" json:"-"` // 今日流量展示
 }
 
 // Subscription 订阅配置

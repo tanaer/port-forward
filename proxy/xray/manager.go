@@ -14,14 +14,16 @@ import (
 type Manager struct {
 	cmd        *exec.Cmd
 	configPath string
+	logDir     string
 	running    bool
 	mu         sync.Mutex
 }
 
 // NewManager 创建Xray管理器
-func NewManager(configPath string) *Manager {
+func NewManager(configPath string, logDir string) *Manager {
 	return &Manager{
 		configPath: configPath,
+		logDir:     logDir,
 		running:    false,
 	}
 }
@@ -51,7 +53,10 @@ func (m *Manager) Start() error {
 	m.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// 设置输出
-	logDir := filepath.Join(filepath.Dir(m.configPath), "logs")
+	logDir := m.logDir
+	if logDir == "" {
+		logDir = filepath.Join(filepath.Dir(m.configPath), "logs")
+	}
 	os.MkdirAll(logDir, 0755)
 
 	logFile, err := os.OpenFile(

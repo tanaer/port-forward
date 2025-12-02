@@ -13,6 +13,9 @@ type XrayConfig struct {
 	Inbounds  []InboundConfig  `json:"inbounds"`
 	Outbounds []OutboundConfig `json:"outbounds"`
 	Routing   *RoutingConfig   `json:"routing,omitempty"`
+	Stats     map[string]any   `json:"stats"`
+	Policy    *PolicyConfig    `json:"policy,omitempty"`
+	API       *APIConfig       `json:"api,omitempty"`
 }
 
 // RoutingConfig 路由配置
@@ -31,6 +34,8 @@ type RoutingRule struct {
 // LogConfig 日志配置
 type LogConfig struct {
 	Loglevel string `json:"loglevel"`
+	Access   string `json:"access,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // InboundConfig 入站配置
@@ -58,8 +63,42 @@ type StreamSettings struct {
 	RealitySettings map[string]interface{} `json:"realitySettings,omitempty"`
 }
 
+// PolicyConfig 统计策略配置
+type PolicyConfig struct {
+	Levels map[string]PolicyLevel `json:"levels"`
+	System *PolicySystemConfig    `json:"system,omitempty"`
+}
+
+// PolicyLevel 单级策略
+type PolicyLevel struct {
+	Stats *PolicyStatsConfig `json:"stats,omitempty"`
+}
+
+// PolicyStatsConfig 统计开关
+type PolicyStatsConfig struct {
+	InboundUplink    bool `json:"inboundUplink"`
+	InboundDownlink  bool `json:"inboundDownlink"`
+	OutboundUplink   bool `json:"outboundUplink"`
+	OutboundDownlink bool `json:"outboundDownlink"`
+}
+
+// PolicySystemConfig 系统级统计开关
+type PolicySystemConfig struct {
+	StatsInboundUplink    bool `json:"statsInboundUplink"`
+	StatsInboundDownlink  bool `json:"statsInboundDownlink"`
+	StatsOutboundUplink   bool `json:"statsOutboundUplink"`
+	StatsOutboundDownlink bool `json:"statsOutboundDownlink"`
+}
+
+// APIConfig Xray API 配置
+type APIConfig struct {
+	Tag      string   `json:"tag"`
+	Services []string `json:"services"`
+}
+
 // VLESSRealityConfig VLESS+Reality配置参数
 type VLESSRealityConfig struct {
+	ProxyID        int
 	Port           int
 	UUID           string
 	Flow           string
@@ -83,52 +122,124 @@ type VLESSRealityConfig struct {
 	VmessServerName string
 	VmessWsPath     string
 	VmessWsHost     string
+	LogDir          string
+	APIPort         int
 }
 
 // GenerateVLESSRealityConfig 生成VLESS+Reality配置
 func GenerateVLESSRealityConfig(cfg VLESSRealityConfig) *XrayConfig {
-	return &XrayConfig{
-		Log: LogConfig{
-			Loglevel: "debug",
-		},
-		Inbounds: []InboundConfig{
-			{
-				Listen:   "0.0.0.0",
-				Port:     cfg.Port,
-				Protocol: "vless",
-				Tag:      "vless-in",
-				Settings: map[string]interface{}{
-					"clients": []map[string]interface{}{
-						{
-							"id":   cfg.UUID,
-							"flow": cfg.Flow,
-						},
+	if cfg.LogDir != "" {
+		_ = os.MkdirAll(cfg.LogDir, 0755)
+	}
+
+	logConfig := LogConfig{
+		Loglevel: "info",
+	}
+	if cfg.LogDir != "" {
+		logConfig.Access = filepath.Join(cfg.LogDir, "access.log")
+		logConfig.Error = filepath.Join(cfg.LogDir, "xray_error.log")
+	}
+
+	inbounds := []InboundConfig{
+		{
+			Listen:   "0.0.0.0",
+			Port:     cfg.Port,
+			Protocol: "vless",
+			Tag:      "vless-in",
+			Settings: map[string]interface{}{
+				"clients": []map[string]interface{}{
+					{
+						"id":   cfg.UUID,
+						"flow": cfg.Flow,
 					},
-					"decryption": "none",
 				},
-				StreamSettings: StreamSettings{
-					Network:  "tcp",
-					Security: "reality",
-					RealitySettings: map[string]interface{}{
-						"show":        false,
-						"dest":        cfg.RealityDest,
-						"serverNames": cfg.ServerNames,
-						"privateKey":  cfg.PrivateKey,
-						"shortIds":    cfg.ShortIds,
-					},
+				"decryption": "none",
+			},
+			StreamSettings: StreamSettings{
+				Network:  "tcp",
+				Security: "reality",
+				RealitySettings: map[string]interface{}{
+					"show":        false,
+					"dest":        cfg.RealityDest,
+					"serverNames": cfg.ServerNames,
+					"privateKey":  cfg.PrivateKey,
+					"shortIds":    cfg.ShortIds,
 				},
 			},
 		},
-		Outbounds: generateOutbounds(cfg),
+	}
+
+	if cfg.APIPort > 0 {
+		inbounds = append(inbounds, InboundConfig{
+			Listen:   "127.0.0.1",
+			Port:     cfg.APIPort,
+			Protocol: "dokodemo-door",
+			Tag:      "api",
+			Settings: map[string]interface{}{
+				"address": "127.0.0.1",
+			},
+			StreamSettings: StreamSettings{
+				Network:  "tcp",
+				Security: "none",
+			},
+		})
+	}
+
+	outbounds := generateOutbounds(cfg)
+	outbounds = append(outbounds, OutboundConfig{
+		Protocol: "freedom",
+		Tag:      "direct",
+		Settings: map[string]interface{}{},
+	})
+	outbounds = append(outbounds, OutboundConfig{
+		Protocol: "freedom",
+		Tag:      "api",
+		Settings: map[string]interface{}{},
+	})
+
+	rules := []RoutingRule{
+		{
+			Type:        "field",
+			InboundTag:  []string{"api"},
+			OutboundTag: "api",
+		},
+		{
+			Type:        "field",
+			InboundTag:  []string{"vless-in"},
+			OutboundTag: getOutboundTag(cfg.OutboundType),
+		},
+	}
+
+	return &XrayConfig{
+		Log:       logConfig,
+		Inbounds:  inbounds,
+		Outbounds: outbounds,
 		Routing: &RoutingConfig{
 			DomainStrategy: "AsIs",
-			Rules: []RoutingRule{
-				{
-					Type:        "field",
-					InboundTag:  []string{"vless-in"},
-					OutboundTag: getOutboundTag(cfg.OutboundType),
+			Rules:          rules,
+		},
+		Stats: map[string]any{},
+		Policy: &PolicyConfig{
+			Levels: map[string]PolicyLevel{
+				"0": {
+					Stats: &PolicyStatsConfig{
+						InboundUplink:    true,
+						InboundDownlink:  true,
+						OutboundUplink:   true,
+						OutboundDownlink: true,
+					},
 				},
 			},
+			System: &PolicySystemConfig{
+				StatsInboundUplink:    true,
+				StatsInboundDownlink:  true,
+				StatsOutboundUplink:   true,
+				StatsOutboundDownlink: true,
+			},
+		},
+		API: &APIConfig{
+			Tag:      "api",
+			Services: []string{"StatsService"},
 		},
 	}
 }
@@ -277,13 +388,6 @@ func generateOutbounds(cfg VLESSRealityConfig) []OutboundConfig {
 			},
 		})
 	}
-
-	// 添加 direct 出站
-	outbounds = append(outbounds, OutboundConfig{
-		Protocol: "freedom",
-		Tag:      "direct",
-		Settings: map[string]interface{}{},
-	})
 
 	return outbounds
 }

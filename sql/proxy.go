@@ -1,8 +1,10 @@
 package sql
 
 import (
+	stdsql "database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	"goForward/conf"
 	"gorm.io/gorm"
@@ -14,6 +16,7 @@ const gigabyte = 1024 * 1024 * 1024
 func InitProxyTables() {
 	db.AutoMigrate(&conf.ProxyConfig{})
 	db.AutoMigrate(&conf.Subscription{})
+	db.AutoMigrate(&conf.ProxyQualityLog{})
 }
 
 // GetProxyList 获取代理配置列表
@@ -25,6 +28,35 @@ func GetProxyList() []conf.ProxyConfig {
 		res[i].TotalTraffic = FormatTraffic(totalBytes)
 	}
 	return res
+}
+
+// GetProxyTodayTraffic 查询当天上/下行流量（使用每日聚合表，数据更完整）
+func GetProxyTodayTraffic(proxyID int) (uint64, uint64) {
+	if proxyID <= 0 {
+		return 0, 0
+	}
+	type trafficSum struct {
+		BytesUp   stdsql.NullInt64
+		BytesDown stdsql.NullInt64
+	}
+	var result trafficSum
+	// 使用 proxy_traffic_daily 表查询今日流量，数据更准确
+	err := db.Table("proxy_traffic_daily").
+		Select("COALESCE(bytes_up,0) AS bytes_up, COALESCE(bytes_down,0) AS bytes_down").
+		Where("proxy_id = ? AND DATE(day_start) = DATE('now')", proxyID).
+		Scan(&result).Error
+	if err != nil {
+		log.Printf("查询今日流量失败 proxy=%d: %v", proxyID, err)
+		return 0, 0
+	}
+	var up, down uint64
+	if result.BytesUp.Valid && result.BytesUp.Int64 > 0 {
+		up = uint64(result.BytesUp.Int64)
+	}
+	if result.BytesDown.Valid && result.BytesDown.Int64 > 0 {
+		down = uint64(result.BytesDown.Int64)
+	}
+	return up, down
 }
 
 // GetActiveProxies 获取启用的代理配置
@@ -211,6 +243,48 @@ func DeleteSubscription(proxyId int) bool {
 		return false
 	}
 	return true
+}
+
+// InsertProxyQualityLog 写入线路质量检测记录
+func InsertProxyQualityLog(logEntry conf.ProxyQualityLog) error {
+	if err := db.Create(&logEntry).Error; err != nil {
+		return fmt.Errorf("写入线路质量记录失败: %w", err)
+	}
+	return nil
+}
+
+// GetProxyQualityLogs 获取指定代理的最近质量记录
+func GetProxyQualityLogs(proxyID int, limit int) []conf.ProxyQualityLog {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var logs []conf.ProxyQualityLog
+	db.Model(&conf.ProxyQualityLog{}).
+		Where("proxy_id = ?", proxyID).
+		Order("created_at desc").
+		Limit(limit).
+		Find(&logs)
+	return logs
+}
+
+// GetLatestProxyQualityLog 返回最新一条记录
+func GetLatestProxyQualityLog(proxyID int) (conf.ProxyQualityLog, bool) {
+	var logEntry conf.ProxyQualityLog
+	result := db.Model(&conf.ProxyQualityLog{}).
+		Where("proxy_id = ?", proxyID).
+		Order("created_at desc").
+		Limit(1).
+		Find(&logEntry)
+	if result.Error != nil || result.RowsAffected == 0 {
+		return conf.ProxyQualityLog{}, false
+	}
+	return logEntry, true
+}
+
+// CleanupProxyQualityLogs 删除过期记录
+func CleanupProxyQualityLogs(before time.Time) {
+	db.Where("created_at < ?", before).Delete(&conf.ProxyQualityLog{})
 }
 
 // CheckProxyPortAvailable 检查代理端口是否可用
