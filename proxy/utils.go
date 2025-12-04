@@ -85,6 +85,13 @@ func (pm *ProxyManager) StartProxy(id int) error {
 		return fmt.Errorf("代理配置不存在")
 	}
 
+	// 检查是否已经在运行，避免重复启动
+	bridgeManager := GetBridgeManager()
+	if existingBridge, exists := bridgeManager.GetBridge(id); exists && existingBridge.IsRunning() {
+		fmt.Printf("[Proxy] 代理 %d 已在运行，跳过启动\n", id)
+		return nil
+	}
+
 	// 创建配置文件
 	if err := pm.CreateProxyFromConfig(cfg); err != nil {
 		return err
@@ -99,7 +106,6 @@ func (pm *ProxyManager) StartProxy(id int) error {
 	}
 
 	// 获取或创建桥接
-	bridgeManager := GetBridgeManager()
 	// 重新计算正确的SOCKS5端口
 	var socks5Port int
 	if cfg.OutboundType == "hysteria2" {
@@ -110,6 +116,12 @@ func (pm *ProxyManager) StartProxy(id int) error {
 		socks5Port = cfg.Hy2Socks5Port
 	}
 	bridge := bridgeManager.AddBridge(id, socks5Port, cfg.OutboundType)
+
+	// 再次检查是否已在运行（防止并发情况）
+	if bridge.IsRunning() {
+		fmt.Printf("[Proxy] 代理 %d 桥接已在运行，跳过启动\n", id)
+		return nil
+	}
 
 	// 如果是 SOCKS5 或 VMess 出站，只启动 Xray
 	if cfg.OutboundType == "socks5" || cfg.OutboundType == "vmess" {
