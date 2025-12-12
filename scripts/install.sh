@@ -105,6 +105,121 @@ check_network() {
     fi
 }
 
+# 系统网络优化
+optimize_network() {
+    print_info "优化系统网络参数..."
+
+    # 检查是否已优化过
+    if grep -q "# 网络性能优化 (goForward" /etc/sysctl.conf 2>/dev/null; then
+        print_success "网络参数已优化，跳过"
+        print_info "当前拥塞控制: $(sysctl -n net.ipv4.tcp_congestion_control)"
+        return 0
+    fi
+
+    # 检查 BBR 是否已启用
+    current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
+    if [ "$current_cc" = "bbr" ]; then
+        print_success "BBR 已启用"
+    else
+        # 检查内核是否支持 BBR
+        if modprobe tcp_bbr 2>/dev/null && lsmod | grep -q tcp_bbr; then
+            print_info "启用 BBR..."
+        elif grep -q bbr /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null; then
+            print_info "启用 BBR..."
+        else
+            print_warning "内核不支持 BBR，跳过 BBR 配置"
+        fi
+    fi
+
+    # 备份原配置
+    if [ -f /etc/sysctl.conf ]; then
+        cp /etc/sysctl.conf /etc/sysctl.conf.bak.$(date +%Y%m%d%H%M%S)
+    fi
+
+    # 写入优化参数
+    cat >> /etc/sysctl.conf << 'SYSCTL_EOF'
+
+###################################################################
+# 网络性能优化 (goForward 安装脚本自动配置)
+###################################################################
+
+# BBR 拥塞控制
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+
+# 系统级别 socket 缓冲区 (64MB)
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=1048576
+net.core.wmem_default=1048576
+
+# TCP 缓冲区
+net.ipv4.tcp_rmem=4096 87380 67108864
+net.ipv4.tcp_wmem=4096 65536 67108864
+
+# UDP 缓冲区 (Hysteria2/QUIC)
+net.ipv4.udp_rmem_min=8192
+net.ipv4.udp_wmem_min=8192
+
+# 连接队列优化
+net.core.somaxconn=65535
+net.core.netdev_max_backlog=65535
+net.ipv4.tcp_max_syn_backlog=65535
+
+# TIME_WAIT 优化
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_max_tw_buckets=65535
+
+# Keepalive 优化
+net.ipv4.tcp_keepalive_time=300
+net.ipv4.tcp_keepalive_probes=3
+net.ipv4.tcp_keepalive_intvl=30
+
+# 性能调优
+net.ipv4.tcp_slow_start_after_idle=0
+net.ipv4.tcp_mtu_probing=1
+
+# IP 转发
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+
+# SYN Flood 防护
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_syn_retries=2
+net.ipv4.tcp_synack_retries=2
+
+# 本地端口范围
+net.ipv4.ip_local_port_range=1024 65535
+
+# 文件描述符
+fs.file-max=2097152
+
+# 内存优化
+vm.swappiness=10
+SYSCTL_EOF
+
+    # 应用配置
+    sysctl -p > /dev/null 2>&1
+
+    # 配置文件描述符限制
+    if ! grep -q "# goForward network optimization" /etc/security/limits.conf 2>/dev/null; then
+        cat >> /etc/security/limits.conf << 'LIMITS_EOF'
+
+# goForward network optimization
+* soft nofile 1048576
+* hard nofile 1048576
+* soft nproc 65535
+* hard nproc 65535
+root soft nofile 1048576
+root hard nofile 1048576
+LIMITS_EOF
+    fi
+
+    print_success "网络优化完成"
+    print_info "当前拥塞控制: $(sysctl -n net.ipv4.tcp_congestion_control)"
+}
+
 # 安装Python3
 install_python() {
     print_info "检查 Python3..."
@@ -185,6 +300,7 @@ main() {
     check_root
     check_system
     check_network
+    optimize_network
     install_python
     download_script
 
