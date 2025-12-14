@@ -29,6 +29,10 @@ type RemoteInstallRequest struct {
 // RegisterRemoteInstallRoutes 注册远程安装路由
 func RegisterRemoteInstallRoutes(r *gin.Engine) {
 	r.POST("/proxy/remote-install", handleRemoteInstall)
+	r.POST("/proxy/ip-check", handleIPCheck)
+	r.POST("/proxy/remote-restart", handleRemoteRestart)
+	r.POST("/proxy/update-ssh", handleUpdateSSHInfo)
+	r.GET("/proxy/ssh-info/:id", handleGetProxySSHInfo)
 }
 
 func handleRemoteInstall(c *gin.Context) {
@@ -236,6 +240,11 @@ echo "PORT:%d"
 		Hy2Socks5Port:     socks5Port,
 		Remark:            fmt.Sprintf("远程安装于 %s", time.Now().Format("2006-01-02 15:04")),
 		Status:            0,
+		// 保存SSH信息
+		SSHHost:     req.Host,
+		SSHPort:     req.Port,
+		SSHUser:     req.User,
+		SSHPassword: req.Password,
 	}
 
 	// 保存到数据库
@@ -282,4 +291,261 @@ func generateRandomPassword(length int) string {
 		}
 	}
 	return string(result)
+}
+
+// IPCheckRequest IP检测请求
+type IPCheckRequest struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	ProxyId  int    `json:"proxyId"` // 如果有，保存结果到对应代理
+}
+
+// handleIPCheck 处理IP质量检测
+func handleIPCheck(c *gin.Context) {
+	var req IPCheckRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的请求参数"})
+		return
+	}
+
+	if req.Host == "" || req.User == "" || req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请填写完整的服务器信息"})
+		return
+	}
+
+	if req.Port == 0 {
+		req.Port = 22
+	}
+
+	// 连接SSH
+	sshConfig := &ssh.ClientConfig{
+		User: req.User,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(req.Password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         30 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%d", req.Host, req.Port)
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("SSH连接失败: %v", err),
+		})
+		return
+	}
+	defer client.Close()
+
+	// 执行IP检测脚本
+	session, err := client.NewSession()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("创建SSH会话失败: %v", err),
+		})
+		return
+	}
+	defer session.Close()
+
+	// 运行IP检测脚本并获取JSON输出
+	output, err := session.CombinedOutput("bash <(curl -Ls IP.Check.Place) -j 2>/dev/null")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("执行检测脚本失败: %v", err),
+		})
+		return
+	}
+
+	// 清理输出（移除ANSI转义码和控制字符）
+	jsonOutput := cleanJSONOutput(string(output))
+
+	// 如果有proxyId，保存结果到数据库
+	if req.ProxyId > 0 {
+		proxyConfig := sql.GetProxy(req.ProxyId)
+		if proxyConfig.Id != 0 {
+			proxyConfig.IPCheckResult = jsonOutput
+			proxyConfig.IPCheckTime = time.Now()
+			// 同时更新SSH信息
+			proxyConfig.SSHHost = req.Host
+			proxyConfig.SSHPort = req.Port
+			proxyConfig.SSHUser = req.User
+			proxyConfig.SSHPassword = req.Password
+			sql.UpdateProxy(proxyConfig)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"result":  jsonOutput,
+	})
+}
+
+// cleanJSONOutput 清理JSON输出，移除ANSI转义码
+func cleanJSONOutput(output string) string {
+	// 查找JSON开始位置
+	start := strings.Index(output, "{")
+	if start == -1 {
+		return output
+	}
+	return output[start:]
+}
+
+// RemoteRestartRequest 远程重启请求
+type RemoteRestartRequest struct {
+	ProxyId int `json:"proxyId"`
+}
+
+// handleRemoteRestart 处理远程重启Hysteria2
+func handleRemoteRestart(c *gin.Context) {
+	var req RemoteRestartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的请求参数"})
+		return
+	}
+
+	if req.ProxyId == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请提供代理ID"})
+		return
+	}
+
+	// 获取代理配置
+	proxyConfig := sql.GetProxy(req.ProxyId)
+	if proxyConfig.Id == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "代理配置不存在"})
+		return
+	}
+
+	if proxyConfig.SSHHost == "" || proxyConfig.SSHUser == "" || proxyConfig.SSHPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "该线路没有保存SSH信息"})
+		return
+	}
+
+	// 连接SSH
+	sshConfig := &ssh.ClientConfig{
+		User: proxyConfig.SSHUser,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(proxyConfig.SSHPassword),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         30 * time.Second,
+	}
+
+	port := proxyConfig.SSHPort
+	if port == 0 {
+		port = 22
+	}
+
+	addr := fmt.Sprintf("%s:%d", proxyConfig.SSHHost, port)
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("SSH连接失败: %v", err),
+		})
+		return
+	}
+	defer client.Close()
+
+	// 执行重启命令
+	session, err := client.NewSession()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("创建SSH会话失败: %v", err),
+		})
+		return
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput("systemctl restart hysteria-server")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("重启失败: %v, 输出: %s", err, string(output)),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "远程Hysteria2服务已重启",
+	})
+}
+
+// UpdateSSHInfoRequest 更新SSH信息请求
+type UpdateSSHInfoRequest struct {
+	ProxyId  int    `json:"proxyId"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+// handleUpdateSSHInfo 更新代理的SSH信息
+func handleUpdateSSHInfo(c *gin.Context) {
+	var req UpdateSSHInfoRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的请求参数"})
+		return
+	}
+
+	if req.ProxyId == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "请提供代理ID"})
+		return
+	}
+
+	proxyConfig := sql.GetProxy(req.ProxyId)
+	if proxyConfig.Id == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "代理配置不存在"})
+		return
+	}
+
+	proxyConfig.SSHHost = req.Host
+	proxyConfig.SSHPort = req.Port
+	proxyConfig.SSHUser = req.User
+	proxyConfig.SSHPassword = req.Password
+
+	sql.UpdateProxy(proxyConfig)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "SSH信息已更新",
+	})
+}
+
+// GetProxySSHInfoHandler 获取代理的SSH信息
+func handleGetProxySSHInfo(c *gin.Context) {
+	idStr := c.Param("id")
+	id := 0
+	fmt.Sscanf(idStr, "%d", &id)
+
+	if id == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "无效的代理ID"})
+		return
+	}
+
+	proxyConfig := sql.GetProxy(id)
+	if proxyConfig.Id == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "代理配置不存在"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"ssh": gin.H{
+			"host":     proxyConfig.SSHHost,
+			"port":     proxyConfig.SSHPort,
+			"user":     proxyConfig.SSHUser,
+			"password": proxyConfig.SSHPassword,
+		},
+		"ipCheck": gin.H{
+			"result":    proxyConfig.IPCheckResult,
+			"checkTime": proxyConfig.IPCheckTime,
+		},
+	})
 }

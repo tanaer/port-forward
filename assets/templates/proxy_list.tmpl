@@ -263,10 +263,21 @@
             </thead>
             <tbody>
                 {{range .proxyList}}
-                <tr data-proxy-id="{{.Id}}" data-proxy-name="{{.Name}}" data-total-traffic="{{.TotalTraffic}}" data-today-traffic="{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}">
+                <tr data-proxy-id="{{.Id}}" data-proxy-name="{{.Name}}" data-total-traffic="{{.TotalTraffic}}" data-today-traffic="{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}" data-has-ssh="{{if .SSHHost}}true{{else}}false{{end}}" data-has-ipcheck="{{if .IPCheckResult}}true{{else}}false{{end}}">
                     <td><input type="checkbox" name="proxyIds" value="{{.Id}}" onchange="updateSelectAll()"></td>
                     <td>{{.Id}}</td>
-                    <td><strong>{{.Name}}</strong><br><small style="color: #666;">{{.Remark}}</small></td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <strong>{{.Name}}</strong>
+                            {{if .IPCheckResult}}
+                            <span onclick="showIPCheckResultModal({{.Id}}, '{{.Name}}')" style="cursor: pointer; font-size: 14px;" title="查看IP检测结果">📊</span>
+                            {{end}}
+                            {{if .SSHHost}}
+                            <span style="font-size: 12px; color: #28a745;" title="已保存SSH信息">🔐</span>
+                            {{end}}
+                        </div>
+                        <small style="color: #666;">{{.Remark}}</small>
+                    </td>
                     <td>{{.InboundPort}}</td>
                     <td>
                         {{if eq .OutboundType "socks5"}}
@@ -317,7 +328,12 @@
                         <a href="javascript:void(0)" onclick="testOutbound({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>
                         <a href="javascript:void(0)" onclick="showSubscriptionModal({{.Id}}, '{{.Name}}')" class="btn-info">订阅</a>
-                        <a href="javascript:void(0)" onclick="restartProxy({{.Id}}, '{{.Name}}')" class="btn-info" id="restart-btn-{{.Id}}" style="background:#fd7e14;">重启</a>
+                        {{if .SSHHost}}
+                        <a href="javascript:void(0)" onclick="showReinstallModal({{.Id}})" class="btn-info" style="background:#6f42c1;">重装</a>
+                        <a href="javascript:void(0)" onclick="showRestartModal({{.Id}}, '{{.Name}}', true)" class="btn-info" id="restart-btn-{{.Id}}" style="background:#fd7e14;">重启</a>
+                        {{else}}
+                        <a href="javascript:void(0)" onclick="showRestartModal({{.Id}}, '{{.Name}}', false)" class="btn-info" id="restart-btn-{{.Id}}" style="background:#fd7e14;">重启</a>
+                        {{end}}
                         {{if eq .Status 0}}
                         <a href="javascript:void(0)" onclick="toggleProxy({{.Id}}, '{{.Name}}', 'stop')" class="btn-warning" id="toggle-btn-{{.Id}}">停止</a>
                         {{else}}
@@ -482,11 +498,70 @@
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <!-- IP检测结果显示区域 -->
+                <div id="ip-check-result" style="display: none; margin-bottom: 20px;">
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef;">
+                        <h4 style="margin: 0 0 10px 0; color: #333; font-size: 14px;">📊 IP质量检测结果</h4>
+                        <div id="ip-check-content" style="font-size: 13px; max-height: 300px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
                     <button type="button" onclick="closeRemoteInstallModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                    <button type="button" id="ip-check-btn" onclick="runIPCheck()" style="padding: 10px 20px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">🔍 IP质量检测</button>
                     <button type="submit" id="remote-install-submit" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">🚀 开始安装</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 重启选择弹窗 -->
+    <div id="restart-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 400px;">
+            <div class="modal-header">
+                <div>
+                    <h2>🔄 重启代理</h2>
+                    <p id="restart-modal-subtitle" class="modal-subtitle">选择重启方式</p>
+                </div>
+                <button type="button" class="quality-modal-close" onclick="closeRestartModal()" aria-label="关闭">×</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <button onclick="executeRestart('local')" style="padding: 15px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    🖥️ 重启本地代理
+                    <span style="font-size: 12px; font-weight: normal; opacity: 0.9;">（重新加载配置）</span>
+                </button>
+                <button id="restart-remote-btn" onclick="executeRestart('remote')" style="padding: 15px 20px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                    🌐 重启远程服务
+                    <span style="font-size: 12px; font-weight: normal; opacity: 0.9;">（SSH重启Hysteria2）</span>
+                </button>
+                <p id="restart-remote-hint" style="display: none; color: #6c757d; font-size: 13px; text-align: center; margin: 0;">
+                    ⚠️ 该线路没有保存SSH信息，无法远程重启
+                </p>
+            </div>
+            <div id="restart-progress" style="display: none; margin-top: 15px;">
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; border-left: 4px solid #2196f3;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #2196f3; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <span id="restart-status" style="color: #1565c0; font-weight: 500;">正在重启...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- IP检测结果弹窗 -->
+    <div id="ipcheck-result-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 700px;">
+            <div class="modal-header">
+                <div>
+                    <h2>📊 IP质量检测结果</h2>
+                    <p id="ipcheck-modal-subtitle" class="modal-subtitle">线路名称</p>
+                </div>
+                <button type="button" class="quality-modal-close" onclick="closeIPCheckResultModal()" aria-label="关闭">×</button>
+            </div>
+            <div id="ipcheck-result-content" style="max-height: 60vh; overflow-y: auto;">
+                <div style="text-align: center; padding: 40px; color: #666;">暂无检测结果</div>
+            </div>
         </div>
     </div>
 
@@ -1580,6 +1655,288 @@
             return false;
         }
 
+        // IP质量检测
+        async function runIPCheck() {
+            const host = document.getElementById('remote-host').value.trim();
+            const port = document.getElementById('remote-port').value || '22';
+            const user = document.getElementById('remote-user').value.trim();
+            const password = document.getElementById('remote-password').value;
+
+            if (!host || !user || !password) {
+                alert('请先填写服务器SSH信息');
+                return;
+            }
+
+            const checkBtn = document.getElementById('ip-check-btn');
+            const resultDiv = document.getElementById('ip-check-result');
+            const contentDiv = document.getElementById('ip-check-content');
+
+            checkBtn.disabled = true;
+            checkBtn.textContent = '⏳ 检测中...';
+            resultDiv.style.display = 'block';
+            contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">正在连接服务器执行IP质量检测，请稍候...</div>';
+
+            try {
+                const response = await fetch('/proxy/ip-check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        host: host,
+                        port: parseInt(port),
+                        user: user,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    renderIPCheckResult(result.result, contentDiv);
+                } else {
+                    contentDiv.innerHTML = `<div style="color: #dc3545; padding: 10px;">❌ 检测失败: ${escapeHtml(result.error)}</div>`;
+                }
+            } catch (error) {
+                contentDiv.innerHTML = `<div style="color: #dc3545; padding: 10px;">❌ 网络错误: ${escapeHtml(error.message)}</div>`;
+            } finally {
+                checkBtn.disabled = false;
+                checkBtn.textContent = '🔍 IP质量检测';
+            }
+        }
+
+        // 渲染IP检测结果
+        function renderIPCheckResult(jsonStr, container) {
+            try {
+                const data = JSON.parse(jsonStr);
+                let html = '<div style="display: grid; gap: 12px;">';
+
+                // 基本信息
+                if (data.ip) {
+                    html += `<div style="background: #e3f2fd; padding: 12px; border-radius: 6px;">
+                        <strong>📍 IP地址:</strong> ${escapeHtml(data.ip)}
+                        ${data.country ? `<br><strong>🌍 国家/地区:</strong> ${escapeHtml(data.country)}` : ''}
+                        ${data.city ? `<br><strong>🏙️ 城市:</strong> ${escapeHtml(data.city)}` : ''}
+                        ${data.asn ? `<br><strong>🔢 ASN:</strong> ${escapeHtml(data.asn)}` : ''}
+                        ${data.org ? `<br><strong>🏢 组织:</strong> ${escapeHtml(data.org)}` : ''}
+                    </div>`;
+                }
+
+                // 风险评估
+                if (data.risk_score !== undefined || data.fraud_score !== undefined) {
+                    const score = data.risk_score || data.fraud_score || 0;
+                    const color = score < 30 ? '#28a745' : score < 70 ? '#ffc107' : '#dc3545';
+                    html += `<div style="background: #fff3e0; padding: 12px; border-radius: 6px;">
+                        <strong>⚠️ 风险评分:</strong> <span style="color: ${color}; font-weight: bold;">${score}</span>/100
+                        ${data.is_proxy ? '<br><span style="color: #dc3545;">⚠️ 检测为代理IP</span>' : ''}
+                        ${data.is_vpn ? '<br><span style="color: #dc3545;">⚠️ 检测为VPN IP</span>' : ''}
+                        ${data.is_datacenter ? '<br><span style="color: #ffc107;">📡 数据中心IP</span>' : ''}
+                    </div>`;
+                }
+
+                // 流媒体解锁
+                if (data.streaming || data.unlock) {
+                    html += '<div style="background: #e8f5e9; padding: 12px; border-radius: 6px;"><strong>🎬 流媒体解锁:</strong><br>';
+                    const streaming = data.streaming || data.unlock || {};
+                    for (const [service, status] of Object.entries(streaming)) {
+                        const icon = status === true || status === 'Yes' || status === 'Unlocked' ? '✅' : '❌';
+                        html += `<span style="margin-right: 15px;">${icon} ${escapeHtml(service)}</span>`;
+                    }
+                    html += '</div>';
+                }
+
+                // 原始JSON（可折叠）
+                html += `<details style="background: #f5f5f5; padding: 12px; border-radius: 6px;">
+                    <summary style="cursor: pointer; font-weight: 600;">📋 原始数据</summary>
+                    <pre style="margin-top: 10px; overflow-x: auto; font-size: 11px; white-space: pre-wrap;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+                </details>`;
+
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = `<pre style="white-space: pre-wrap; font-size: 12px;">${escapeHtml(jsonStr)}</pre>`;
+            }
+        }
+
+        // 重启弹窗相关变量和函数
+        let currentRestartProxyId = null;
+        let currentRestartProxyName = null;
+        let currentRestartHasSSH = false;
+
+        function showRestartModal(id, name, hasSSH) {
+            currentRestartProxyId = id;
+            currentRestartProxyName = name;
+            currentRestartHasSSH = hasSSH;
+
+            const modal = document.getElementById('restart-modal');
+            if (!modal) return;
+
+            document.getElementById('restart-modal-subtitle').textContent = name;
+            document.getElementById('restart-progress').style.display = 'none';
+
+            const remoteBtn = document.getElementById('restart-remote-btn');
+            const remoteHint = document.getElementById('restart-remote-hint');
+
+            if (hasSSH) {
+                remoteBtn.style.display = 'flex';
+                remoteBtn.disabled = false;
+                remoteHint.style.display = 'none';
+            } else {
+                remoteBtn.style.display = 'none';
+                remoteHint.style.display = 'block';
+            }
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeRestartModal() {
+            const modal = document.getElementById('restart-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+        }
+
+        async function executeRestart(type) {
+            if (!currentRestartProxyId) return;
+
+            const progressDiv = document.getElementById('restart-progress');
+            const statusEl = document.getElementById('restart-status');
+
+            progressDiv.style.display = 'block';
+
+            if (type === 'local') {
+                statusEl.textContent = '正在重启本地代理...';
+                try {
+                    const response = await fetch('/proxy/restart/' + currentRestartProxyId, { method: 'POST' });
+                    const result = await response.json();
+
+                    if (response.ok && result.success) {
+                        statusEl.textContent = '✅ 本地代理重启成功！';
+                        setTimeout(() => {
+                            closeRestartModal();
+                            location.reload();
+                        }, 1000);
+                    } else {
+                        statusEl.textContent = '❌ 重启失败: ' + (result.error || '未知错误');
+                        statusEl.style.color = '#dc3545';
+                    }
+                } catch (error) {
+                    statusEl.textContent = '❌ 网络错误: ' + error.message;
+                    statusEl.style.color = '#dc3545';
+                }
+            } else if (type === 'remote') {
+                statusEl.textContent = '正在SSH连接远程服务器...';
+                try {
+                    const response = await fetch('/proxy/remote-restart', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ proxyId: currentRestartProxyId })
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        statusEl.textContent = '✅ 远程Hysteria2服务重启成功！';
+                        setTimeout(() => {
+                            closeRestartModal();
+                        }, 1500);
+                    } else {
+                        statusEl.textContent = '❌ 远程重启失败: ' + (result.error || '未知错误');
+                        statusEl.style.color = '#dc3545';
+                    }
+                } catch (error) {
+                    statusEl.textContent = '❌ 网络错误: ' + error.message;
+                    statusEl.style.color = '#dc3545';
+                }
+            }
+        }
+
+        // 重装功能 - 打开快速安装界面并预填充SSH信息
+        async function showReinstallModal(id) {
+            try {
+                const response = await fetch('/proxy/ssh-info/' + id);
+                const result = await response.json();
+
+                if (!result.success) {
+                    alert('获取SSH信息失败: ' + (result.error || '未知错误'));
+                    return;
+                }
+
+                const ssh = result.ssh || {};
+
+                // 打开远程安装弹窗
+                const modal = document.getElementById('remote-install-modal');
+                if (modal) {
+                    modal.classList.add('show');
+                    document.body.style.overflow = 'hidden';
+
+                    // 预填充SSH信息
+                    document.getElementById('remote-host').value = ssh.host || '';
+                    document.getElementById('remote-port').value = ssh.port || 22;
+                    document.getElementById('remote-user').value = ssh.user || 'root';
+                    document.getElementById('remote-password').value = ssh.password || '';
+                    document.getElementById('remote-hy2-port').value = '443';
+                    document.getElementById('remote-node-name').value = '';
+
+                    document.getElementById('remote-install-progress').style.display = 'none';
+                    document.getElementById('remote-install-submit').disabled = false;
+                    document.getElementById('remote-install-submit').textContent = '🚀 开始安装';
+                    document.getElementById('ip-check-result').style.display = 'none';
+                }
+            } catch (error) {
+                alert('网络错误: ' + error.message);
+            }
+        }
+
+        // IP检测结果弹窗
+        async function showIPCheckResultModal(id, name) {
+            const modal = document.getElementById('ipcheck-result-modal');
+            if (!modal) return;
+
+            document.getElementById('ipcheck-modal-subtitle').textContent = name;
+            const contentEl = document.getElementById('ipcheck-result-content');
+            contentEl.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">⏳ 加载中...</div>';
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+
+            try {
+                const response = await fetch('/proxy/ssh-info/' + id);
+                const result = await response.json();
+
+                if (!result.success) {
+                    contentEl.innerHTML = `<div style="text-align: center; padding: 40px; color: #dc3545;">❌ ${escapeHtml(result.error || '获取数据失败')}</div>`;
+                    return;
+                }
+
+                const ipCheck = result.ipCheck || {};
+                if (!ipCheck.result) {
+                    contentEl.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">暂无IP检测结果，请先进行IP质量检测</div>';
+                    return;
+                }
+
+                // 渲染IP检测结果
+                renderIPCheckResult(ipCheck.result, contentEl);
+
+                // 添加检测时间
+                if (ipCheck.checkTime) {
+                    const timeStr = new Date(ipCheck.checkTime).toLocaleString();
+                    contentEl.innerHTML = `<div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 13px; color: #666;">📅 检测时间: ${timeStr}</div>` + contentEl.innerHTML;
+                }
+            } catch (error) {
+                contentEl.innerHTML = `<div style="text-align: center; padding: 40px; color: #dc3545;">❌ 网络错误: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function closeIPCheckResultModal() {
+            const modal = document.getElementById('ipcheck-result-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+        }
+
         // 订阅弹窗相关函数
         async function showSubscriptionModal(id, name) {
             const modal = document.getElementById('subscription-modal');
@@ -1791,11 +2148,29 @@
                 });
             }
 
+            // 重启弹窗
+            const restartModal = document.getElementById('restart-modal');
+            if (restartModal) {
+                restartModal.addEventListener('click', (e) => {
+                    if (e.target === restartModal) closeRestartModal();
+                });
+            }
+
+            // IP检测结果弹窗
+            const ipcheckModal = document.getElementById('ipcheck-result-modal');
+            if (ipcheckModal) {
+                ipcheckModal.addEventListener('click', (e) => {
+                    if (e.target === ipcheckModal) closeIPCheckResultModal();
+                });
+            }
+
             // ESC键关闭弹窗
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
                     if (subModal && subModal.classList.contains('show')) closeSubscriptionModal();
                     if (remoteModal && remoteModal.classList.contains('show')) closeRemoteInstallModal();
+                    if (restartModal && restartModal.classList.contains('show')) closeRestartModal();
+                    if (ipcheckModal && ipcheckModal.classList.contains('show')) closeIPCheckResultModal();
                 }
             });
         });

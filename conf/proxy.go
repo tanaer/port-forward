@@ -61,8 +61,18 @@ type ProxyConfig struct {
 	// 流量统计
 	TotalBytes    uint64 `gorm:"default:0"`
 	TotalGigabyte uint64 `gorm:"default:0"`
-	TotalTraffic  string `gorm:"-" json:"-"` // 累计流量展示
-	TodayTraffic  string `gorm:"-" json:"-"` // 今日流量展示
+	TotalTraffic  string `gorm:"-"` // 累计流量展示
+	TodayTraffic  string `gorm:"-"` // 今日流量展示
+
+	// SSH连接信息（用于远程管理）
+	SSHHost     string `gorm:"size:100"` // SSH服务器地址
+	SSHPort     int    `gorm:"default:22"`
+	SSHUser     string `gorm:"size:50"`
+	SSHPassword string `gorm:"size:200"`
+
+	// IP质量检测结果
+	IPCheckResult string    `gorm:"type:text"`        // JSON格式的检测结果
+	IPCheckTime   time.Time `gorm:"autoUpdateTime:0"` // 检测时间
 }
 
 // Subscription 订阅配置
