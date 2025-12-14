@@ -170,15 +170,19 @@
         </div>
 
         <div class="quality-card">
-            <div class="quality-switch">
-                <label style="margin: 0;">
-                    <input type="checkbox" id="quality-enabled" {{if .qualityConfig.Enabled}}checked{{end}}>
-                    启用线路质量监控
-                </label>
-                <span class="quality-status {{if .qualityRunning}}enabled{{else}}disabled{{end}}">
-                    {{if .qualityRunning}}运行中{{else}}未运行{{end}}
-                </span>
+            <div class="quality-header" onclick="toggleQualityConfig()" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <div class="quality-switch">
+                    <label style="margin: 0;" onclick="event.stopPropagation();">
+                        <input type="checkbox" id="quality-enabled" {{if .qualityConfig.Enabled}}checked{{end}}>
+                        启用线路质量监控
+                    </label>
+                    <span class="quality-status {{if .qualityRunning}}enabled{{else}}disabled{{end}}">
+                        {{if .qualityRunning}}运行中{{else}}未运行{{end}}
+                    </span>
+                </div>
+                <span id="quality-toggle-icon" style="font-size: 14px; color: #666; transition: transform 0.3s;">▶</span>
             </div>
+            <div id="quality-config-content" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e9ecef;">
             <form id="quality-config-form">
                 <div class="quality-grid">
                     <div>
@@ -223,6 +227,7 @@
                     <span id="quality-save-tip" style="font-size: 13px; color: #555;"></span>
                 </div>
             </form>
+            </div>
         </div>
 
         <div class="stats">
@@ -1465,6 +1470,20 @@
                 testBtn.textContent = '测试';
                 testBtn.style.opacity = '1';
                 testBtn.style.pointerEvents = 'auto';
+            }
+        }
+
+        // 折叠/展开线路质量监控配置
+        function toggleQualityConfig() {
+            const content = document.getElementById('quality-config-content');
+            const icon = document.getElementById('quality-toggle-icon');
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.style.transform = 'rotate(90deg)';
+            } else {
+                content.style.display = 'none';
+                icon.style.transform = 'rotate(0deg)';
             }
         }
 
