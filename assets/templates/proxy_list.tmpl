@@ -311,7 +311,7 @@
                     <td class="actions">
                         <a href="javascript:void(0)" onclick="testOutbound({{.Id}})" class="btn-test" id="test-btn-{{.Id}}">测试</a>
                         <a href="/proxy/edit/{{.Id}}" class="btn-primary">编辑</a>
-                        <a href="/proxy/subscription/{{.Id}}" class="btn-info">订阅</a>
+                        <a href="javascript:void(0)" onclick="showSubscriptionModal({{.Id}}, '{{.Name}}')" class="btn-info">订阅</a>
                         <a href="javascript:void(0)" onclick="restartProxy({{.Id}}, '{{.Name}}')" class="btn-info" id="restart-btn-{{.Id}}" style="background:#fd7e14;">重启</a>
                         {{if eq .Status 0}}
                         <a href="javascript:void(0)" onclick="toggleProxy({{.Id}}, '{{.Name}}', 'stop')" class="btn-warning" id="toggle-btn-{{.Id}}">停止</a>
@@ -396,6 +396,157 @@
             <div id="quality-modal-error" class="quality-modal-error" style="display:none;"></div>
         </div>
     </div>
+
+    <!-- 订阅弹窗 -->
+    <div id="subscription-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 700px;">
+            <div class="modal-header">
+                <div>
+                    <h2 id="sub-modal-title">📱 订阅链接</h2>
+                    <p id="sub-modal-subtitle" class="modal-subtitle">节点名称</p>
+                </div>
+                <button type="button" class="quality-modal-close" onclick="closeSubscriptionModal()" aria-label="关闭">×</button>
+            </div>
+
+            <div id="sub-modal-content">
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+                    加载中...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 远程安装Hysteria2弹窗 -->
+    <div id="remote-install-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 600px;">
+            <div class="modal-header">
+                <div>
+                    <h2>🚀 远程安装 Hysteria2</h2>
+                    <p class="modal-subtitle">输入服务器信息，自动安装并生成节点</p>
+                </div>
+                <button type="button" class="quality-modal-close" onclick="closeRemoteInstallModal()" aria-label="关闭">×</button>
+            </div>
+
+            <form id="remote-install-form" onsubmit="return submitRemoteInstall(event)">
+                <div style="display: grid; gap: 15px; margin-bottom: 20px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">服务器IP地址 <span style="color: #dc3545;">*</span></label>
+                        <input type="text" id="remote-host" name="host" required placeholder="例如: 192.168.1.100" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">SSH端口</label>
+                            <input type="number" id="remote-port" name="port" value="22" placeholder="22" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">Hysteria2端口</label>
+                            <input type="number" id="remote-hy2-port" name="hy2Port" value="443" placeholder="443" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">用户名 <span style="color: #dc3545;">*</span></label>
+                        <input type="text" id="remote-user" name="user" value="root" required placeholder="root" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">密码 <span style="color: #dc3545;">*</span></label>
+                        <input type="password" id="remote-password" name="password" required placeholder="SSH登录密码" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">节点名称</label>
+                        <input type="text" id="remote-node-name" name="nodeName" placeholder="留空则自动生成" style="width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px;">
+                    </div>
+                </div>
+
+                <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                    <p style="margin: 0; font-size: 13px; color: #856404;">
+                        <strong>⚠️ 注意事项：</strong><br>
+                        • 将在目标服务器上安装 Hysteria2<br>
+                        • 自动生成自签名证书和配置<br>
+                        • 安装完成后自动添加到本地节点列表<br>
+                        • 请确保目标服务器可以访问外网
+                    </p>
+                </div>
+
+                <div id="remote-install-progress" style="display: none; margin-bottom: 20px;">
+                    <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; border-left: 4px solid #2196f3;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 2px solid #2196f3; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <span id="remote-install-status" style="color: #1565c0; font-weight: 500;">正在连接服务器...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" onclick="closeRemoteInstallModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">取消</button>
+                    <button type="submit" id="remote-install-submit" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">🚀 开始安装</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .copy-btn {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .copy-btn:hover {
+            background: #0056b3;
+        }
+        .copy-btn.copied {
+            background: #28a745;
+        }
+        .sub-link-box {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            word-break: break-all;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            color: #495057;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        .sub-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #fff;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+        }
+        .sub-section h3 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            color: #333;
+        }
+        .sub-section p {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #666;
+        }
+        .qrcode-container {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+        .qrcode-container canvas {
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
     <script>
         const proxyQualityCache = {};
@@ -507,12 +658,12 @@
             const pill = document.getElementById(`traffic-${id}`);
             if (!pill) return;
             let text = '0 B';
-            if (samples.length) {
+            if (fallbackTotal && fallbackTotal.trim() !== '') {
+                text = fallbackTotal.trim();
+            } else if (samples.length) {
                 const latest = samples[samples.length - 1];
                 const totalBytes = (latest.BytesUp || 0) + (latest.BytesDown || 0);
                 text = formatBytesHuman(totalBytes);
-            } else if (fallbackTotal && fallbackTotal.trim() !== '') {
-                text = fallbackTotal.trim();
             }
             pill.textContent = text;
             const statusClass = status ? status.toLowerCase() : '';
@@ -672,8 +823,8 @@
             if (jitterEl) jitterEl.textContent = latestQuality && typeof latestQuality.JitterMs === 'number' ? `${latestQuality.JitterMs} ms` : '暂无';
             if (lossEl) lossEl.textContent = latestQuality && typeof latestQuality.LossPct === 'number' ? `${latestQuality.LossPct.toFixed(1)} %` : '暂无';
             if (trafficEl) {
-                if (latestTraffic) {
-                    trafficEl.textContent = formatTrafficSummary(latestTraffic);
+                if (proxy.TodayTraffic) {
+                    trafficEl.textContent = proxy.TodayTraffic;
                 } else if (proxy.TotalTraffic) {
                     trafficEl.textContent = proxy.TotalTraffic;
                 } else {
@@ -933,18 +1084,20 @@
                 if (!aggregated.has(truncatedTime)) {
                     aggregated.set(truncatedTime, {
                         latencySum: 0,
+                        latencyCount: 0,
                         lossSum: 0,
-                        count: 0
+                        lossCount: 0
                     });
                 }
 
                 const agg = aggregated.get(truncatedTime);
                 if (typeof item.LatencyMs === 'number') {
                     agg.latencySum += item.LatencyMs;
-                    agg.count++;
+                    agg.latencyCount++;
                 }
                 if (typeof item.LossPct === 'number') {
                     agg.lossSum += item.LossPct;
+                    agg.lossCount++;
                 }
             });
 
@@ -952,8 +1105,8 @@
             const result = new Map();
             aggregated.forEach((agg, time) => {
                 result.set(time, {
-                    LatencyMs: agg.count > 0 ? agg.latencySum / agg.count : null,
-                    LossPct: agg.count > 0 ? agg.lossSum / agg.count : null
+                    LatencyMs: agg.latencyCount > 0 ? agg.latencySum / agg.latencyCount : null,
+                    LossPct: agg.lossCount > 0 ? agg.lossSum / agg.lossCount : null
                 });
             });
 
@@ -1316,66 +1469,317 @@
         }
 
         function showHy2Install() {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.5);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 1000;
-            `;
+            // 显示远程安装弹窗
+            const modal = document.getElementById('remote-install-modal');
+            if (modal) {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                // 重置表单
+                document.getElementById('remote-install-form').reset();
+                document.getElementById('remote-port').value = '22';
+                document.getElementById('remote-hy2-port').value = '443';
+                document.getElementById('remote-user').value = 'root';
+                document.getElementById('remote-install-progress').style.display = 'none';
+                document.getElementById('remote-install-submit').disabled = false;
+                document.getElementById('remote-install-submit').textContent = '🚀 开始安装';
+            }
+        }
 
-            modal.innerHTML = `
-                <div style="background: white; padding: 30px; border-radius: 8px; max-width: 600px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-                    <h2 style="margin: 0 0 20px 0; color: #333;">🚀 Hysteria2 自动安装</h2>
-                    <p style="color: #666; margin-bottom: 20px;">完全自动化安装，无需手动配置，自动输出订阅信息</p>
+        function closeRemoteInstallModal() {
+            const modal = document.getElementById('remote-install-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+        }
 
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                        <p style="margin: 0 0 10px 0; font-weight: 600; color: #333;">一键安装命令：</p>
-                        <code style="display: block; background: #e9ecef; padding: 12px; border-radius: 4px; font-size: 13px; word-break: break-all; color: #495057;">
-curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash
-                        </code>
-                    </div>
+        async function submitRemoteInstall(event) {
+            event.preventDefault();
 
-                    <div style="color: #666; font-size: 14px; margin-bottom: 20px;">
-                        <strong>✨ 自动化特性：</strong>
-                        <ul style="margin: 10px 0 0 20px;">
-                            <li>自动安装依赖和Hysteria2</li>
-                            <li>自动生成证书和配置</li>
-                            <li>自动获取服务器IP地址</li>
-                            <li>自动启动服务</li>
-                            <li>直接输出订阅链接和二维码</li>
-                        </ul>
-                    </div>
+            const host = document.getElementById('remote-host').value.trim();
+            const port = document.getElementById('remote-port').value || '22';
+            const user = document.getElementById('remote-user').value.trim();
+            const password = document.getElementById('remote-password').value;
+            const hy2Port = document.getElementById('remote-hy2-port').value || '443';
+            const nodeName = document.getElementById('remote-node-name').value.trim();
 
-                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button onclick="this.closest('div[style*=position]').remove()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">关闭</button>
-                        <button onclick="copyHy2InstallCommand(); this.style.background='#218838'; this.textContent='已复制!'; setTimeout(() => {this.style.background='#28a745'; this.textContent='复制命令'}, 2000)" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">📋 复制命令</button>
-                    </div>
+            if (!host || !user || !password) {
+                alert('请填写必填字段');
+                return false;
+            }
+
+            // 显示进度
+            document.getElementById('remote-install-progress').style.display = 'block';
+            document.getElementById('remote-install-submit').disabled = true;
+            document.getElementById('remote-install-submit').textContent = '安装中...';
+
+            const statusEl = document.getElementById('remote-install-status');
+            statusEl.textContent = '正在连接服务器...';
+
+            try {
+                const response = await fetch('/proxy/remote-install', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        host: host,
+                        port: parseInt(port),
+                        user: user,
+                        password: password,
+                        hy2Port: parseInt(hy2Port),
+                        nodeName: nodeName
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusEl.textContent = '✅ 安装成功！';
+                    document.getElementById('remote-install-progress').querySelector('div').style.background = '#e8f5e9';
+                    document.getElementById('remote-install-progress').querySelector('div').style.borderLeftColor = '#4caf50';
+                    statusEl.style.color = '#2e7d32';
+
+                    setTimeout(() => {
+                        closeRemoteInstallModal();
+                        alert(`✅ Hysteria2 安装成功！\n\n节点名称: ${result.nodeName}\n服务器: ${host}:${hy2Port}\n\n节点已添加到列表中。`);
+                        location.reload();
+                    }, 1000);
+                } else {
+                    throw new Error(result.error || '安装失败');
+                }
+            } catch (error) {
+                statusEl.textContent = '❌ ' + error.message;
+                document.getElementById('remote-install-progress').querySelector('div').style.background = '#ffebee';
+                document.getElementById('remote-install-progress').querySelector('div').style.borderLeftColor = '#f44336';
+                statusEl.style.color = '#c62828';
+
+                document.getElementById('remote-install-submit').disabled = false;
+                document.getElementById('remote-install-submit').textContent = '🚀 重试安装';
+            }
+
+            return false;
+        }
+
+        // 订阅弹窗相关函数
+        async function showSubscriptionModal(id, name) {
+            const modal = document.getElementById('subscription-modal');
+            if (!modal) return;
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            document.getElementById('sub-modal-subtitle').textContent = name;
+
+            const contentEl = document.getElementById('sub-modal-content');
+            contentEl.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+                    加载中...
                 </div>
             `;
 
-            document.body.appendChild(modal);
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    modal.remove();
+            try {
+                const response = await fetch('/proxy/subscription-data/' + id);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || '获取订阅信息失败');
                 }
-            });
+
+                renderSubscriptionContent(data);
+            } catch (error) {
+                contentEl.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #dc3545;">
+                        <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
+                        ${escapeHtml(error.message)}
+                    </div>
+                `;
+            }
         }
 
-        function copyHy2InstallCommand() {
-            const cmd = 'curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash';
-            navigator.clipboard.writeText(cmd).then(() => {
-                // Show success feedback
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-            });
+        function renderSubscriptionContent(data) {
+            const contentEl = document.getElementById('sub-modal-content');
+            contentEl.innerHTML = `
+                <!-- 配置信息 -->
+                <div style="background: #d1ecf1; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #0c5460;">
+                    <h4 style="margin: 0 0 10px 0; color: #0c5460; font-size: 14px;">📋 配置信息</h4>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px; color: #0c5460;">
+                        <div><strong>入站端口:</strong> ${data.proxy.InboundPort}</div>
+                        <div><strong>Reality域名:</strong> ${data.proxy.RealityServerName || '-'}</div>
+                        <div style="grid-column: 1 / -1;"><strong>UUID:</strong> <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px; font-size: 11px;">${data.proxy.UUID}</code></div>
+                    </div>
+                </div>
+
+                <!-- 通用订阅链接 -->
+                <div class="sub-section">
+                    <h3>🔗 通用订阅链接</h3>
+                    <p>适用于 V2Ray、Clash、Shadowrocket 等客户端</p>
+                    <div class="sub-link-box" id="sub-url-text">${escapeHtml(data.subUrl)}</div>
+                    <div style="margin-top: 10px;">
+                        <button class="copy-btn" onclick="copyToClipboard('sub-url-text', this)">📋 复制订阅链接</button>
+                    </div>
+                </div>
+
+                <!-- VLESS 链接 -->
+                <div class="sub-section">
+                    <h3>🔐 VLESS 链接</h3>
+                    <p>直接导入到客户端使用</p>
+                    <div class="sub-link-box" id="vless-link-text">${escapeHtml(data.vlessLink)}</div>
+                    <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="copy-btn" onclick="copyToClipboard('vless-link-text', this)">📋 复制 VLESS 链接</button>
+                        <button class="copy-btn" style="background: #28a745;" onclick="toggleQRCode()">📱 显示二维码</button>
+                    </div>
+                </div>
+
+                <!-- 二维码 -->
+                <div class="sub-section" id="qrcode-section" style="display: none;">
+                    <h3>📱 扫描二维码导入</h3>
+                    <div class="qrcode-container">
+                        <div id="subscription-qrcode"></div>
+                    </div>
+                </div>
+
+                <!-- 使用说明 -->
+                <div class="sub-section" style="background: #f8f9fa;">
+                    <h3>📖 使用说明</h3>
+                    <ol style="padding-left: 20px; margin: 0; color: #666; font-size: 13px; line-height: 1.8;">
+                        <li>复制上方的订阅链接或 VLESS 链接</li>
+                        <li>在客户端中添加订阅或导入配置</li>
+                        <li>推荐客户端:
+                            <ul style="margin: 5px 0 0 0; padding-left: 20px;">
+                                <li><strong>Windows:</strong> v2rayN, Clash for Windows, NekoRay</li>
+                                <li><strong>macOS:</strong> V2RayX, ClashX, Surge</li>
+                                <li><strong>Android:</strong> v2rayNG, Clash for Android, NekoBox</li>
+                                <li><strong>iOS:</strong> Shadowrocket, Quantumult X, Stash</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+            `;
+
+            // 存储VLESS链接用于生成二维码
+            contentEl.dataset.vlessLink = data.vlessLink;
         }
+
+        function toggleQRCode() {
+            const section = document.getElementById('qrcode-section');
+            const qrcodeDiv = document.getElementById('subscription-qrcode');
+            const contentEl = document.getElementById('sub-modal-content');
+
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                qrcodeDiv.innerHTML = '';
+
+                const vlessLink = contentEl.dataset.vlessLink;
+                if (vlessLink && typeof QRCode !== 'undefined') {
+                    new QRCode(qrcodeDiv, {
+                        text: vlessLink,
+                        width: 200,
+                        height: 200,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.H
+                    });
+                }
+
+                section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        function closeSubscriptionModal() {
+            const modal = document.getElementById('subscription-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = '';
+            }
+        }
+
+        // 通用复制函数（修复版）
+        function copyToClipboard(elementId, btnEl) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+
+            const text = element.textContent || element.innerText;
+
+            // 使用现代 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopySuccess(btnEl);
+                }).catch(() => {
+                    fallbackCopy(text, btnEl);
+                });
+            } else {
+                fallbackCopy(text, btnEl);
+            }
+        }
+
+        // 降级复制方案
+        function fallbackCopy(text, btnEl) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showCopySuccess(btnEl);
+                } else {
+                    alert('复制失败，请手动复制');
+                }
+            } catch (err) {
+                alert('复制失败，请手动复制');
+            }
+
+            document.body.removeChild(textarea);
+        }
+
+        // 显示复制成功反馈
+        function showCopySuccess(btnEl) {
+            if (!btnEl) return;
+
+            const originalText = btnEl.textContent;
+            btnEl.textContent = '✅ 已复制';
+            btnEl.classList.add('copied');
+
+            setTimeout(() => {
+                btnEl.textContent = originalText;
+                btnEl.classList.remove('copied');
+            }, 2000);
+        }
+
+        // 初始化订阅和远程安装弹窗的关闭事件
+        document.addEventListener('DOMContentLoaded', function() {
+            // 订阅弹窗
+            const subModal = document.getElementById('subscription-modal');
+            if (subModal) {
+                subModal.addEventListener('click', (e) => {
+                    if (e.target === subModal) closeSubscriptionModal();
+                });
+            }
+
+            // 远程安装弹窗
+            const remoteModal = document.getElementById('remote-install-modal');
+            if (remoteModal) {
+                remoteModal.addEventListener('click', (e) => {
+                    if (e.target === remoteModal) closeRemoteInstallModal();
+                });
+            }
+
+            // ESC键关闭弹窗
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    if (subModal && subModal.classList.contains('show')) closeSubscriptionModal();
+                    if (remoteModal && remoteModal.classList.contains('show')) closeRemoteInstallModal();
+                }
+            });
+        });
 
         // 全选/取消全选
         function toggleAll() {

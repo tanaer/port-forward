@@ -667,6 +667,55 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		})
 	})
 
+	// 订阅数据API (用于弹窗)
+	r.GET("/proxy/subscription-data/:id", func(c *gin.Context) {
+		id, _ := strconv.Atoi(c.Param("id"))
+		proxyConfig := sql.GetProxy(id)
+		if proxyConfig.Id == 0 {
+			c.JSON(404, gin.H{"error": "代理配置不存在"})
+			return
+		}
+
+		// 获取服务器IP
+		serverIP := c.Query("server")
+		if serverIP == "" {
+			serverIP = c.Request.Host
+			if strings.Contains(serverIP, ":") {
+				serverIP = strings.Split(serverIP, ":")[0]
+			}
+		}
+
+		// 生成订阅
+		pm := proxy.GetProxyManager()
+		token, err := pm.GenerateSubscriptionForProxy(id, serverIP)
+		if err != nil {
+			c.JSON(500, gin.H{"error": fmt.Sprintf("生成订阅失败: %v", err)})
+			return
+		}
+
+		// 生成订阅链接
+		subUrl := fmt.Sprintf("http://%s/sub/%s", c.Request.Host, token)
+
+		// 生成VLESS链接
+		sg := proxy.SubscriptionGenerator{
+			ServerIP:  serverIP,
+			Port:      proxyConfig.InboundPort,
+			UUID:      proxyConfig.UUID,
+			PublicKey: proxyConfig.PublicKey,
+			ShortId:   proxyConfig.ShortId,
+			SNI:       proxyConfig.RealityServerName,
+			Remark:    proxyConfig.Name,
+		}
+		vlessLink := sg.GenerateVLESSLink()
+
+		c.JSON(200, gin.H{
+			"proxy":     proxyConfig,
+			"subUrl":    subUrl,
+			"vlessLink": vlessLink,
+			"token":     token,
+		})
+	})
+
 	// 订阅接口
 	r.GET("/sub/:token", func(c *gin.Context) {
 		token := c.Param("token")
@@ -755,6 +804,13 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			return
 		}
 
+		// 填充流量数据
+		totalBytes := proxyConfig.TotalBytes + proxyConfig.TotalGigabyte*1024*1024*1024
+		proxyConfig.TotalTraffic = sql.FormatTraffic(totalBytes)
+
+		up, down := sql.GetProxyTodayTraffic(id)
+		proxyConfig.TodayTraffic = sql.FormatTraffic(up + down)
+
 		sampleLimit := 20
 		if limitParam := c.DefaultQuery("limit", "20"); limitParam != "" {
 			if value, err := strconv.Atoi(limitParam); err == nil && value > 0 && value <= 500 {
@@ -789,7 +845,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			}
 		}
 
-		qualitySamples := sql.GetQualitySamples(id, startTime, endTime, sampleLimit)
+		qualitySamples := sql.GetQualitySamplesWithResolution(id, resolution, startTime, endTime, sampleLimit)
 		trafficSamples := sql.GetTrafficSamplesWithResolution(id, resolution, startTime, endTime, sampleLimit)
 		targetSamples := sql.GetRecentTargetSamples(id, 20)
 

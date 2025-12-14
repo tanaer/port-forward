@@ -68,6 +68,9 @@ func Run() {
 	// 注册安装器路由
 	RegisterInstallerRoutes(r)
 
+	// 注册远程安装路由
+	RegisterRemoteInstallRoutes(r)
+
 	// API 批量操作路由
 	api := r.Group("/api")
 	{
