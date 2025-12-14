@@ -340,7 +340,7 @@ func handleIPCheck(c *gin.Context) {
 	}
 	defer client.Close()
 
-	// 执行IP检测脚本
+	// 执行IP检测 - 使用多种方式获取IP信息
 	session, err := client.NewSession()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -351,18 +351,44 @@ func handleIPCheck(c *gin.Context) {
 	}
 	defer session.Close()
 
-	// 运行IP检测脚本并获取JSON输出
-	output, err := session.CombinedOutput("bash <(curl -Ls IP.Check.Place) -j 2>/dev/null")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("执行检测脚本失败: %v", err),
-		})
-		return
-	}
+	// 先尝试简单的IP信息获取，再尝试完整检测
+	ipCheckScript := `
+#!/bin/bash
+# 获取基本IP信息
+ip_info=$(curl -s --connect-timeout 10 ipinfo.io 2>/dev/null)
+if [ -n "$ip_info" ]; then
+    echo "$ip_info"
+    exit 0
+fi
 
-	// 清理输出（移除ANSI转义码和控制字符）
-	jsonOutput := cleanJSONOutput(string(output))
+# 备用：使用 ip-api.com
+ip_info=$(curl -s --connect-timeout 10 "http://ip-api.com/json?lang=zh-CN" 2>/dev/null)
+if [ -n "$ip_info" ]; then
+    echo "$ip_info"
+    exit 0
+fi
+
+# 最后尝试 IP.Check.Place
+bash <(curl -sL --connect-timeout 15 IP.Check.Place) -j 2>/dev/null || echo '{"error":"检测失败"}'
+`
+
+	output, err := session.CombinedOutput(ipCheckScript)
+	outputStr := string(output)
+
+	// 即使有错误也尝试解析输出
+	jsonOutput := cleanJSONOutput(outputStr)
+
+	// 检查是否获取到有效的JSON
+	if jsonOutput == "" || jsonOutput == outputStr {
+		// 如果没有获取到JSON，返回原始输出作为错误信息
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"result":  fmt.Sprintf(`{"error":"检测完成但无有效数据","raw":"%s"}`, strings.ReplaceAll(outputStr, "\"", "'")),
+			})
+			return
+		}
+	}
 
 	// 如果有proxyId，保存结果到数据库
 	if req.ProxyId > 0 {
