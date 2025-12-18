@@ -17,6 +17,7 @@ func InitProxyTables() {
 	db.AutoMigrate(&conf.ProxyConfig{})
 	db.AutoMigrate(&conf.Subscription{})
 	db.AutoMigrate(&conf.ProxyQualityLog{})
+	db.AutoMigrate(&conf.OutboundConfig{}) // 出站配置表
 }
 
 // GetProxyList 获取代理配置列表

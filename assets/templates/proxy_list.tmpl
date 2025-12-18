@@ -162,6 +162,7 @@
 
         <div class="nav">
             <a href="/proxy/add">➕ 添加代理</a>
+            <a href="javascript:void(0)" onclick="showOutboundManager()" style="background: #6610f2;">📡 出站配置管理</a>
             <a href="javascript:void(0)" onclick="showHy2Install()" style="background: #28a745;">🚀 快速安装Hysteria2</a>
             <a href="javascript:void(0)" onclick="exportSelected()" style="background: #17a2b8;">📤 导出配置</a>
             <a href="javascript:void(0)" onclick="showImportModal()" style="background: #6f42c1;">📥 导入配置</a>
@@ -561,6 +562,179 @@
             </div>
             <div id="ipcheck-result-content" style="max-height: 60vh; overflow-y: auto;">
                 <div style="text-align: center; padding: 40px; color: #666;">暂无检测结果</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 出站配置管理弹窗 -->
+    <div id="outbound-modal" class="quality-modal" aria-hidden="true">
+        <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 1000px;">
+            <div class="modal-header">
+                <div>
+                    <h2>📡 出站配置管理</h2>
+                    <p class="modal-subtitle">管理 Hysteria2/VMess/SOCKS5 出站配置，每次只能启用一个</p>
+                </div>
+                <div class="modal-header-actions">
+                    <button type="button" class="btn btn-primary" onclick="showAddOutboundForm()" style="padding: 8px 16px;">➕ 新增配置</button>
+                    <button type="button" class="quality-modal-close" onclick="closeOutboundModal()" aria-label="关闭">×</button>
+                </div>
+            </div>
+
+            <!-- 出站配置列表 -->
+            <div id="outbound-list-container">
+                <table id="outbound-table" style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">名称</th>
+                            <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">类型</th>
+                            <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">服务器</th>
+                            <th style="padding: 12px; text-align: center; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">状态</th>
+                            <th style="padding: 12px; text-align: center; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="outbound-tbody">
+                        <tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 出站配置表单（新增/编辑） -->
+            <div id="outbound-form-container" style="display: none;">
+                <form id="outbound-form">
+                    <input type="hidden" name="id" id="outbound-id">
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600;">配置名称 *</label>
+                        <input type="text" name="name" id="outbound-name" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" placeholder="例如: 香港HY2专线">
+                    </div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600;">出站类型 *</label>
+                        <select name="type" id="outbound-type" required onchange="toggleOutboundTypeForm()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="hysteria2">Hysteria2（高速专线）</option>
+                            <option value="vmess">VMess（通用协议）</option>
+                            <option value="socks5">SOCKS5（本地代理）</option>
+                        </select>
+                    </div>
+
+                    <!-- Hysteria2 配置 -->
+                    <div id="outbound-hy2-config">
+                        <div style="background: #f0f4ff; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">服务器地址 *</label>
+                                    <input type="text" name="hy2Server" id="outbound-hy2-server" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" placeholder="example.com">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">端口 *</label>
+                                    <input type="text" name="hy2Port" id="outbound-hy2-port" value="443" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 5px;">密码 *</label>
+                                <input type="text" name="hy2Password" id="outbound-hy2-password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">SNI</label>
+                                    <input type="text" name="hy2SNI" id="outbound-hy2-sni" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">上行带宽(Mbps)</label>
+                                    <input type="number" name="hy2UpMbps" id="outbound-hy2-up" value="100" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">下行带宽(Mbps)</label>
+                                    <input type="number" name="hy2DownMbps" id="outbound-hy2-down" value="100" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" name="hy2Insecure" id="outbound-hy2-insecure" value="1">
+                                    跳过证书验证
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SOCKS5 配置 -->
+                    <div id="outbound-socks5-config" style="display: none;">
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">服务器地址 *</label>
+                                    <input type="text" name="socks5Addr" id="outbound-socks5-addr" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" placeholder="127.0.0.1">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">端口 *</label>
+                                    <input type="number" name="socks5Port" id="outbound-socks5-port" value="1080" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">用户名</label>
+                                    <input type="text" name="socks5User" id="outbound-socks5-user" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">密码</label>
+                                    <input type="password" name="socks5Password" id="outbound-socks5-password" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VMess 配置 -->
+                    <div id="outbound-vmess-config" style="display: none;">
+                        <div style="background: #d1ecf1; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">服务器地址 *</label>
+                                    <input type="text" name="vmessServer" id="outbound-vmess-server" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">端口 *</label>
+                                    <input type="number" name="vmessPort" id="outbound-vmess-port" value="443" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 5px;">UUID *</label>
+                                <input type="text" name="vmessUUID" id="outbound-vmess-uuid" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">传输协议</label>
+                                    <select name="vmessNetwork" id="outbound-vmess-network" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                        <option value="tcp">TCP</option>
+                                        <option value="ws">WebSocket</option>
+                                        <option value="h2">HTTP/2</option>
+                                        <option value="grpc">gRPC</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">加密方式</label>
+                                    <select name="vmessSecurity" id="outbound-vmess-security" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                        <option value="auto">auto</option>
+                                        <option value="aes-128-gcm">aes-128-gcm</option>
+                                        <option value="chacha20-poly1305">chacha20-poly1305</option>
+                                        <option value="none">none</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">TLS</label>
+                                    <select name="vmessTLS" id="outbound-vmess-tls" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                        <option value="0">关闭</option>
+                                        <option value="1">开启</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" class="btn btn-secondary" onclick="showOutboundList()" style="padding: 10px 20px;">取消</button>
+                        <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">💾 保存配置</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -2753,6 +2927,209 @@
                 btn.style.pointerEvents = 'auto';
             }
         }
+
+        // ==================== 出站配置管理 ====================
+        let outboundList = [];
+
+        function showOutboundManager() {
+            const modal = document.getElementById('outbound-modal');
+            modal.classList.add('show');
+            modal.setAttribute('aria-hidden', 'false');
+            loadOutboundList();
+        }
+
+        function closeOutboundModal() {
+            const modal = document.getElementById('outbound-modal');
+            modal.classList.remove('show');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function showOutboundList() {
+            document.getElementById('outbound-list-container').style.display = 'block';
+            document.getElementById('outbound-form-container').style.display = 'none';
+        }
+
+        function showAddOutboundForm() {
+            document.getElementById('outbound-list-container').style.display = 'none';
+            document.getElementById('outbound-form-container').style.display = 'block';
+            document.getElementById('outbound-form').reset();
+            document.getElementById('outbound-id').value = '';
+            toggleOutboundTypeForm();
+        }
+
+        function toggleOutboundTypeForm() {
+            const type = document.getElementById('outbound-type').value;
+            document.getElementById('outbound-hy2-config').style.display = type === 'hysteria2' ? 'block' : 'none';
+            document.getElementById('outbound-socks5-config').style.display = type === 'socks5' ? 'block' : 'none';
+            document.getElementById('outbound-vmess-config').style.display = type === 'vmess' ? 'block' : 'none';
+        }
+
+        async function loadOutboundList() {
+            const tbody = document.getElementById('outbound-tbody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>';
+
+            try {
+                const response = await fetch('/outbound/list');
+                const data = await response.json();
+
+                if (data.code !== 0) {
+                    throw new Error(data.error || '加载失败');
+                }
+
+                outboundList = data.data || [];
+                renderOutboundTable();
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 40px; color: #dc3545;">❌ ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderOutboundTable() {
+            const tbody = document.getElementById('outbound-tbody');
+
+            if (!outboundList.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">暂无出站配置，点击上方按钮添加</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = outboundList.map(item => {
+                const typeLabels = { hysteria2: 'Hysteria2', socks5: 'SOCKS5', vmess: 'VMess' };
+                const typeColors = { hysteria2: '#007bff', socks5: '#ffc107', vmess: '#17a2b8' };
+
+                let serverInfo = '';
+                if (item.type === 'hysteria2') {
+                    serverInfo = `${item.hy2Server}:${item.hy2Port}`;
+                } else if (item.type === 'socks5') {
+                    serverInfo = `${item.socks5Addr}:${item.socks5Port}`;
+                } else if (item.type === 'vmess') {
+                    serverInfo = `${item.vmessServer}:${item.vmessPort}`;
+                }
+
+                const statusHtml = item.status === 0
+                    ? '<span class="status active">✅ 启用中</span>'
+                    : '<span class="status inactive">⏸️ 停用</span>';
+
+                return `
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600;">${item.name}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+                            <span style="background: ${typeColors[item.type]}; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px;">${typeLabels[item.type]}</span>
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; font-family: monospace; color: #666;">${serverInfo}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${statusHtml}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+                            ${item.status !== 0 ? `<a href="javascript:void(0)" onclick="activateOutbound(${item.id})" class="btn-success" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none;">启用</a>` : ''}
+                            <a href="javascript:void(0)" onclick="editOutbound(${item.id})" class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none; margin-left: 5px;">编辑</a>
+                            <a href="javascript:void(0)" onclick="deleteOutbound(${item.id}, '${item.name}')" class="btn-danger" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none; margin-left: 5px;">删除</a>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function activateOutbound(id) {
+            try {
+                const response = await fetch(`/outbound/activate/${id}`, { method: 'POST' });
+                const data = await response.json();
+
+                if (data.code !== 0) {
+                    throw new Error(data.error || '启用失败');
+                }
+
+                alert('✅ 出站配置已启用');
+                loadOutboundList();
+            } catch (error) {
+                alert('❌ ' + error.message);
+            }
+        }
+
+        function editOutbound(id) {
+            const item = outboundList.find(o => o.id === id);
+            if (!item) return;
+
+            document.getElementById('outbound-list-container').style.display = 'none';
+            document.getElementById('outbound-form-container').style.display = 'block';
+
+            document.getElementById('outbound-id').value = item.id;
+            document.getElementById('outbound-name').value = item.name;
+            document.getElementById('outbound-type').value = item.type;
+
+            // 填充对应类型的配置
+            if (item.type === 'hysteria2') {
+                document.getElementById('outbound-hy2-server').value = item.hy2Server || '';
+                document.getElementById('outbound-hy2-port').value = item.hy2Port || '443';
+                document.getElementById('outbound-hy2-password').value = item.hy2Password || '';
+                document.getElementById('outbound-hy2-sni').value = item.hy2SNI || '';
+                document.getElementById('outbound-hy2-up').value = item.hy2UpMbps || 100;
+                document.getElementById('outbound-hy2-down').value = item.hy2DownMbps || 100;
+                document.getElementById('outbound-hy2-insecure').checked = item.hy2Insecure;
+            } else if (item.type === 'socks5') {
+                document.getElementById('outbound-socks5-addr').value = item.socks5Addr || '';
+                document.getElementById('outbound-socks5-port').value = item.socks5Port || 1080;
+                document.getElementById('outbound-socks5-user').value = item.socks5User || '';
+                document.getElementById('outbound-socks5-password').value = item.socks5Password || '';
+            } else if (item.type === 'vmess') {
+                document.getElementById('outbound-vmess-server').value = item.vmessServer || '';
+                document.getElementById('outbound-vmess-port').value = item.vmessPort || 443;
+                document.getElementById('outbound-vmess-uuid').value = item.vmessUUID || '';
+                document.getElementById('outbound-vmess-network').value = item.vmessNetwork || 'tcp';
+                document.getElementById('outbound-vmess-security').value = item.vmessSecurity || 'auto';
+                document.getElementById('outbound-vmess-tls').value = item.vmessTLS ? '1' : '0';
+            }
+
+            toggleOutboundTypeForm();
+        }
+
+        async function deleteOutbound(id, name) {
+            if (!confirm(`确定要删除出站配置 "${name}" 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/outbound/delete/${id}`, { method: 'POST' });
+                const data = await response.json();
+
+                if (data.code !== 0) {
+                    throw new Error(data.error || '删除失败');
+                }
+
+                alert('✅ 出站配置已删除');
+                loadOutboundList();
+            } catch (error) {
+                alert('❌ ' + error.message);
+            }
+        }
+
+        // 出站配置表单提交
+        document.addEventListener('DOMContentLoaded', () => {
+            const outboundForm = document.getElementById('outbound-form');
+            if (outboundForm) {
+                outboundForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const formData = new FormData(outboundForm);
+                    const id = formData.get('id');
+                    const url = id ? `/outbound/update/${id}` : '/outbound/add';
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await response.json();
+
+                        if (data.code !== 0 && !data.id) {
+                            throw new Error(data.error || '保存失败');
+                        }
+
+                        alert('✅ 出站配置已保存');
+                        showOutboundList();
+                        loadOutboundList();
+                    } catch (error) {
+                        alert('❌ ' + error.message);
+                    }
+                });
+            }
+        });
 
     </script>
 

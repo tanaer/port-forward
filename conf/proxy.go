@@ -23,7 +23,10 @@ type ProxyConfig struct {
 	PublicKey         string `gorm:"size:100"` // Reality 公钥
 	ShortId           string `gorm:"size:20"`  // Reality Short ID
 
-	// 出站配置
+	// 出站配置关联（新架构：关联独立的出站配置）
+	OutboundConfigId int `gorm:"default:0"` // 关联的出站配置ID，0表示使用内嵌配置
+
+	// 出站配置（旧架构：内嵌配置，保留兼容）
 	OutboundType string `gorm:"size:20;default:'hysteria2'"` // "hysteria2" 或 "socks5"
 
 	// Hysteria2 出站配置

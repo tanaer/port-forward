@@ -65,6 +65,9 @@ func Run() {
 	// 注册代理管理路由
 	RegisterProxyRoutes(r)
 
+	// 注册出站配置路由
+	RegisterOutboundRoutes(r)
+
 	// 注册安装器路由
 	RegisterInstallerRoutes(r)
 

@@ -8,7 +8,6 @@ import (
 	"goForward/conf"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
