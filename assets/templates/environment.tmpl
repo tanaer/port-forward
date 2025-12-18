@@ -65,7 +65,7 @@
         .dependency-card.installed { border-left-color: #28a745; }
         .dependency-card.not-installed { border-left-color: #dc3545; }
 
-        .dep-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .dep-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px; }
         .dep-name { font-size: 20px; font-weight: 600; color: #333; }
         .dep-status { padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
         .dep-status.installed { background: #d4edda; color: #155724; }
@@ -83,7 +83,7 @@
         .btn-danger:hover { background: #c82333; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .action-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .action-buttons { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
 
         .info-box { background: #d1ecf1; border-left: 4px solid #0c5460; padding: 15px; margin-top: 30px; border-radius: 4px; }
         .info-box h3 { color: #0c5460; margin-bottom: 10px; }
@@ -97,6 +97,10 @@
 
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .update-card { background: #fff; border-radius: 8px; padding: 20px; border: 1px solid #e9ecef; }
+        .changelog { background: #f8f9fa; border: 1px solid #e9ecef; padding: 10px; border-radius: 4px; white-space: pre-wrap; margin-top: 8px; max-height: 240px; overflow: auto; color: #333; }
+        .update-row { margin-bottom: 16px; }
     </style>
 </head>
 <body>
@@ -172,6 +176,46 @@
             {{end}}
         </div>
         {{end}}
+
+        <!-- 版本/更新信息 -->
+        <div class="update-card" style="margin-bottom: 20px;">
+            <div class="dep-header">
+                <div class="dep-name">⬆️ 版本与更新</div>
+                <button class="btn btn-primary" onclick="fetchReleases()">🔍 检查更新</button>
+            </div>
+
+            <div class="update-row">
+                <div class="dep-name" style="font-size: 16px;">Xray-core</div>
+                <div class="dep-info">
+                    <strong>当前:</strong> <span id="xray-installed">--</span>
+                    <strong style="margin-left: 10px;">最新:</strong> <span id="xray-latest">--</span>
+                    <a id="xray-url" href="#" target="_blank" style="margin-left: 10px; display: none;">发布页</a>
+                    <span id="xray-date" style="color: #666; margin-left: 10px;"></span>
+                </div>
+                <div class="dep-info"><strong>新版特性:</strong></div>
+                <div class="changelog" id="xray-notes">点击“检查更新”以加载发布说明</div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="upgradeXray()">⬆️ 升级 / 重装 Xray</button>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #e9ecef; margin: 10px 0;">
+
+            <div class="update-row">
+                <div class="dep-name" style="font-size: 16px;">Hysteria2</div>
+                <div class="dep-info">
+                    <strong>当前:</strong> <span id="hy2-installed">--</span>
+                    <strong style="margin-left: 10px;">最新:</strong> <span id="hy2-latest">--</span>
+                    <a id="hy2-url" href="#" target="_blank" style="margin-left: 10px; display: none;">发布页</a>
+                    <span id="hy2-date" style="color: #666; margin-left: 10px;"></span>
+                </div>
+                <div class="dep-info"><strong>新版特性:</strong></div>
+                <div class="changelog" id="hy2-notes">点击“检查更新”以加载发布说明</div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="upgradeHy2()">⬆️ 升级 / 重装 Hysteria2</button>
+                </div>
+            </div>
+        </div>
 
         <!-- 说明信息 -->
         <div class="info-box">
@@ -307,6 +351,86 @@
                 alert('安装失败: ' + error.message);
                 hideLoading();
             }
+        }
+
+        async function fetchReleases() {
+            showLoading();
+            try {
+                const response = await fetch('/api/environment/releases');
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || '获取更新信息失败');
+                }
+                if (data.data) {
+                    renderRelease('xray', data.data.xray);
+                    renderRelease('hy2', data.data.hysteria2);
+                }
+            } catch (error) {
+                alert('获取更新信息失败: ' + error.message);
+            }
+            hideLoading();
+        }
+
+        function renderRelease(prefix, info) {
+            if (!info) return;
+            const installed = document.getElementById(prefix + '-installed');
+            const latest = document.getElementById(prefix + '-latest');
+            const url = document.getElementById(prefix + '-url');
+            const notes = document.getElementById(prefix + '-notes');
+            const date = document.getElementById(prefix + '-date');
+
+            if (installed) installed.textContent = info.installedVersion || '未安装';
+            if (latest) latest.textContent = info.latestVersion || '未知';
+            if (url) {
+                if (info.url) {
+                    url.href = info.url;
+                    url.style.display = 'inline';
+                } else {
+                    url.style.display = 'none';
+                }
+            }
+            if (notes) notes.textContent = info.notes || '暂无发布说明';
+            if (date) date.textContent = info.publishedAt ? ('发布: ' + info.publishedAt) : '';
+        }
+
+        async function upgradeXray() {
+            if (!confirm('确定要升级 / 重装 Xray 吗？\n\n将重新下载最新版本并覆盖 bin/xray。')) {
+                return;
+            }
+            showLoading();
+            try {
+                const response = await fetch('/api/environment/upgrade-xray', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    alert('升级已开始，约 1-2 分钟后生效。');
+                    setTimeout(() => { location.reload(); }, 60000);
+                } else {
+                    alert('升级失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('升级失败: ' + error.message);
+            }
+            hideLoading();
+        }
+
+        async function upgradeHy2() {
+            if (!confirm('确定要升级 / 重装 Hysteria2 吗？\n\n将重新下载最新版本并覆盖 bin/hysteria2。')) {
+                return;
+            }
+            showLoading();
+            try {
+                const response = await fetch('/api/environment/upgrade-hy2', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    alert('升级已开始，约 1-2 分钟后生效。');
+                    setTimeout(() => { location.reload(); }, 60000);
+                } else {
+                    alert('升级失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('升级失败: ' + error.message);
+            }
+            hideLoading();
         }
     </script>
 </body>

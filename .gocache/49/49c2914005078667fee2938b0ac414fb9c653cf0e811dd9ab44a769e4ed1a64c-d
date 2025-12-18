@@ -1,0 +1,12 @@
+./config_dao.go
+./config_version_dao.go
+./database.go
+./dlq_dao.go
+./log_dao.go
+./migration.go
+./node_dao.go
+./node_event_dao.go
+./rollback_task_dao.go
+./store.go
+./batch_test.go
+./dlq_dao_test.go

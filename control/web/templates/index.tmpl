@@ -134,6 +134,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        let ws = null;
+        let reconnectTimer = null;
+
         // 初始化仪表盘数据
         async function initDashboard() {
             try {
@@ -152,11 +155,106 @@
             }
         }
 
+        // 连接WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('WebSocket连接已建立');
+                document.getElementById('wsStatus').textContent = '已连接';
+                document.getElementById('wsStatus').className = 'text-success fw-bold';
+
+                // 清除重连定时器
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('解析WebSocket消息失败:', e);
+                }
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭');
+                document.getElementById('wsStatus').textContent = '连接中...';
+                document.getElementById('wsStatus').className = 'text-muted';
+
+                // 尝试重连
+                reconnectTimer = setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+                document.getElementById('wsStatus').textContent = '连接失败';
+                document.getElementById('wsStatus').className = 'text-danger';
+                ws.close();
+            };
+        }
+
+        // 处理WebSocket消息
+        function handleWebSocketMessage(data) {
+            console.log('收到WebSocket消息:', data);
+
+            // 更新实时数据显示
+            const liveDataDiv = document.getElementById('liveData');
+            const timestamp = new Date().toLocaleTimeString('zh-CN');
+
+            let message = '';
+            if (data.event === 'node_registered') {
+                message = `<div class="alert alert-success alert-sm mb-2">
+                    <i class="bi bi-check-circle"></i> ${timestamp} - 新节点注册: ${data.node_id}
+                </div>`;
+            } else if (data.event === 'heartbeat') {
+                message = `<div class="alert alert-info alert-sm mb-2">
+                    <i class="bi bi-heart-pulse"></i> ${timestamp} - 节点心跳: ${data.node_id}
+                </div>`;
+            } else if (data.event === 'node_inactive') {
+                message = `<div class="alert alert-warning alert-sm mb-2">
+                    <i class="bi bi-exclamation-triangle"></i> ${timestamp} - 节点失联: ${data.node_id}
+                </div>`;
+            }
+
+            if (message) {
+                // 添加新消息到顶部
+                liveDataDiv.innerHTML = message + liveDataDiv.innerHTML;
+
+                // 只保留最近10条消息
+                const alerts = liveDataDiv.querySelectorAll('.alert');
+                if (alerts.length > 10) {
+                    for (let i = 10; i < alerts.length; i++) {
+                        alerts[i].remove();
+                    }
+                }
+
+                // 刷新统计数据
+                initDashboard();
+            }
+        }
+
         // 页面加载完成后初始化
-        document.addEventListener('DOMContentLoaded', initDashboard);
+        document.addEventListener('DOMContentLoaded', function() {
+            initDashboard();
+            connectWebSocket();
+        });
 
         // 每30秒刷新一次数据
         setInterval(initDashboard, 30000);
+
+        // 页面卸载时关闭WebSocket
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
     </script>
 </body>
 </html>

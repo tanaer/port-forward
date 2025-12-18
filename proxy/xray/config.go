@@ -45,7 +45,16 @@ type InboundConfig struct {
 	Protocol       string                 `json:"protocol"`
 	Settings       map[string]interface{} `json:"settings"`
 	StreamSettings StreamSettings         `json:"streamSettings"`
+	Sniffing       *SniffingConfig        `json:"sniffing,omitempty"`
 	Tag            string                 `json:"tag"`
+}
+
+// SniffingConfig 入站嗅探配置
+// 主要用于从 TLS/HTTP 流量中还原域名，避免客户端直接发 IPv6 目标导致上游无 IPv6 时失败。
+type SniffingConfig struct {
+	Enabled      bool     `json:"enabled"`
+	DestOverride []string `json:"destOverride,omitempty"`
+	RouteOnly    bool     `json:"routeOnly,omitempty"`
 }
 
 // OutboundConfig 出站配置
@@ -166,6 +175,11 @@ func GenerateVLESSRealityConfig(cfg VLESSRealityConfig) *XrayConfig {
 					"shortIds":    cfg.ShortIds,
 				},
 			},
+			Sniffing: &SniffingConfig{
+				Enabled:      true,
+				DestOverride: []string{"http", "tls"},
+				RouteOnly:    false,
+			},
 		},
 	}
 
@@ -210,12 +224,17 @@ func GenerateVLESSRealityConfig(cfg VLESSRealityConfig) *XrayConfig {
 		},
 	}
 
+	domainStrategy := "AsIs"
+	if cfg.OutboundType == "hysteria2" || cfg.OutboundType == "" {
+		domainStrategy = "UseIPv4"
+	}
+
 	return &XrayConfig{
 		Log:       logConfig,
 		Inbounds:  inbounds,
 		Outbounds: outbounds,
 		Routing: &RoutingConfig{
-			DomainStrategy: "AsIs",
+			DomainStrategy: domainStrategy,
 			Rules:          rules,
 		},
 		Stats: map[string]any{},

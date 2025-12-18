@@ -1,17 +1,19 @@
 {
   "log": {
-    "loglevel": "debug"
+    "loglevel": "info",
+    "access": "proxy_configs/logs_7/access.log",
+    "error": "proxy_configs/logs_7/xray_error.log"
   },
   "inbounds": [
     {
       "listen": "0.0.0.0",
-      "port": 37423,
+      "port": 63426,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
             "flow": "xtls-rprx-vision",
-            "id": "e9ee9aab-540b-4007-a230-e3d2dcf6eb7a"
+            "id": "3a032740-98c5-4d6d-be61-9d6bafd4e2c3"
           }
         ],
         "decryption": "none"
@@ -21,17 +23,37 @@
         "security": "reality",
         "realitySettings": {
           "dest": "yahoo.com:443",
-          "privateKey": "mjMnFx_AdDdbfnRuDxWYewO_jccQZ9e-mjypaH8abew",
+          "privateKey": "GqP1DGWEdYePVpo4M_yOwDgq1uIIuhQg-izPJwcFZIM",
           "serverNames": [
             "yahoo.com"
           ],
           "shortIds": [
-            "b72c43b06218d941"
+            "cf763cde61809267"
           ],
           "show": false
         }
       },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      },
       "tag": "vless-in"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 15007,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none"
+      },
+      "tag": "api"
     }
   ],
   "outbounds": [
@@ -40,8 +62,14 @@
       "settings": {
         "servers": [
           {
-            "address": "127.0.0.1",
-            "port": 10809
+            "address": "103.14.93.192",
+            "port": 7778,
+            "users": [
+              {
+                "pass": "g2S1U3m7e2T5",
+                "user": "i0Z3S4w4p8Z4"
+              }
+            ]
           }
         ]
       },
@@ -51,6 +79,11 @@
       "protocol": "freedom",
       "settings": {},
       "tag": "direct"
+    },
+    {
+      "protocol": "freedom",
+      "settings": {},
+      "tag": "api"
     }
   ],
   "routing": {
@@ -59,10 +92,42 @@
       {
         "type": "field",
         "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
           "vless-in"
         ],
         "outboundTag": "socks-out"
       }
+    ]
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "stats": {
+          "inboundUplink": true,
+          "inboundDownlink": true,
+          "outboundUplink": true,
+          "outboundDownlink": true
+        }
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true,
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "StatsService"
     ]
   }
 }

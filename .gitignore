@@ -4,3 +4,4 @@ goForward.db
 # Runtime logs
 logs/
 devops_logs/
+proxy_configs/

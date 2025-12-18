@@ -424,6 +424,78 @@ func GetQualitySamples(proxyID int, start, end time.Time, limit int) []ProxyQual
 	return samples
 }
 
+// GetQualitySamplesWithResolution 根据聚合级别返回样本（minute/hour/day）
+func GetQualitySamplesWithResolution(proxyID int, resolution string, start, end time.Time, limit int) []ProxyQualitySample {
+	switch strings.ToLower(resolution) {
+	case "hour", "hourly":
+		return getHourlyQualitySamples(proxyID, start, end, limit)
+	case "day", "daily":
+		return getDailyQualitySamples(proxyID, start, end, limit)
+	default:
+		return GetQualitySamples(proxyID, start, end, limit)
+	}
+}
+
+func getHourlyQualitySamples(proxyID int, start, end time.Time, limit int) []ProxyQualitySample {
+	var rows []ProxyQualityHourly
+	query := db.Model(&ProxyQualityHourly{}).Where("proxy_id = ?", proxyID)
+	if !start.IsZero() {
+		query = query.Where("hour_start >= ?", start.Truncate(time.Hour))
+	}
+	if !end.IsZero() {
+		query = query.Where("hour_start <= ?", end.Truncate(time.Hour))
+	}
+	if limit > 0 {
+		query = query.Order("hour_start desc").Limit(limit)
+	} else {
+		query = query.Order("hour_start desc")
+	}
+	query.Find(&rows)
+	samples := make([]ProxyQualitySample, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := rows[i]
+		samples = append(samples, ProxyQualitySample{
+			ProxyID:   row.ProxyID,
+			Minute:    row.HourStart,
+			LatencyMs: row.LatencyMs,
+			JitterMs:  row.JitterMs,
+			LossPct:   row.LossPct,
+		})
+	}
+	return samples
+}
+
+func getDailyQualitySamples(proxyID int, start, end time.Time, limit int) []ProxyQualitySample {
+	var rows []ProxyQualityDaily
+	query := db.Model(&ProxyQualityDaily{}).Where("proxy_id = ?", proxyID)
+	if !start.IsZero() {
+		cutoff := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+		query = query.Where("day_start >= ?", cutoff)
+	}
+	if !end.IsZero() {
+		cutoff := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
+		query = query.Where("day_start <= ?", cutoff)
+	}
+	if limit > 0 {
+		query = query.Order("day_start desc").Limit(limit)
+	} else {
+		query = query.Order("day_start desc")
+	}
+	query.Find(&rows)
+	samples := make([]ProxyQualitySample, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		row := rows[i]
+		samples = append(samples, ProxyQualitySample{
+			ProxyID:   row.ProxyID,
+			Minute:    row.DayStart,
+			LatencyMs: row.LatencyMs,
+			JitterMs:  row.JitterMs,
+			LossPct:   row.LossPct,
+		})
+	}
+	return samples
+}
+
 // GetTrafficSamples 获取指定代理的流量样本
 func GetTrafficSamples(proxyID int, start, end time.Time, limit int) []ProxyTrafficSample {
 	var samples []ProxyTrafficSample

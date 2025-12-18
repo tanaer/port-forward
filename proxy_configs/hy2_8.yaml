@@ -7,4 +7,4 @@ bandwidth:
     up: 300 mbps
     down: 300 mbps
 socks5:
-    listen: 127.0.0.1:11953
+    listen: 127.0.0.1:10807

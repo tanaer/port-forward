@@ -1,6 +1,7 @@
 package hysteria
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -241,7 +242,41 @@ func cleanupProcessByPIDFile(path string) {
 }
 
 func cleanupProcessByConfig(configPath string) {
+	// 优先尝试 pid 文件清理（旧逻辑）
 	cleanupProcessByPIDFile(pidFilePath(configPath))
+	// 再兜底：扫描 /proc 中 cmdline 带有相同配置路径的 hysteria2 进程并终止
+	if configPath == "" {
+		return
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		cmdlinePath := filepath.Join("/proc", e.Name(), "cmdline")
+		data, err := os.ReadFile(cmdlinePath)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		// cmdline 是以 '\0' 分隔的，转成空格分隔便于匹配
+		cmdline := string(bytes.ReplaceAll(data, []byte{0}, []byte{' '}))
+		if !strings.Contains(cmdline, "hysteria2") || !strings.Contains(cmdline, configPath) {
+			continue
+		}
+		// 先发 SIGTERM，稍后如果还在则 SIGKILL
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+		time.Sleep(200 * time.Millisecond)
+		if err := syscall.Kill(pid, 0); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
 }
 
 // findHysteria2Binary 查找hysteria2可执行文件

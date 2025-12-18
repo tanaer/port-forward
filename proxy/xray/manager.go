@@ -1,10 +1,13 @@
 package xray
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -15,6 +18,7 @@ type Manager struct {
 	cmd        *exec.Cmd
 	configPath string
 	logDir     string
+	pidFile    string
 	running    bool
 	mu         sync.Mutex
 }
@@ -24,6 +28,7 @@ func NewManager(configPath string, logDir string) *Manager {
 	return &Manager{
 		configPath: configPath,
 		logDir:     logDir,
+		pidFile:    pidFilePath(configPath),
 		running:    false,
 	}
 }
@@ -41,6 +46,9 @@ func (m *Manager) Start() error {
 	if _, err := os.Stat(m.configPath); os.IsNotExist(err) {
 		return fmt.Errorf("配置文件不存在: %s", m.configPath)
 	}
+
+	// 清理可能残留的进程（例如 goForward 重启后桥接状态丢失）
+	cleanupProcessByConfig(m.configPath)
 
 	// 查找xray可执行文件
 	xrayPath, err := findXrayBinary()
@@ -76,6 +84,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("启动Xray失败: %v", err)
 	}
 
+	m.writePID()
 	m.running = true
 	fmt.Printf("[Xray] 进程已启动 PID=%d\n", m.cmd.Process.Pid)
 
@@ -109,12 +118,14 @@ func (m *Manager) Stop() error {
 	select {
 	case <-done:
 		m.running = false
+		removePIDFile(m.pidFile)
 		fmt.Println("[Xray] 进程已停止")
 		return nil
 	case <-time.After(5 * time.Second):
 		// 超时强制杀死
 		m.cmd.Process.Kill()
 		m.running = false
+		removePIDFile(m.pidFile)
 		return fmt.Errorf("停止Xray超时，已强制终止")
 	}
 }
@@ -148,11 +159,114 @@ func (m *Manager) monitor() {
 	m.mu.Lock()
 	m.running = false
 	m.mu.Unlock()
+	removePIDFile(m.pidFile)
 
 	if err != nil {
 		fmt.Printf("[Xray] 进程异常退出: %v\n", err)
 	} else {
 		fmt.Println("[Xray] 进程正常退出")
+	}
+}
+
+func (m *Manager) writePID() {
+	if m.pidFile == "" || m.cmd == nil || m.cmd.Process == nil {
+		return
+	}
+	_ = os.WriteFile(m.pidFile, []byte(strconv.Itoa(m.cmd.Process.Pid)), 0644)
+}
+
+func pidFilePath(configPath string) string {
+	if configPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(configPath)
+	base := strings.TrimSuffix(filepath.Base(configPath), ext)
+	return filepath.Join(filepath.Dir(configPath), base+".pid")
+}
+
+func readPIDFile(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
+
+func removePIDFile(path string) {
+	if path == "" {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+func cleanupProcessByPIDFile(path string) {
+	if path == "" {
+		return
+	}
+	pid, err := readPIDFile(path)
+	if err != nil || pid <= 0 {
+		removePIDFile(path)
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	timeout := time.After(2 * time.Second)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeout:
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			removePIDFile(path)
+			return
+		case <-ticker.C:
+			if err := syscall.Kill(pid, 0); err != nil {
+				removePIDFile(path)
+				return
+			}
+		}
+	}
+}
+
+// cleanupProcessByConfig 尝试清理使用同一 configPath 的残留 xray 进程
+func cleanupProcessByConfig(configPath string) {
+	if configPath == "" {
+		return
+	}
+
+	// 优先通过 pid 文件清理
+	cleanupProcessByPIDFile(pidFilePath(configPath))
+
+	// 再兜底：扫描 /proc cmdline 匹配相同 configPath 的 xray 进程并终止
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		cmdlinePath := filepath.Join("/proc", e.Name(), "cmdline")
+		data, err := os.ReadFile(cmdlinePath)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		cmdline := string(bytes.ReplaceAll(data, []byte{0}, []byte{' '}))
+		if !strings.Contains(cmdline, "xray") || !strings.Contains(cmdline, configPath) {
+			continue
+		}
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+		time.Sleep(200 * time.Millisecond)
+		if err := syscall.Kill(pid, 0); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
 	}
 }
 

@@ -1705,50 +1705,147 @@
             }
         }
 
-        // 渲染IP检测结果
+        // 渲染IP检测结果 - 支持 IP.Check.Place 完整格式
         function renderIPCheckResult(jsonStr, container) {
             try {
                 const data = JSON.parse(jsonStr);
                 let html = '<div style="display: grid; gap: 12px;">';
 
-                // 基本信息
-                if (data.ip) {
-                    html += `<div style="background: #e3f2fd; padding: 12px; border-radius: 6px;">
-                        <strong>📍 IP地址:</strong> ${escapeHtml(data.ip)}
-                        ${data.country ? `<br><strong>🌍 国家/地区:</strong> ${escapeHtml(data.country)}` : ''}
-                        ${data.city ? `<br><strong>🏙️ 城市:</strong> ${escapeHtml(data.city)}` : ''}
-                        ${data.asn ? `<br><strong>🔢 ASN:</strong> ${escapeHtml(data.asn)}` : ''}
-                        ${data.org ? `<br><strong>🏢 组织:</strong> ${escapeHtml(data.org)}` : ''}
-                    </div>`;
-                }
+                // 检测是否是 IP.Check.Place 的完整格式
+                if (data.Head && data.Info) {
+                    // ====== IP.Check.Place 完整格式 ======
+                    const head = data.Head[0] || {};
+                    const info = data.Info[0] || {};
+                    const score = data.Score ? data.Score[0] : {};
+                    const factor = data.Factor ? data.Factor[0] : {};
+                    const media = data.Media ? data.Media[0] : {};
+                    const mail = data.Mail ? data.Mail[0] : {};
 
-                // 风险评估
-                if (data.risk_score !== undefined || data.fraud_score !== undefined) {
-                    const score = data.risk_score || data.fraud_score || 0;
-                    const color = score < 30 ? '#28a745' : score < 70 ? '#ffc107' : '#dc3545';
-                    html += `<div style="background: #fff3e0; padding: 12px; border-radius: 6px;">
-                        <strong>⚠️ 风险评分:</strong> <span style="color: ${color}; font-weight: bold;">${score}</span>/100
-                        ${data.is_proxy ? '<br><span style="color: #dc3545;">⚠️ 检测为代理IP</span>' : ''}
-                        ${data.is_vpn ? '<br><span style="color: #dc3545;">⚠️ 检测为VPN IP</span>' : ''}
-                        ${data.is_datacenter ? '<br><span style="color: #ffc107;">📡 数据中心IP</span>' : ''}
+                    // 1. 基本信息卡片
+                    html += `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: bold; margin-bottom: 8px;">📍 ${escapeHtml(head.IP || 'N/A')}</div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px;">
+                            <div>🌍 ${escapeHtml(info.Region?.Name || 'N/A')}</div>
+                            <div>🏢 ASN ${escapeHtml(info.ASN || 'N/A')}</div>
+                            <div>🏛️ ${escapeHtml(info.Organization || 'N/A')}</div>
+                            <div>🏷️ ${escapeHtml(info.Type || 'N/A')}</div>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 11px; opacity: 0.8;">${escapeHtml(head.Time || '')}</div>
                     </div>`;
-                }
 
-                // 流媒体解锁
-                if (data.streaming || data.unlock) {
-                    html += '<div style="background: #e8f5e9; padding: 12px; border-radius: 6px;"><strong>🎬 流媒体解锁:</strong><br>';
-                    const streaming = data.streaming || data.unlock || {};
-                    for (const [service, status] of Object.entries(streaming)) {
-                        const icon = status === true || status === 'Yes' || status === 'Unlocked' ? '✅' : '❌';
-                        html += `<span style="margin-right: 15px;">${icon} ${escapeHtml(service)}</span>`;
+                    // 2. 风险评分卡片 - 计算综合评分
+                    const scores = [];
+                    if (score.SCAMALYTICS) scores.push({name: 'SCAMALYTICS', value: parseInt(score.SCAMALYTICS) || 0});
+                    if (score.AbuseIPDB) scores.push({name: 'AbuseIPDB', value: parseInt(score.AbuseIPDB) || 0});
+                    if (score.DBIP) scores.push({name: 'DBIP', value: parseInt(score.DBIP) || 0});
+                    if (score.ipapi) scores.push({name: 'ipapi', value: parseFloat(score.ipapi) || 0});
+
+                    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b.value, 0) / scores.length) : 0;
+                    const riskColor = avgScore < 20 ? '#28a745' : avgScore < 50 ? '#ffc107' : '#dc3545';
+                    const riskText = avgScore < 20 ? '优秀' : avgScore < 50 ? '一般' : '风险';
+
+                    // 统计检测结果
+                    const proxyCount = factor.Proxy ? Object.values(factor.Proxy).filter(v => v === true).length : 0;
+                    const vpnCount = factor.VPN ? Object.values(factor.VPN).filter(v => v === true).length : 0;
+                    const serverCount = factor.Server ? Object.values(factor.Server).filter(v => v === true).length : 0;
+
+                    html += `<div style="background: #fff; border: 2px solid ${riskColor}; padding: 16px; border-radius: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <span style="font-size: 16px; font-weight: 600;">🛡️ 风险评估</span>
+                            <span style="background: ${riskColor}; color: white; padding: 4px 12px; border-radius: 20px; font-weight: bold;">${riskText} ${avgScore}分</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
+                            <div style="padding: 10px; background: ${proxyCount > 2 ? '#ffebee' : '#e8f5e9'}; border-radius: 8px;">
+                                <div style="font-size: 20px;">${proxyCount > 2 ? '⚠️' : '✅'}</div>
+                                <div style="font-size: 12px; color: #666;">代理检测</div>
+                                <div style="font-size: 11px; color: ${proxyCount > 2 ? '#dc3545' : '#28a745'};">${proxyCount}/9 标记</div>
+                            </div>
+                            <div style="padding: 10px; background: ${vpnCount > 2 ? '#ffebee' : '#e8f5e9'}; border-radius: 8px;">
+                                <div style="font-size: 20px;">${vpnCount > 2 ? '⚠️' : '✅'}</div>
+                                <div style="font-size: 12px; color: #666;">VPN检测</div>
+                                <div style="font-size: 11px; color: ${vpnCount > 2 ? '#dc3545' : '#28a745'};">${vpnCount}/9 标记</div>
+                            </div>
+                            <div style="padding: 10px; background: ${serverCount > 4 ? '#fff3e0' : '#e8f5e9'}; border-radius: 8px;">
+                                <div style="font-size: 20px;">${serverCount > 4 ? '📡' : '🏠'}</div>
+                                <div style="font-size: 12px; color: #666;">机房检测</div>
+                                <div style="font-size: 11px; color: ${serverCount > 4 ? '#ff9800' : '#28a745'};">${serverCount}/9 标记</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 11px; color: #666; display: flex; flex-wrap: wrap; gap: 8px;">
+                            ${scores.map(s => `<span style="background: #f5f5f5; padding: 2px 8px; border-radius: 10px;">${s.name}: ${s.value}</span>`).join('')}
+                        </div>
+                    </div>`;
+
+                    // 3. 流媒体解锁卡片
+                    if (media && Object.keys(media).length > 0) {
+                        html += `<div style="background: #f8f9fa; padding: 16px; border-radius: 10px;">
+                            <div style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">🎬 流媒体解锁</div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;">`;
+
+                        const mediaIcons = {
+                            'TikTok': '🎵', 'Netflix': '🎬', 'DisneyPlus': '🏰', 'Youtube': '▶️',
+                            'AmazonPrimeVideo': '📦', 'Spotify': '🎧', 'ChatGPT': '🤖'
+                        };
+
+                        for (const [name, info] of Object.entries(media)) {
+                            const unlocked = info.Status === '解锁';
+                            const icon = mediaIcons[name] || '📺';
+                            const typeText = info.Type === '原生' ? '原生' : info.Type || '';
+                            html += `<div style="display: flex; align-items: center; gap: 6px; padding: 8px; background: ${unlocked ? '#e8f5e9' : '#ffebee'}; border-radius: 6px;">
+                                <span>${icon}</span>
+                                <div>
+                                    <div style="font-size: 12px; font-weight: 500;">${escapeHtml(name)}</div>
+                                    <div style="font-size: 10px; color: ${unlocked ? '#28a745' : '#dc3545'};">${unlocked ? '✓ ' + info.Region : '✗ 未解锁'}${typeText ? ' · ' + typeText : ''}</div>
+                                </div>
+                            </div>`;
+                        }
+                        html += '</div></div>';
                     }
-                    html += '</div>';
+
+                    // 4. 邮件端口检测
+                    if (mail) {
+                        const port25Open = mail.Port25 === true;
+                        const dnsInfo = mail.DNSBlacklist || {};
+                        html += `<div style="background: #f8f9fa; padding: 16px; border-radius: 10px;">
+                            <div style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">📧 邮件端口</div>
+                            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                                <span style="padding: 6px 12px; background: ${port25Open ? '#e8f5e9' : '#ffebee'}; border-radius: 20px; font-size: 12px;">
+                                    ${port25Open ? '✅' : '❌'} Port 25
+                                </span>
+                                <span style="padding: 6px 12px; background: #e3f2fd; border-radius: 20px; font-size: 12px;">
+                                    🛡️ 黑名单: ${dnsInfo.Blacklisted || 0}/${dnsInfo.Total || 0}
+                                </span>
+                            </div>
+                        </div>`;
+                    }
+
+                } else if (data.ip) {
+                    // ====== ipinfo.io 简单格式 ======
+                    html += `<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: bold; margin-bottom: 8px;">📍 ${escapeHtml(data.ip)}</div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px;">
+                            ${data.country ? `<div>🌍 ${escapeHtml(data.country)}</div>` : ''}
+                            ${data.city ? `<div>🏙️ ${escapeHtml(data.city)}</div>` : ''}
+                            ${data.region ? `<div>📍 ${escapeHtml(data.region)}</div>` : ''}
+                            ${data.org ? `<div>🏢 ${escapeHtml(data.org)}</div>` : ''}
+                            ${data.timezone ? `<div>🕐 ${escapeHtml(data.timezone)}</div>` : ''}
+                        </div>
+                    </div>`;
+
+                    html += `<div style="background: #fff3cd; padding: 12px; border-radius: 8px; font-size: 13px; color: #856404;">
+                        ℹ️ 这是基本IP信息。如需完整的IP质量检测（风险评分、流媒体解锁等），请确保目标服务器可以访问 IP.Check.Place
+                    </div>`;
+                } else {
+                    // 其他格式 - 尝试智能解析
+                    html += `<div style="background: #e3f2fd; padding: 12px; border-radius: 6px;">
+                        <strong>📊 检测结果</strong>
+                    </div>`;
                 }
 
                 // 原始JSON（可折叠）
                 html += `<details style="background: #f5f5f5; padding: 12px; border-radius: 6px;">
                     <summary style="cursor: pointer; font-weight: 600;">📋 原始数据</summary>
-                    <pre style="margin-top: 10px; overflow-x: auto; font-size: 11px; white-space: pre-wrap;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+                    <pre style="margin-top: 10px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; max-height: 300px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
                 </details>`;
 
                 html += '</div>';

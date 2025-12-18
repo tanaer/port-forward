@@ -6,6 +6,11 @@
     <title>{{.title}}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .config-card { transition: all 0.3s; }
+        .config-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .proxy-type-badge { font-size: 0.85rem; }
+    </style>
 </head>
 <body class="bg-light">
     <!-- 导航栏 -->
@@ -15,34 +20,304 @@
                 <i class="bi bi-cloud-network"></i>
                 goForward 2.0 分布式控制台
             </a>
-            <div class="ms-auto">
-                <a href="/" class="btn btn-light btn-sm">
-                    <i class="bi bi-arrow-left"></i> 返回首页
-                </a>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="bi bi-speedometer2"></i> 仪表盘
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/nodes">
+                            <i class="bi bi-cpu"></i> 节点管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/configs">
+                            <i class="bi bi-gear"></i> 配置管理
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
     </nav>
 
     <div class="container mt-4">
-        <h2 class="mb-4">
-            <i class="bi bi-gear"></i>
-            配置管理
-        </h2>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="bi bi-gear"></i>
+                代理配置管理
+            </h2>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createConfigModal">
+                <i class="bi bi-plus-circle"></i> 创建配置
+            </button>
+        </div>
 
-        <div class="card">
-            <div class="card-body">
-                <p class="text-muted">配置管理功能开发中...</p>
-                <p class="text-muted">将支持：</p>
-                <ul>
-                    <li>代理配置的增删改查</li>
-                    <li>配置版本管理</li>
-                    <li>批量配置下发</li>
-                    <li>配置模板</li>
-                </ul>
+        <!-- 配置列表 -->
+        <div class="row" id="configList">
+            {{range .configs}}
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card config-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h5 class="card-title mb-0">{{.name}}</h5>
+                            <span class="badge bg-info proxy-type-badge">{{.outbound_type}}</span>
+                        </div>
+                        <p class="text-muted small mb-2">
+                            <i class="bi bi-hdd-network"></i> 节点: {{.node_id}}
+                        </p>
+                        <p class="text-muted small mb-2">
+                            <i class="bi bi-arrow-right-circle"></i> 入站端口: {{.inbound_port}}
+                        </p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <small class="text-muted">版本 v{{.version}}</small>
+                            <div>
+                                <button class="btn btn-sm btn-outline-primary" onclick="viewConfig({{.id}})">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteConfig({{.id}}, '{{.name}}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {{else}}
+            <div class="col-12">
+                <div class="alert alert-info text-center">
+                    <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                    <p class="mt-3 mb-0">暂无配置，点击右上角"创建配置"开始</p>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- 创建配置模态框 -->
+    <div class="modal fade" id="createConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">创建代理配置</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createConfigForm">
+                        <!-- 基础信息 -->
+                        <div class="mb-3">
+                            <label class="form-label">配置名称 *</label>
+                            <input type="text" class="form-control" id="configName" required>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">目标节点 *</label>
+                                <select class="form-select" id="nodeId" required>
+                                    <option value="">选择节点...</option>
+                                    {{range .nodes}}
+                                    <option value="{{.id}}">{{.hostname}} ({{.id}})</option>
+                                    {{end}}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">代理类型 *</label>
+                                <select class="form-select" id="outboundType" required onchange="updateConfigFields()">
+                                    <option value="">选择类型...</option>
+                                    <option value="hysteria2">Hysteria2</option>
+                                    <option value="vmess">VMess</option>
+                                    <option value="socks5">SOCKS5</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">本地入站端口 *</label>
+                            <input type="number" class="form-control" id="inboundPort" min="1" max="65535" required>
+                        </div>
+
+                        <!-- 动态配置字段 -->
+                        <div id="dynamicFields"></div>
+
+                        <div class="mb-3">
+                            <label class="form-label">配置分组</label>
+                            <input type="text" class="form-control" id="configGroup" placeholder="例如: production, testing">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="submitConfig()">创建并下发</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 根据代理类型更新配置字段
+        function updateConfigFields() {
+            const type = document.getElementById('outboundType').value;
+            const container = document.getElementById('dynamicFields');
+
+            if (!type) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = '<h6 class="mb-3">代理服务器配置</h6>';
+
+            if (type === 'hysteria2') {
+                html += `
+                    <div class="mb-3">
+                        <label class="form-label">服务器地址 *</label>
+                        <input type="text" class="form-control" id="serverAddr" placeholder="example.com:443" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">认证密码 *</label>
+                        <input type="password" class="form-control" id="authPassword" required>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="insecure">
+                        <label class="form-check-label" for="insecure">
+                            跳过TLS证书验证（不安全）
+                        </label>
+                    </div>
+                `;
+            } else if (type === 'vmess') {
+                html += `
+                    <div class="mb-3">
+                        <label class="form-label">服务器地址 *</label>
+                        <input type="text" class="form-control" id="serverAddr" placeholder="example.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">服务器端口 *</label>
+                        <input type="number" class="form-control" id="serverPort" min="1" max="65535" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">UUID *</label>
+                        <input type="text" class="form-control" id="uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">AlterID</label>
+                        <input type="number" class="form-control" id="alterId" value="0">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="tls">
+                        <label class="form-check-label" for="tls">
+                            启用TLS
+                        </label>
+                    </div>
+                `;
+            } else if (type === 'socks5') {
+                html += `
+                    <div class="mb-3">
+                        <label class="form-label">服务器地址 *</label>
+                        <input type="text" class="form-control" id="serverAddr" placeholder="example.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">服务器端口 *</label>
+                        <input type="number" class="form-control" id="serverPort" min="1" max="65535" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <input type="text" class="form-control" id="username">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">密码</label>
+                        <input type="password" class="form-control" id="password">
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        // 提交配置
+        async function submitConfig() {
+            const type = document.getElementById('outboundType').value;
+            const params = {};
+
+            // 收集通用参数
+            if (type === 'hysteria2') {
+                params.server = document.getElementById('serverAddr').value;
+                params.auth = document.getElementById('authPassword').value;
+                params.insecure = document.getElementById('insecure').checked ? 'true' : 'false';
+            } else if (type === 'vmess') {
+                params.address = document.getElementById('serverAddr').value;
+                params.port = document.getElementById('serverPort').value;
+                params.id = document.getElementById('uuid').value;
+                params.alterId = document.getElementById('alterId').value;
+                params.security = document.getElementById('tls').checked ? 'tls' : 'none';
+            } else if (type === 'socks5') {
+                params.address = document.getElementById('serverAddr').value;
+                params.port = document.getElementById('serverPort').value;
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                if (username) params.username = username;
+                if (password) params.password = password;
+            }
+
+            const config = {
+                node_id: document.getElementById('nodeId').value,
+                name: document.getElementById('configName').value,
+                outbound_type: type,
+                inbound_port: parseInt(document.getElementById('inboundPort').value),
+                config_group: document.getElementById('configGroup').value || '',
+                params: params
+            };
+
+            try {
+                const response = await fetch('/api/configs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('配置创建成功！正在下发到Agent节点...');
+                    location.reload();
+                } else {
+                    alert('创建失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('创建失败: ' + error.message);
+                console.error('创建配置错误:', error);
+            }
+        }
+
+        // 查看配置详情
+        function viewConfig(id) {
+            window.location.href = `/configs/${id}`;
+        }
+
+        // 删除配置
+        async function deleteConfig(id, name) {
+            if (!confirm(`确定要删除配置 "${name}" 吗？\n\n此操作将停止Agent上的代理进程。`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/configs/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('配置已删除');
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('删除失败: ' + error.message);
+                console.error('删除配置错误:', error);
+            }
+        }
+    </script>
 </body>
 </html>

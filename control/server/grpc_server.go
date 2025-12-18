@@ -1125,6 +1125,25 @@ func (s *ControlServer) GetNodes() map[string]*NodeInfo {
 	return result
 }
 
+// DeleteNode 删除节点
+func (s *ControlServer) DeleteNode(nodeID string) error {
+	// 从内存中移除
+	s.nodeRegistry.mu.Lock()
+	delete(s.nodeRegistry.nodes, nodeID)
+	s.nodeRegistry.mu.Unlock()
+
+	// 从数据库中删除
+	if s.store != nil {
+		if err := s.store.NodeDAO().DeleteNode(nodeID); err != nil {
+			log.Printf("[控制端] 删除节点失败: %v", err)
+			return err
+		}
+	}
+
+	log.Printf("[控制端] 节点已删除: %s", nodeID)
+	return nil
+}
+
 // loadNodesFromDatabase 从数据库加载节点数据
 func (s *ControlServer) loadNodesFromDatabase() {
 	if s.store == nil {

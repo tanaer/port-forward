@@ -100,6 +100,7 @@ func (w *WebServer) setupRoutes() {
 	// API接口
 	router.GET("/api/nodes", w.apiNodesHandler)
 	router.GET("/api/nodes/:id", w.apiNodeDetailHandler)
+	router.DELETE("/api/nodes/:id", w.apiDeleteNodeHandler)
 	router.POST("/api/nodes/:id/isolate", w.apiIsolateNodeHandler)
 	router.POST("/api/nodes/:id/recover", w.apiRecoverNodeHandler)
 	router.GET("/api/nodes/:id/health", w.apiNodeHealthHandler)
@@ -110,6 +111,8 @@ func (w *WebServer) setupRoutes() {
 
 	// 配置API接口
 	router.GET("/api/configs", w.apiConfigsHandler)
+	router.POST("/api/configs", w.apiCreateConfigHandler)
+	router.DELETE("/api/configs/:id", w.apiDeleteConfigHandler)
 	router.POST("/api/configs/batch", w.apiBatchConfigsHandler)
 	router.DELETE("/api/configs/batch", w.apiBatchDeleteConfigsHandler)
 	router.GET("/api/configs/:id/versions", w.apiConfigVersionsHandler)
@@ -177,21 +180,40 @@ func (w *WebServer) nodeDetailHandler(c *gin.Context) {
 
 // configsHandler 配置列表页面
 func (w *WebServer) configsHandler(c *gin.Context) {
-	configs := w.controlSrv.GetConfigs()
+	// 获取所有配置
+	var configs []map[string]interface{}
+	if w.controlSrv.GetStore() != nil {
+		configRecords, err := w.controlSrv.GetStore().ProxyConfigDAO().GetAllConfigs()
+		if err == nil {
+			for _, config := range configRecords {
+				configs = append(configs, map[string]interface{}{
+					"id":            config.ID,
+					"node_id":       config.NodeID,
+					"name":          config.Name,
+					"outbound_type": config.OutboundType,
+					"inbound_port":  config.InboundPort,
+					"version":       config.Version,
+					"config_group":  config.ConfigGroup,
+				})
+			}
+		}
+	}
 
-	configList := make([]map[string]interface{}, 0, len(configs))
-	for configID, config := range configs {
-		configList = append(configList, map[string]interface{}{
-			"id":           configID,
-			"name":         config.Name,
-			"outboundType": config.OutboundType,
-			"inboundPort":  config.InboundPort,
+	// 获取所有节点
+	nodes := w.controlSrv.GetNodes()
+	nodeList := make([]map[string]interface{}, 0, len(nodes))
+	for nodeID, node := range nodes {
+		nodeList = append(nodeList, map[string]interface{}{
+			"id":       nodeID,
+			"hostname": node.Info.Hostname,
+			"status":   node.Status,
 		})
 	}
 
 	c.HTML(http.StatusOK, "configs.tmpl", gin.H{
 		"title":   "配置管理 - goForward 2.0",
-		"configs": configList,
+		"configs": configs,
+		"nodes":   nodeList,
 	})
 }
 
@@ -208,15 +230,23 @@ func (w *WebServer) apiNodesHandler(c *gin.Context) {
 
 	nodeList := make([]map[string]interface{}, 0, len(nodes))
 	for nodeID, node := range nodes {
+		// 安全地获取健康状态数据
+		var cpuPercent, memPercent, diskPercent int64
+		if node.Health != nil {
+			cpuPercent = node.Health.CpuPercent
+			memPercent = node.Health.MemoryPercent
+			diskPercent = node.Health.DiskPercent
+		}
+
 		nodeList = append(nodeList, map[string]interface{}{
 			"id":          nodeID,
 			"hostname":    node.Info.Hostname,
 			"ip":          node.Info.IpAddress,
 			"status":      node.Status,
 			"lastSeen":    node.LastHeartbeat.Unix(),
-			"cpuPercent":  node.Health.CpuPercent,
-			"memPercent":  node.Health.MemoryPercent,
-			"diskPercent": node.Health.DiskPercent,
+			"cpuPercent":  cpuPercent,
+			"memPercent":  memPercent,
+			"diskPercent": diskPercent,
 		})
 	}
 
@@ -1175,6 +1205,128 @@ func (w *WebServer) apiDLQCleanupHandler(c *gin.Context) {
 func (w *WebServer) Run(port string) error {
 	log.Printf("[Web服务器] 启动Web管理界面: http://localhost:%s", port)
 	return w.router.Run(":" + port)
+}
+
+// apiDeleteNodeHandler API - 删除节点
+func (w *WebServer) apiDeleteNodeHandler(c *gin.Context) {
+	nodeID := c.Param("id")
+
+	// 调用控制服务器删除节点
+	err := w.controlSrv.DeleteNode(nodeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "节点已删除",
+	})
+}
+
+// apiCreateConfigHandler API - 创建配置
+func (w *WebServer) apiCreateConfigHandler(c *gin.Context) {
+	var req struct {
+		NodeID       string                 `json:"node_id"`
+		Name         string                 `json:"name"`
+		OutboundType string                 `json:"outbound_type"`
+		InboundPort  int32                  `json:"inbound_port"`
+		ConfigGroup  string                 `json:"config_group"`
+		Params       map[string]interface{} `json:"params"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	// 验证必填字段
+	if req.NodeID == "" || req.Name == "" || req.OutboundType == "" || req.InboundPort == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "缺少必填字段",
+		})
+		return
+	}
+
+	// 序列化参数为JSON
+	paramsJSON, err := json.Marshal(req.Params)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "参数序列化失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 创建配置记录
+	config := &store.ProxyConfigRecord{
+		NodeID:       req.NodeID,
+		Name:         req.Name,
+		OutboundType: req.OutboundType,
+		ConfigJSON:   string(paramsJSON),
+		InboundPort:  req.InboundPort,
+		ConfigGroup:  req.ConfigGroup,
+		Version:      1,
+	}
+
+	// 保存到数据库
+	if err := w.controlSrv.GetStore().ProxyConfigDAO().CreateConfig(config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "保存配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[配置管理] 新配置已创建: %s (节点: %s, 类型: %s)", req.Name, req.NodeID, req.OutboundType)
+
+	// TODO: 通过gRPC推送配置到Agent节点
+	// 这部分将在下一步实现
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "配置创建成功",
+		"config":  config,
+	})
+}
+
+// apiDeleteConfigHandler API - 删除配置
+func (w *WebServer) apiDeleteConfigHandler(c *gin.Context) {
+	configIDStr := c.Param("id")
+	configID, err := strconv.ParseInt(configIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "配置ID无效",
+		})
+		return
+	}
+
+	// 从数据库删除
+	if err := w.controlSrv.GetStore().ProxyConfigDAO().DeleteConfig(int32(configID)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "删除配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[配置管理] 配置已删除: ID=%d", configID)
+
+	// TODO: 通知Agent停止对应的代理进程
+	// 这部分将在下一步实现
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "配置已删除",
+	})
 }
 
 // GetRouter 获取Gin路由器

@@ -23,6 +23,31 @@ type DependencyStatus struct {
 	Required  bool   `json:"required"`
 }
 
+// ReleaseInfo 描述上游最新发行版
+type ReleaseInfo struct {
+	Name        string `json:"name"`
+	Tag         string `json:"tag"`
+	Body        string `json:"body"`
+	URL         string `json:"url"`
+	PublishedAt string `json:"publishedAt"`
+}
+
+// ReleaseStatus 聚合当前安装和最新版本信息
+type ReleaseStatus struct {
+	Xray      ReleaseSummary `json:"xray"`
+	Hysteria2 ReleaseSummary `json:"hysteria2"`
+}
+
+// ReleaseSummary 单个依赖的版本/更新摘要
+type ReleaseSummary struct {
+	Name             string `json:"name"`
+	InstalledVersion string `json:"installedVersion"`
+	LatestVersion    string `json:"latestVersion"`
+	PublishedAt      string `json:"publishedAt"`
+	URL              string `json:"url"`
+	Notes            string `json:"notes"`
+}
+
 // EnvironmentStatus 环境状态
 type EnvironmentStatus struct {
 	Ready        bool               `json:"ready"`
@@ -303,40 +328,20 @@ func (i *Installer) InstallHysteria2() error {
 
 // getLatestXrayVersion 获取 Xray 最新版本
 func (i *Installer) getLatestXrayVersion() (string, error) {
-	resp, err := http.Get("https://api.github.com/repos/XTLS/Xray-core/releases/latest")
+	info, err := i.fetchReleaseInfo("https://api.github.com/repos/XTLS/Xray-core/releases/latest")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
-	}
-
-	return release.TagName, nil
+	return info.Tag, nil
 }
 
 // getLatestHy2Version 获取 Hysteria2 最新版本
 func (i *Installer) getLatestHy2Version() (string, error) {
-	resp, err := http.Get("https://api.github.com/repos/apernet/hysteria/releases/latest")
+	info, err := i.fetchReleaseInfo("https://api.github.com/repos/apernet/hysteria/releases/latest")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
-	}
-
-	return release.TagName, nil
+	return info.Tag, nil
 }
 
 // downloadFile 下载文件
@@ -366,6 +371,96 @@ func (i *Installer) downloadFile(url, destPath string) error {
 	_, err = io.Copy(out, resp.Body)
 	fmt.Println("[Installer] 下载完成")
 	return err
+}
+
+// GetReleaseStatus 获取依赖的当前/最新版本及发布说明摘要
+func (i *Installer) GetReleaseStatus() (ReleaseStatus, error) {
+	env := i.CheckEnvironment()
+	status := ReleaseStatus{
+		Xray:      ReleaseSummary{Name: "Xray-core"},
+		Hysteria2: ReleaseSummary{Name: "Hysteria2"},
+	}
+
+	// 读取已安装版本
+	for _, dep := range env.Dependencies {
+		if dep.Name == "Xray-core" {
+			status.Xray.InstalledVersion = dep.Version
+		}
+		if dep.Name == "Hysteria2" {
+			status.Hysteria2.InstalledVersion = dep.Version
+		}
+	}
+
+	xrayRelease, err := i.fetchReleaseInfo("https://api.github.com/repos/XTLS/Xray-core/releases/latest")
+	if err != nil {
+		return status, err
+	}
+	hyRelease, err := i.fetchReleaseInfo("https://api.github.com/repos/apernet/hysteria/releases/latest")
+	if err != nil {
+		return status, err
+	}
+
+	status.Xray.LatestVersion = xrayRelease.Tag
+	status.Xray.PublishedAt = xrayRelease.PublishedAt
+	status.Xray.URL = xrayRelease.URL
+	status.Xray.Notes = trimReleaseNotes(xrayRelease.Body)
+
+	status.Hysteria2.LatestVersion = hyRelease.Tag
+	status.Hysteria2.PublishedAt = hyRelease.PublishedAt
+	status.Hysteria2.URL = hyRelease.URL
+	status.Hysteria2.Notes = trimReleaseNotes(hyRelease.Body)
+
+	return status, nil
+}
+
+// fetchReleaseInfo 请求 GitHub release 信息
+func (i *Installer) fetchReleaseInfo(url string) (*ReleaseInfo, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取版本信息失败: HTTP %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName     string `json:"tag_name"`
+		Name        string `json:"name"`
+		Body        string `json:"body"`
+		HTMLURL     string `json:"html_url"`
+		PublishedAt string `json:"published_at"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, err
+	}
+
+	return &ReleaseInfo{
+		Name:        release.Name,
+		Tag:         release.TagName,
+		Body:        release.Body,
+		URL:         release.HTMLURL,
+		PublishedAt: release.PublishedAt,
+	}, nil
+}
+
+// trimReleaseNotes 截断发布说明，避免超长输出
+func trimReleaseNotes(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "暂无发布说明"
+	}
+
+	const maxLen = 1200
+	runes := []rune(body)
+	if len(runes) > maxLen {
+		runes = runes[:maxLen]
+		return string(runes) + "..."
+	}
+	return string(runes)
 }
 
 // unzipXray 解压 Xray

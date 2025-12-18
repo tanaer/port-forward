@@ -105,6 +105,9 @@
                                             <a href="/nodes/{{.id}}" class="btn btn-sm btn-info">
                                                 <i class="bi bi-eye"></i> 详情
                                             </a>
+                                            <button class="btn btn-sm btn-danger" onclick="deleteNode('{{.id}}', '{{.hostname}}')">
+                                                <i class="bi bi-trash"></i> 删除
+                                            </button>
                                         </td>
                                     </tr>
                                     {{else}}
@@ -216,6 +219,34 @@
         // 刷新节点列表
         async function refreshNodes() {
             location.reload();
+        }
+
+        // 删除节点
+        async function deleteNode(nodeId, hostname) {
+            if (!confirm(`确定要删除节点 ${nodeId} (${hostname}) 吗？\n\n此操作不可撤销。`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/nodes/${nodeId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('节点已删除');
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('删除失败: ' + error.message);
+                console.error('删除节点错误:', error);
+            }
         }
 
         // 页面加载完成后初始化

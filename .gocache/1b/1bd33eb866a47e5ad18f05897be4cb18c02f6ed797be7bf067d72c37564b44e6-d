@@ -1,0 +1,9 @@
+# test log
+stat .
+getenv TERM
+stat .
+getenv TERM
+stat .
+getenv TERM
+stat .
+getenv TERM

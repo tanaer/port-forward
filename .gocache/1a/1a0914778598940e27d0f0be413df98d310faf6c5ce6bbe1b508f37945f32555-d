@@ -1,0 +1,5 @@
+./installer.go
+./middleware.go
+./proxy.go
+./remote_install.go
+./web.go

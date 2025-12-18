@@ -15,6 +15,12 @@ import (
 	"time"
 )
 
+const (
+	poolBufSize   = 64 * 1024 // larger shared buffer to reduce syscalls
+	tcpSocketSize = 4 << 20   // TCP socket buffer target
+	udpSocketSize = 4 << 20   // 4 MiB socket buffers for bursty traffic
+)
+
 type IPStruct struct {
 	Time           int64     `gorm:"-"` // Unix时间戳
 	TCPConnections net.Conn  `gorm:"-"` // TCP连接
@@ -40,7 +46,7 @@ type LargeConnectionStats struct {
 // 复用缓冲区
 var bufPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 8192)
+		return make([]byte, poolBufSize)
 	},
 }
 
@@ -67,26 +73,29 @@ func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 
 	innerWg.Add(1)
 	go stats.printStats(&innerWg, ctx)
+	defer innerWg.Wait()
 
 	if stats.Protocol == "udp" {
 		// UDP转发
 		localAddr, err := net.ResolveUDPAddr("udp", ":"+stats.LocalPort)
 		if err != nil {
 			fmt.Println("解析本地地址时发生错误:", err)
-			os.Exit(1)
+			return
 		}
 
 		remoteAddr, err := net.ResolveUDPAddr("udp", stats.RemoteAddr+":"+stats.RemotePort)
 		if err != nil {
 			fmt.Println("解析远程地址时发生错误:", err)
-			os.Exit(1)
+			return
 		}
 
 		conn, err := net.ListenUDP("udp", localAddr)
 		if err != nil {
 			fmt.Println("监听时发生错误:", err)
-			os.Exit(1)
+			return
 		}
+		_ = conn.SetReadBuffer(udpSocketSize)
+		_ = conn.SetWriteBuffer(udpSocketSize)
 		defer conn.Close()
 		go func() {
 			for {
@@ -116,7 +125,7 @@ func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 
 		if err != nil {
 			fmt.Println("监听时发生错误:", err)
-			os.Exit(1)
+			return
 		}
 		defer listener.Close()
 		go func() {
@@ -156,7 +165,6 @@ func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 			go stats.handleTCPConnection(&innerWg, clientConn, ctx)
 		}
 	}
-	innerWg.Wait()
 }
 
 // TCP转发
@@ -167,6 +175,11 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	// 黑百名单判断
 	srcremoteAddr := clientConn.RemoteAddr()
 	srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
+	if tconn, ok := clientConn.(*net.TCPConn); ok {
+		_ = tconn.SetReadBuffer(tcpSocketSize)
+		_ = tconn.SetWriteBuffer(tcpSocketSize)
+		_ = tconn.SetNoDelay(true)
+	}
 
 	if cs.Whitelist != "" {
 		ok := ContainsIp(fmt.Sprintf("%v", srctcpAddr.IP), cs.Whitelist)
@@ -187,6 +200,11 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	if err != nil {
 		fmt.Println("连接远程地址时发生错误:", err)
 		return
+	}
+	if tconn, ok := remoteConn.(*net.TCPConn); ok {
+		_ = tconn.SetReadBuffer(tcpSocketSize)
+		_ = tconn.SetWriteBuffer(tcpSocketSize)
+		_ = tconn.SetNoDelay(true)
 	}
 	defer remoteConn.Close()
 
@@ -243,18 +261,15 @@ func (cs *ConnectionStats) handleUDPConnection(wg *sync.WaitGroup, localConn *ne
 				fmt.Println("从源读取时发生错误:", err)
 				return
 			}
-			fmt.Printf("收到长度为 %d 的UDP数据包\n", n)
+			if conf.Debug {
+				fmt.Printf("[udp] 收到长度 %d 的UDP数据包\n", n)
+			}
 			cs.TotalBytesLock.Lock()
 			cs.TotalBytes += uint64(n)
 			cs.TotalBytesLock.Unlock()
 
-			// 处理消息的边界和错误情况
-			//go cs.forwardUDPMessage(localConn, remoteAddr, buf[:n])
-			//bufPool.Put(buf[:n])
-			go func(b []byte, size int) {
-				cs.forwardUDPMessage(localConn, remoteAddr, b[:size])
-				bufPool.Put(b)
-			}(buf, n)
+			cs.forwardUDPMessage(localConn, remoteAddr, buf[:n])
+			bufPool.Put(buf)
 		}
 	}
 }

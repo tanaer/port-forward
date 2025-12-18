@@ -191,9 +191,15 @@ func (tm *TrafficMonitor) parseTrafficFromLog(logPath, pattern string) (uint64, 
 	// 检查是否有新内容
 	lastPos, exists := tm.lastPositions[logPath]
 	if !exists {
-		lastPos = 0
+		// 第一次读取，仅记录当前位置，不统计历史流量，避免重启后重复统计
+		tm.lastPositions[logPath] = fileSize
+		return 0, 0, nil
 	}
-	if lastPos >= fileSize {
+
+	if lastPos > fileSize {
+		// 文件可能被截断，从头开始读取
+		lastPos = 0
+	} else if lastPos == fileSize {
 		return 0, 0, nil // 没有新内容
 	}
 
