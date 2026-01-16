@@ -5,3 +5,7 @@ goForward.db
 logs/
 devops_logs/
 proxy_configs/
+
+# Build cache
+.cache/
+.gocache/
