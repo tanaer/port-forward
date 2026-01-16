@@ -35,8 +35,12 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			proxies[i].TodayTraffic = sql.FormatTraffic(up + down)
 		}
 
+		// 获取出站配置列表用于显示名称
+		outboundList, _ := sql.GetOutboundList()
+
 		c.HTML(http.StatusOK, "proxy_list.tmpl", gin.H{
 			"proxyList":              proxies,
+			"outboundList":           outboundList,
 			"stats":                  sql.GetProxyStats(),
 			"version":                version.Version,
 			"qualityConfig":          qualityCfg,
@@ -48,9 +52,13 @@ func RegisterProxyRoutes(r *gin.Engine) {
 
 	// 添加代理页面
 	r.GET("/proxy/add", func(c *gin.Context) {
+		// 获取出站配置列表
+		outboundList, _ := sql.GetOutboundList()
+
 		c.HTML(http.StatusOK, "proxy_add.tmpl", gin.H{
 			"realityDomains": xray.GetRealityDomainList(),
 			"version":        version.Version,
+			"outboundList":   outboundList,
 		})
 	})
 
@@ -304,6 +312,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		socks5Port, _ := strconv.Atoi(c.PostForm("hy2Socks5Port"))
 		insecure := c.PostForm("hy2Insecure") == "1"
 		outboundType := c.PostForm("outboundType")
+		outboundId, _ := strconv.Atoi(c.PostForm("outboundId"))
 		socks5OutPort, _ := strconv.Atoi(c.PostForm("socks5Port"))
 
 		// 默认值
@@ -359,6 +368,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			PublicKey:         c.PostForm("publicKey"),
 			ShortId:           c.PostForm("shortId"),
 			OutboundType:      outboundType,
+			OutboundConfigId:  outboundId,
 			Hy2Server:         c.PostForm("hy2Server"),
 			Hy2Port:           c.PostForm("hy2Port"),
 			Hy2Password:       c.PostForm("hy2Password"),
@@ -428,6 +438,9 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		qualityLogs := sql.GetProxyQualityLogs(id, 20)
 		latestQuality, hasQuality := sql.GetLatestProxyQualityLog(id)
 
+		// 获取出站配置列表
+		outboundList, _ := sql.GetOutboundList()
+
 		c.HTML(http.StatusOK, "proxy_edit.tmpl", gin.H{
 			"proxy":           proxyConfig,
 			"realityDomains":  xray.GetRealityDomainList(),
@@ -437,6 +450,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 			"lastQuality":     latestQuality,
 			"qualityHasValue": hasQuality,
 			"qualityConfig":   conf.QualityMonitor,
+			"outboundList":    outboundList,
 		})
 	})
 
@@ -459,6 +473,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		socks5Port, _ := strconv.Atoi(c.PostForm("hy2Socks5Port"))
 		insecure := c.PostForm("hy2Insecure") == "1"
 		outboundType := c.PostForm("outboundType")
+		outboundId, _ := strconv.Atoi(c.PostForm("outboundId"))
 		socks5OutPort, _ := strconv.Atoi(c.PostForm("socks5Port"))
 
 		// 默认 outbound 类型
@@ -516,6 +531,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		existing.Hy2Socks5Port = socks5Port
 		existing.Remark = c.PostForm("remark")
 		existing.OutboundType = outboundType
+		existing.OutboundConfigId = outboundId
 		existing.Socks5Addr = c.PostForm("socks5Addr")
 		existing.Socks5Port = socks5OutPort
 		existing.Socks5User = c.PostForm("socks5User")
@@ -889,7 +905,7 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		switch proxyConfig.OutboundType {
 		case "hysteria2":
 			// Hysteria2通过本地SOCKS5代理测试出站
-			result = proxy.TestHysteria2Connection("127.0.0.1", proxyConfig.Hy2Socks5Port)
+			result = proxy.TestHysteria2Socks5("127.0.0.1", proxyConfig.Hy2Socks5Port)
 		case "vmess":
 			result = proxy.TestVMessConnection(proxyConfig.VmessServer, proxyConfig.VmessPort)
 		case "socks5":

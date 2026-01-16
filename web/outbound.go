@@ -1,12 +1,17 @@
 package web
 
 import (
+	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"goForward/conf"
+	"goForward/proxy"
 	"goForward/proxy/hysteria"
 	"goForward/proxy/vmess"
 	"goForward/sql"
@@ -14,6 +19,11 @@ import (
 
 // RegisterOutboundRoutes 注册出站配置路由
 func RegisterOutboundRoutes(r *gin.Engine) {
+	// 出站配置管理页面
+	r.GET("/outbound", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "outbound.tmpl", gin.H{})
+	})
+
 	// 获取出站配置列表
 	r.GET("/outbound/list", func(c *gin.Context) {
 		list, err := sql.GetOutboundList()
@@ -138,6 +148,58 @@ func RegisterOutboundRoutes(r *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{
 			"code": 0,
 			"msg":  "停用成功",
+		})
+	})
+
+	// 测试单个出站配置
+	r.POST("/outbound/test/:id", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的出站ID"})
+			return
+		}
+
+		outbound, err := sql.GetOutbound(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "配置不存在"})
+			return
+		}
+
+		result := testOutbound(outbound)
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": result,
+		})
+	})
+
+	// 并发测试所有出站配置
+	r.POST("/outbound/test-all", func(c *gin.Context) {
+		list, err := sql.GetOutboundList()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		results := make([]outboundTestItem, len(list))
+		var wg sync.WaitGroup
+		for i, outbound := range list {
+			wg.Add(1)
+			go func(idx int, item conf.OutboundConfig) {
+				defer wg.Done()
+				testResult := testOutbound(&item)
+				results[idx] = outboundTestItem{
+					ID:                 item.Id,
+					Name:               item.Name,
+					Type:               item.Type,
+					outboundTestResult: testResult,
+				}
+			}(i, outbound)
+		}
+		wg.Wait()
+
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": results,
 		})
 	})
 
@@ -276,4 +338,113 @@ func parseOutboundForm(c *gin.Context) conf.OutboundConfig {
 	}
 
 	return outbound
+}
+
+type outboundTestResult struct {
+	Success       bool    `json:"success"`
+	Latency       string  `json:"latency"`
+	LatencyMs     int64   `json:"latencyMs"`
+	DownloadSpeed float64 `json:"downloadSpeed"`
+	UploadSpeed   float64 `json:"uploadSpeed"`
+	Message       string  `json:"message"`
+}
+
+type outboundTestItem struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+	outboundTestResult
+}
+
+func testOutbound(outbound *conf.OutboundConfig) outboundTestResult {
+	switch outbound.Type {
+	case "hysteria2":
+		return testHy2Outbound(outbound)
+	case "socks5":
+		return testSocks5Outbound(outbound)
+	case "vmess":
+		return testVMessOutbound(outbound)
+	default:
+		return outboundTestResult{
+			Success: false,
+			Message: "未知的出站类型",
+		}
+	}
+}
+
+// Hysteria2 测速需要启动临时客户端进行完整测试
+func testHy2Outbound(outbound *conf.OutboundConfig) outboundTestResult {
+	result := outboundTestResult{}
+
+	server := strings.TrimSpace(outbound.Hy2Server)
+	port := strings.TrimSpace(outbound.Hy2Port)
+	password := strings.TrimSpace(outbound.Hy2Password)
+	if server == "" || port == "" || password == "" {
+		result.Message = "Hysteria2配置不完整"
+		return result
+	}
+
+	// Hysteria2 是 QUIC/UDP 协议，需要启动临时客户端测试
+	// 使用 proxy 包的 TestHysteria2Connection 函数进行完整测试
+	testResult := proxy.TestHysteria2Connection(server, port, password, outbound.Hy2SNI, outbound.Hy2Insecure)
+	result.Success = testResult.Success
+	result.Message = testResult.Message
+	result.Latency = formatLatency(testResult.Latency)
+	result.LatencyMs = testResult.Latency.Milliseconds()
+	result.DownloadSpeed = formatSpeedToKB(testResult.DownloadSpeed)
+	result.UploadSpeed = formatSpeedToKB(testResult.UploadSpeed)
+	return result
+}
+
+func testSocks5Outbound(outbound *conf.OutboundConfig) outboundTestResult {
+	result := outboundTestResult{}
+
+	port := outbound.Socks5Port
+	if port == 0 {
+		port = 1080
+	}
+
+	// 只测试延迟，不测速（加快测试速度）
+	testResult := proxy.TestSOCKS5WithTarget(outbound.Socks5Addr, port, outbound.Socks5User, outbound.Socks5Password, "www.google.com:443")
+	result.Success = testResult.Success
+	result.Message = testResult.Message
+	result.Latency = formatLatency(testResult.Latency)
+	result.LatencyMs = testResult.Latency.Milliseconds()
+	return result
+}
+
+func testVMessOutbound(outbound *conf.OutboundConfig) outboundTestResult {
+	result := outboundTestResult{}
+	port := outbound.VmessPort
+	if port == 0 {
+		port = 443
+	}
+
+	testResult := proxy.TestVMessConnection(outbound.VmessServer, port)
+	result.Success = testResult.Success
+	result.Message = testResult.Message
+	result.Latency = formatLatency(testResult.Latency)
+	result.LatencyMs = testResult.Latency.Milliseconds()
+	return result
+}
+
+func formatLatency(latency time.Duration) string {
+	if latency <= 0 {
+		return "0ms"
+	}
+
+	ms := float64(latency.Microseconds()) / 1000.0
+	if ms < 1 {
+		return fmt.Sprintf("%.2fms", ms)
+	}
+	return fmt.Sprintf("%.0fms", ms)
+}
+
+// formatSpeedToKB 将字节/秒转换为KB/s，保留两位小数
+func formatSpeedToKB(bytesPerSecond float64) float64 {
+	if bytesPerSecond <= 0 {
+		return 0
+	}
+	kb := bytesPerSecond / 1024
+	return math.Round(kb*100) / 100
 }

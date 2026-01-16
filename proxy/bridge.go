@@ -67,7 +67,7 @@ func (b *Bridge) Start() error {
 		if hy2Manager.IsRunning(b.id) {
 			// Hysteria2已由管理器启动，等待SOCKS5端口就绪
 			fmt.Printf("[Bridge-%d] Hysteria2实例已由管理器管理，等待SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
-			if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
+			if err := b.waitForSocks5ReadyWithRetry(b.socks5Port, 30*time.Second, 2); err != nil {
 				return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
 			}
 			fmt.Printf("[Bridge-%d] Hysteria2 SOCKS5端口(%d)已就绪\n", b.id, b.socks5Port)
@@ -78,9 +78,9 @@ func (b *Bridge) Start() error {
 				return fmt.Errorf("启动Hysteria2失败: %v", err)
 			}
 
-			// 等待Hysteria2的SOCKS5端口就绪
+			// 等待Hysteria2的SOCKS5端口就绪（30秒超时，最多重试2次）
 			fmt.Printf("[Bridge-%d] 等待Hysteria2 SOCKS5端口(%d)就绪...\n", b.id, b.socks5Port)
-			if err := b.waitForSocks5Ready(b.socks5Port, 10*time.Second); err != nil {
+			if err := b.waitForSocks5ReadyWithRetry(b.socks5Port, 30*time.Second, 2); err != nil {
 				b.hy2Client.Stop()
 				return fmt.Errorf("Hysteria2 SOCKS5端口未就绪: %v", err)
 			}
@@ -125,6 +125,35 @@ func (b *Bridge) waitForSocks5Ready(port int, timeout time.Duration) error {
 	}
 
 	return fmt.Errorf("超时: SOCKS5端口 %d 在 %v 内未就绪", port, timeout)
+}
+
+// waitForSocks5ReadyWithRetry 等待SOCKS5端口就绪（带重试）
+func (b *Bridge) waitForSocks5ReadyWithRetry(port int, timeout time.Duration, maxRetries int) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Printf("[Bridge-%d] 端口检测重试 %d/%d...\n", b.id, attempt, maxRetries)
+			time.Sleep(2 * time.Second) // 重试前等待2秒
+		}
+
+		err := b.waitForSocks5Ready(port, timeout)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		fmt.Printf("[Bridge-%d] 端口检测失败: %v\n", b.id, err)
+
+		// 如果Hysteria2进程已经退出，就不要继续等待，直接返回错误
+		if b.outboundType == "hysteria2" {
+			hy2Manager := hysteria.GetGlobalManager()
+			if !hy2Manager.IsRunning(b.id) && (b.hy2Client == nil || !b.hy2Client.IsRunning()) {
+				return fmt.Errorf("Hysteria2未运行，SOCKS5端口不可用: %v", err)
+			}
+		}
+	}
+
+	return fmt.Errorf("重试 %d 次后仍失败: %v", maxRetries, lastErr)
 }
 
 // Stop 停止桥接

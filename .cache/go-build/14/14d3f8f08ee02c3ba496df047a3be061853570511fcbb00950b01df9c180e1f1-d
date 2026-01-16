@@ -1,0 +1,4 @@
+./client.go
+./config.go
+./manager.go
+./parser.go

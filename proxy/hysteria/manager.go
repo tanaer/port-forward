@@ -2,9 +2,11 @@ package hysteria
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"goForward/conf"
 )
@@ -72,8 +74,19 @@ func (m *Manager) CreateAndStart(id int, cfg conf.ProxyConfig) error {
 	m.clients[id] = client
 	m.configs[id] = configPath
 
-	fmt.Printf("[Hysteria2Manager] ID=%d 已启动，SOCKS5端口=%d\n",
-		id, hy2Config.Socks5.ListenPort())
+	socks5Port := hy2Config.Socks5.ListenPort()
+	fmt.Printf("[Hysteria2Manager] ID=%d 已启动，SOCKS5端口=%d，等待端口就绪...\n", id, socks5Port)
+
+	// 等待 SOCKS5 端口就绪（最多等待 30 秒），如果进程提前退出则立即失败
+	if err := waitForPortReadyWithClient(socks5Port, 30*time.Second, client); err != nil {
+		// 端口未就绪，停止客户端并返回错误
+		client.Stop()
+		delete(m.clients, id)
+		delete(m.configs, id)
+		return fmt.Errorf("Hysteria2 SOCKS5端口(%d)启动失败: %v", socks5Port, err)
+	}
+
+	fmt.Printf("[Hysteria2Manager] ID=%d SOCKS5端口(%d)已就绪\n", id, socks5Port)
 	return nil
 }
 
@@ -112,9 +125,18 @@ func (m *Manager) UpdateAndRestart(id int, cfg conf.ProxyConfig) error {
 		return fmt.Errorf("重启Hysteria2失败: %v", err)
 	}
 
+	socks5Port := hy2Config.Socks5.ListenPort()
 	m.mu.Unlock()
-	fmt.Printf("[Hysteria2Manager] ID=%d 已重启，SOCKS5端口=%d\n",
-		id, hy2Config.Socks5.ListenPort())
+
+	fmt.Printf("[Hysteria2Manager] ID=%d 已重启，SOCKS5端口=%d，等待端口就绪...\n", id, socks5Port)
+
+	// 等待 SOCKS5 端口就绪（最多等待 30 秒），如果进程提前退出则立即返回
+	if err := waitForPortReadyWithClient(socks5Port, 30*time.Second, m.clients[id]); err != nil {
+		fmt.Printf("[Hysteria2Manager] 警告: ID=%d SOCKS5端口(%d)等待失败: %v\n", id, socks5Port, err)
+		return fmt.Errorf("Hysteria2 SOCKS5端口(%d)启动失败: %v", socks5Port, err)
+	}
+
+	fmt.Printf("[Hysteria2Manager] ID=%d SOCKS5端口(%d)已就绪\n", id, socks5Port)
 	return nil
 }
 
@@ -249,6 +271,50 @@ func (m *Manager) StopAll() {
 	}
 
 	m.clients = make(map[int]*Client)
+}
+
+// waitForPortReady 等待端口就绪
+func waitForPortReady(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return fmt.Errorf("端口 %d 在 %v 内未就绪", port, timeout)
+}
+
+// waitForPortReadyWithClient 在等待端口就绪时，同时检测关联的客户端是否已经退出，避免长时间卡住
+func waitForPortReadyWithClient(port int, timeout time.Duration, client *Client) error {
+	deadline := time.Now().Add(timeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	for time.Now().Before(deadline) {
+		// 进程已退出则立即返回
+		if client != nil && !client.IsRunning() {
+			return fmt.Errorf("Hysteria2进程已退出")
+		}
+
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// 超时前再检查一次进程状态，提供更准确的错误
+	if client != nil && !client.IsRunning() {
+		return fmt.Errorf("Hysteria2进程已退出")
+	}
+
+	return fmt.Errorf("端口 %d 在 %v 内未就绪", port, timeout)
 }
 
 // GlobalHysteria2Manager 全局Hysteria2管理器实例

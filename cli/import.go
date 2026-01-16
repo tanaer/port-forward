@@ -196,8 +196,8 @@ func validateForwardConfig(fwd *ForwardConfig) error {
 	if fwd.Protocol != "tcp" && fwd.Protocol != "udp" {
 		return fmt.Errorf("protocol必须是tcp或udp")
 	}
-	if fwd.OutTime <= 0 {
-		fwd.OutTime = 30 // 默认30秒
+	if fwd.OutTime < 0 {
+		fwd.OutTime = conf.DefaultOutTime
 	}
 	return nil
 }
@@ -232,7 +232,7 @@ func CreateExampleConfig(filePath string) error {
 				LocalPort:  "9999",
 				RemoteAddr: "127.0.0.1",
 				RemotePort: "9999",
-				OutTime:    30,
+				OutTime:    conf.DefaultOutTime,
 				Protocol:   "tcp",
 				Whitelist:  "",
 				Blacklist:  "",

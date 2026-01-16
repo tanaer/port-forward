@@ -50,10 +50,9 @@ var RealityDomains = []struct {
 	Domain      string
 	Description string
 }{
-	{"microsoft.com:443", "微软"},
-	{"yahoo.com:443", "雅虎"},
-	{"apple.com:443", "苹果"},
-	{"cloudflare.com:443", "Cloudflare"},
+	{"www.yahoo.com:443", "雅虎"},
+	{"www.apple.com:443", "苹果"},
+	{"www.cloudflare.com:443", "Cloudflare"},
 	{"aws.amazon.com:443", "亚马逊AWS"},
 	{"www.tesla.com:443", "特斯拉"},
 	{"www.cisco.com:443", "思科"},

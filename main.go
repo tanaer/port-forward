@@ -57,7 +57,7 @@ func main() {
 			LocalPort:  conf.WebPort,
 			RemotePort: conf.WebPort,
 			RemoteAddr: "127.0.0.1",
-			OutTime:    5,
+			OutTime:    conf.DefaultOutTime,
 			Blacklist:  "",
 			Whitelist:  "",
 			Protocol:   "udp",

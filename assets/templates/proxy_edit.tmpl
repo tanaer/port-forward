@@ -7,10 +7,9 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #333; margin-bottom: 10px; }
 
-        /* 统一导航栏样式 */
         .top-nav {
             background: white;
             padding: 15px 30px;
@@ -29,17 +28,9 @@
             font-weight: 600;
             transition: all 0.3s;
         }
-        .top-nav a.active {
-            background: #007bff;
-            color: white;
-        }
-        .top-nav a:not(.active) {
-            background: #f8f9fa;
-            color: #333;
-        }
-        .top-nav a:not(.active):hover {
-            background: #e9ecef;
-        }
+        .top-nav a.active { background: #007bff; color: white; }
+        .top-nav a:not(.active) { background: #f8f9fa; color: #333; }
+        .top-nav a:not(.active):hover { background: #e9ecef; }
         .top-nav .logo {
             font-size: 18px;
             font-weight: bold;
@@ -53,42 +44,108 @@
         .nav a { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px; }
         .nav a:hover { background: #5a6268; }
         .section { margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
-        .section h2 { color: #007bff; margin-bottom: 15px; font-size: 18px; }
+        .section h2 { color: #007bff; margin-bottom: 15px; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; color: #333; font-weight: 600; }
         input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
         textarea { resize: vertical; min-height: 60px; }
-        .btn { padding: 12px 30px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }
         .btn-primary { background: #007bff; color: white; }
         .btn-primary:hover { background: #0056b3; }
-        .btn-secondary { background: #6c757d; color: white; margin-left: 10px; }
+        .btn-secondary { background: #6c757d; color: white; }
         .btn-secondary:hover { background: #5a6268; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-sm { padding: 5px 12px; font-size: 12px; }
         .help-text { font-size: 12px; color: #666; margin-top: 5px; }
         .row { display: flex; gap: 15px; }
         .col { flex: 1; }
+
+        /* 出站配置卡片 */
+        .outbound-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; margin-top: 15px; }
+        .outbound-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            background: white;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .outbound-card:hover { border-color: #007bff; box-shadow: 0 2px 8px rgba(0,123,255,0.15); }
+        .outbound-card.selected { border-color: #28a745; background: #f0fff0; }
+        .outbound-card.current-config { border-color: #ffc107; background: #fffef0; }
+        .outbound-card.selected.current-config { border-color: #28a745; background: #f0fff0; }
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-name { font-weight: 600; font-size: 16px; }
+        .card-type { font-size: 11px; padding: 2px 8px; border-radius: 4px; color: white; }
+        .type-hysteria2 { background: #667eea; }
+        .type-socks5 { background: #28a745; }
+        .type-vmess { background: #17a2b8; }
+        .card-server { color: #666; font-size: 13px; margin-bottom: 8px; }
+        .card-speed { font-size: 12px; margin-bottom: 8px; }
+        .card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .speed-good { color: #28a745; }
+        .speed-medium { color: #ffc107; }
+        .speed-bad { color: #dc3545; }
+        .spinner { width: 14px; height: 14px; border: 2px solid #e0e0e0; border-top-color: #007bff; border-radius: 50%; display: inline-block; animation: spin 0.8s linear infinite; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .current-badge { font-size: 11px; background: #ffc107; color: #333; padding: 2px 6px; border-radius: 3px; margin-left: 5px; }
+        .selected-badge { font-size: 11px; background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; margin-left: 5px; }
+
+        /* 弹出层 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            max-width: 550px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal h3 { margin-bottom: 20px; color: #333; }
+        .modal-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+        .form-row { display: flex; gap: 15px; }
+        .form-row .form-group { flex: 1; }
+
+        .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .empty-hint { text-align: center; padding: 30px; color: #666; background: #fff3cd; border-radius: 4px; margin-top: 15px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 统一顶部导航栏 -->
         <div class="top-nav">
-            <div class="logo">🚀 goForward</div>
-            <a href="/">📡 端口隧道</a>
-            <a href="/proxy" class="active">🔐 代理转发</a>
-            <a href="/environment">⚙️ 环境配置</a>
+            <div class="logo">goForward</div>
+            <a href="/">端口隧道</a>
+            <a href="/proxy" class="active">代理转发</a>
+            <a href="/outbound">出站配置</a>
+            <a href="/environment">环境配置</a>
         </div>
 
-        <h1>✏️ 编辑代理配置</h1>
+        <h1>编辑代理配置</h1>
         <p style="color: #666; margin-bottom: 20px;">{{.proxy.Name}}</p>
 
         <div class="nav">
             <a href="/proxy">← 返回代理列表</a>
         </div>
 
-        <form id="editForm" method="POST" action="/proxy/edit/{{.proxy.Id}}" onsubmit="return handleEditSubmit(event)">
+        <form id="editForm" method="POST" action="/proxy/edit/{{.proxy.Id}}">
             <!-- 基本信息 -->
             <div class="section">
-                <h2>📋 基本信息</h2>
+                <h2>基本信息</h2>
                 <div class="form-group">
                     <label>配置名称 *</label>
                     <input type="text" name="name" value="{{.proxy.Name}}" required>
@@ -101,7 +158,7 @@
 
             <!-- VLESS+Reality 配置 -->
             <div class="section">
-                <h2>🔐 VLESS+Reality 入站配置</h2>
+                <h2>VLESS+Reality 入站配置</h2>
                 <div class="row">
                     <div class="col">
                         <div class="form-group">
@@ -112,10 +169,7 @@
                     <div class="col">
                         <div class="form-group">
                             <label>UUID *</label>
-                            <div style="display: flex; gap: 10px;">
-                                <input type="text" name="uuid" id="uuid" value="{{.proxy.UUID}}" required style="flex: 1;">
-                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('uuid', 'UUID')" style="padding: 8px 15px;">📋 复制</button>
-                            </div>
+                            <input type="text" name="uuid" id="uuid" value="{{.proxy.UUID}}" required>
                         </div>
                     </div>
                 </div>
@@ -138,551 +192,624 @@
                     <div class="col">
                         <div class="form-group">
                             <label>私钥 *</label>
-                            <div style="display: flex; gap: 10px;">
-                                <input type="text" name="privateKey" id="privateKey" value="{{.proxy.PrivateKey}}" required style="flex: 1;">
-                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('privateKey', '私钥')" style="padding: 8px 15px;">📋 复制</button>
-                            </div>
+                            <input type="text" name="privateKey" id="privateKey" value="{{.proxy.PrivateKey}}" required>
                         </div>
                     </div>
                     <div class="col">
                         <div class="form-group">
                             <label>公钥 *</label>
-                            <div style="display: flex; gap: 10px;">
-                                <input type="text" name="publicKey" id="publicKey" value="{{.proxy.PublicKey}}" required style="flex: 1;">
-                                <button type="button" class="btn btn-secondary" onclick="copyToClipboard('publicKey', '公钥')" style="padding: 8px 15px;">📋 复制</button>
-                            </div>
+                            <input type="text" name="publicKey" id="publicKey" value="{{.proxy.PublicKey}}" required>
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Short ID *</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" name="shortId" id="shortId" value="{{.proxy.ShortId}}" required style="flex: 1;">
-                        <button type="button" class="btn btn-secondary" onclick="copyToClipboard('shortId', 'Short ID')" style="padding: 8px 15px;">📋 复制</button>
-                    </div>
+                    <input type="text" name="shortId" id="shortId" value="{{.proxy.ShortId}}" required>
                 </div>
             </div>
 
-            <!-- 出站配置 -->
+            <!-- 出站配置选择 -->
             <div class="section">
-                <h2>🚀 出站配置</h2>
+                <h2>
+                    <span>出站配置</span>
+                    <div class="toolbar">
+                        <button type="button" class="btn btn-success btn-sm" onclick="testAllOutbounds()">测试全部</button>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="showAddOutboundModal()">+ 添加</button>
+                        <span id="outbound-status" class="help-text"></span>
+                    </div>
+                </h2>
+
+                <!-- 隐藏字段 -->
+                <input type="hidden" name="outboundId" id="outboundId" value="{{.proxy.OutboundConfigId}}">
+                <input type="hidden" name="outboundType" id="outboundType" value="{{.proxy.OutboundType}}">
+                <input type="hidden" name="hy2Server" id="hy2Server" value="{{.proxy.Hy2Server}}">
+                <input type="hidden" name="hy2Port" id="hy2Port" value="{{.proxy.Hy2Port}}">
+                <input type="hidden" name="hy2Password" id="hy2Password" value="{{.proxy.Hy2Password}}">
+                <input type="hidden" name="hy2Subscription" id="hy2Subscription" value="{{.proxy.Hy2Subscription}}">
+                <input type="hidden" name="hy2Obfs" id="hy2Obfs" value="{{.proxy.Hy2Obfs}}">
+                <input type="hidden" name="hy2ObfsPassword" id="hy2ObfsPassword" value="{{.proxy.Hy2ObfsPassword}}">
+                <input type="hidden" name="hy2SNI" id="hy2SNI" value="{{.proxy.Hy2SNI}}">
+                <input type="hidden" name="hy2Insecure" id="hy2Insecure" value="{{if .proxy.Hy2Insecure}}1{{else}}0{{end}}">
+                <input type="hidden" name="hy2UpMbps" id="hy2UpMbps" value="{{.proxy.Hy2UpMbps}}">
+                <input type="hidden" name="hy2DownMbps" id="hy2DownMbps" value="{{.proxy.Hy2DownMbps}}">
+                <input type="hidden" name="hy2Socks5Port" id="hy2Socks5Port" value="{{.proxy.Hy2Socks5Port}}">
+                <input type="hidden" name="socks5Addr" id="socks5Addr" value="{{.proxy.Socks5Addr}}">
+                <input type="hidden" name="socks5Port" id="socks5Port" value="{{.proxy.Socks5Port}}">
+                <input type="hidden" name="socks5User" id="socks5User" value="{{.proxy.Socks5User}}">
+                <input type="hidden" name="socks5Password" id="socks5Password" value="{{.proxy.Socks5Password}}">
+                <input type="hidden" name="vmessServer" id="vmessServer" value="{{.proxy.VmessServer}}">
+                <input type="hidden" name="vmessPort" id="vmessPort" value="{{.proxy.VmessPort}}">
+                <input type="hidden" name="vmessUUID" id="vmessUUID" value="{{.proxy.VmessUUID}}">
+                <input type="hidden" name="vmessAlterID" id="vmessAlterID" value="{{.proxy.VmessAlterID}}">
+                <input type="hidden" name="vmessSecurity" id="vmessSecurity" value="{{.proxy.VmessSecurity}}">
+                <input type="hidden" name="vmessNetwork" id="vmessNetwork" value="{{.proxy.VmessNetwork}}">
+                <input type="hidden" name="vmessTLS" id="vmessTLS" value="{{if .proxy.VmessTLS}}1{{else}}0{{end}}">
+                <input type="hidden" name="vmessServerName" id="vmessServerName" value="{{.proxy.VmessServerName}}">
+                <input type="hidden" name="vmessWsPath" id="vmessWsPath" value="{{.proxy.VmessWsPath}}">
+                <input type="hidden" name="vmessWsHost" id="vmessWsHost" value="{{.proxy.VmessWsHost}}">
+                <input type="hidden" name="vmessSubscription" id="vmessSubscription" value="{{.proxy.VmessSubscription}}">
+
+                <div id="outbound-list" class="outbound-grid">
+                    <!-- 出站配置卡片将通过JS渲染 -->
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <button type="submit" class="btn btn-primary" style="padding: 12px 40px;">保存更改</button>
+                <a href="/proxy" class="btn btn-secondary" style="text-decoration: none; display: inline-block; margin-left: 10px;">取消</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- 添加/编辑出站配置弹窗 -->
+    <div class="modal-overlay" id="outboundModal">
+        <div class="modal">
+            <h3 id="modal-title">添加出站配置</h3>
+            <form id="outbound-form" onsubmit="return saveOutbound(event)">
+                <input type="hidden" id="edit-outbound-id" value="">
+
+                <div class="form-group">
+                    <label>配置名称 *</label>
+                    <input type="text" id="ob-name" required placeholder="例如: 香港HY2节点">
+                </div>
 
                 <div class="form-group">
                     <label>出站类型 *</label>
-                    <select name="outboundType" id="outboundType" required onchange="toggleOutboundConfig()">
-                        <option value="hysteria2" {{if eq .proxy.OutboundType "hysteria2"}}selected{{else}}{{if eq .proxy.OutboundType ""}}selected{{end}}{{end}}>Hysteria2（高速专线）</option>
-                        <option value="vmess" {{if eq .proxy.OutboundType "vmess"}}selected{{end}}>VMess（通用协议）</option>
-                        <option value="socks5" {{if eq .proxy.OutboundType "socks5"}}selected{{end}}>SOCKS5（本地代理）</option>
+                    <select id="ob-type" required onchange="toggleOutboundFields()">
+                        <option value="hysteria2">Hysteria2</option>
+                        <option value="socks5">SOCKS5</option>
+                        <option value="vmess">VMess</option>
                     </select>
-                    <div class="help-text">
-                        Hysteria2: 高速、稳定，适合专线中转<br>
-                        VMess: V2Ray 通用协议，兼容性好<br>
-                        SOCKS5: 连接本地或远程 SOCKS5 服务器
-                    </div>
                 </div>
 
-                <!-- Hysteria2 配置区域 -->
-                <div id="hy2Config">
-
-                <!-- Hysteria2 一键安装提示 -->
-                <div class="form-group" style="background: #f0f4ff; border-left: 4px solid #667eea; padding: 12px 15px;">
-                    <div style="margin-bottom: 10px;">
-                        <strong style="color: #333;">🚀 还没有 Hysteria2 服务器？</strong>
-                    </div>
-                    <div style="background: #fff; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
-                        <code style="font-size: 13px; color: #495057; word-break: break-all; font-family: 'Courier New', monospace;">curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash</code>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button type="button" class="btn btn-primary" onclick="copyHy2InstallCmd()" style="padding: 6px 12px; font-size: 13px;">
-                            📋 复制命令
-                        </button>
-                        <a href="https://github.com/tanaer/port-forward/blob/master/HYSTERIA2_AUTO_INSTALL.md" target="_blank" class="btn" style="padding: 6px 12px; font-size: 13px; background: #6c757d; color: white; text-decoration: none;">
-                            📖 查看文档
-                        </a>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Hysteria2 订阅链接</label>
-                    <input type="text" name="hy2Subscription" id="hy2Sub" value="{{.proxy.Hy2Subscription}}" placeholder="可选: 粘贴订阅链接自动解析">
-                    <button type="button" class="btn btn-secondary" onclick="parseHy2Sub()">解析订阅</button>
-                </div>
-
-                <div class="row">
-                    <div class="col">
-                        <div class="form-group">
-                            <label>服务器地址 *</label>
-                            <input type="text" name="hy2Server" id="hy2Server" value="{{.proxy.Hy2Server}}" required>
+                <!-- Hysteria2 字段 -->
+                <div id="hy2-fields">
+                    <div class="form-group">
+                        <label>订阅链接</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="ob-hy2Subscription" placeholder="可选: 粘贴 hy2:// 链接" style="flex: 1;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="parseHy2Sub()">解析</button>
                         </div>
                     </div>
-                    <div class="col">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>服务器 *</label>
+                            <input type="text" id="ob-hy2Server" placeholder="example.com">
+                        </div>
                         <div class="form-group">
                             <label>端口 *</label>
-                            <input type="text" name="hy2Port" id="hy2Port" value="{{.proxy.Hy2Port}}" required>
+                            <input type="text" id="ob-hy2Port" value="443" placeholder="443">
                         </div>
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label>密码 *</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" name="hy2Password" id="hy2Password" value="{{.proxy.Hy2Password}}" required style="flex: 1;">
-                        <button type="button" class="btn btn-secondary" onclick="copyToClipboard('hy2Password', 'Hysteria2密码')" style="padding: 8px 15px;">📋 复制</button>
+                    <div class="form-group">
+                        <label>密码 *</label>
+                        <input type="text" id="ob-hy2Password" placeholder="认证密码">
                     </div>
-                </div>
-
-                <div class="row">
-                    <div class="col">
+                    <div class="form-row">
                         <div class="form-group">
-                            <label>混淆类型</label>
-                            <select name="hy2Obfs" id="hy2Obfs">
-                                <option value="" {{if eq .proxy.Hy2Obfs ""}}selected{{end}}>无</option>
-                                <option value="salamander" {{if eq .proxy.Hy2Obfs "salamander"}}selected{{end}}>salamander</option>
+                            <label>SNI</label>
+                            <input type="text" id="ob-hy2SNI" placeholder="可选">
+                        </div>
+                        <div class="form-group">
+                            <label>跳过证书验证</label>
+                            <select id="ob-hy2Insecure">
+                                <option value="0">否</option>
+                                <option value="1">是</option>
                             </select>
                         </div>
                     </div>
-                    <div class="col">
+                </div>
+
+                <!-- SOCKS5 字段 -->
+                <div id="socks5-fields" style="display: none;">
+                    <div class="form-row">
                         <div class="form-group">
-                            <label>混淆密码</label>
-                            <input type="text" name="hy2ObfsPassword" id="hy2ObfsPassword" value="{{.proxy.Hy2ObfsPassword}}">
+                            <label>服务器 *</label>
+                            <input type="text" id="ob-socks5Addr" placeholder="127.0.0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>端口 *</label>
+                            <input type="number" id="ob-socks5Port" value="1080" placeholder="1080">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>用户名</label>
+                            <input type="text" id="ob-socks5User" placeholder="可选">
+                        </div>
+                        <div class="form-group">
+                            <label>密码</label>
+                            <input type="text" id="ob-socks5Password" placeholder="可选">
                         </div>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label>SNI</label>
-                    <input type="text" name="hy2SNI" id="hy2SNI" value="{{.proxy.Hy2SNI}}">
-                </div>
-
-                <div class="row">
-                    <div class="col">
-                        <div class="form-group">
-                            <label>上行带宽 (Mbps)</label>
-                            <input type="number" name="hy2UpMbps" value="{{.proxy.Hy2UpMbps}}">
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="form-group">
-                            <label>下行带宽 (Mbps)</label>
-                            <input type="number" name="hy2DownMbps" value="{{.proxy.Hy2DownMbps}}">
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="form-group">
-                            <label>SOCKS5端口</label>
-                            <input type="number" name="hy2Socks5Port" value="{{.proxy.Hy2Socks5Port}}" placeholder="留空自动分配">
-                            <div class="help-text">留空或填0自动分配可用端口</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="hy2Insecure" id="hy2Insecure" value="1" {{if .proxy.Hy2Insecure}}checked{{end}}>
-                        跳过证书验证 (不安全)
-                    </label>
-                </div>
-                </div>
-
-                <!-- SOCKS5 配置区域 -->
-                <div id="socks5Config" style="display: none;">
+                <!-- VMess 字段 -->
+                <div id="vmess-fields" style="display: none;">
                     <div class="form-group">
-                        <label>SOCKS5 服务器地址 *</label>
-                        <input type="text" name="socks5Addr" id="socks5Addr" value="{{.proxy.Socks5Addr}}" placeholder="例如: 127.0.0.1 或 proxy.example.com">
-                        <div class="help-text">SOCKS5 代理服务器的 IP 地址或域名</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>SOCKS5 端口 *</label>
-                        <input type="number" name="socks5Port" id="socks5Port" value="{{.proxy.Socks5Port}}" placeholder="1080">
-                        <div class="help-text">SOCKS5 代理服务器的端口，默认 1080</div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col">
-                            <div class="form-group">
-                                <label>用户名</label>
-                                <input type="text" name="socks5User" value="{{.proxy.Socks5User}}" placeholder="可选，如需认证请填写">
-                                <div class="help-text">如果 SOCKS5 服务器需要认证，请填写用户名</div>
-                            </div>
-                        </div>
-                        <div class="col">
-                            <div class="form-group">
-                                <label>密码</label>
-                                <input type="text" name="socks5Password" value="{{.proxy.Socks5Password}}" placeholder="可选，如需认证请填写">
-                                <div class="help-text">如果 SOCKS5 服务器需要认证，请填写密码</div>
-                            </div>
+                        <label>VMess 链接</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="ob-vmessSubscription" placeholder="可选: 粘贴 vmess:// 链接" style="flex: 1;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="parseVmessSub()">解析</button>
                         </div>
                     </div>
-
-                    <div class="form-group" style="background: #fff3cd; padding: 15px; border-radius: 4px; border-left: 4px solid #856404;">
-                        <strong style="color: #856404;">💡 使用场景：</strong>
-                        <ul style="color: #856404; margin: 10px 0 0 20px;">
-                            <li>连接本地 SOCKS5 代理（如 Shadowsocks、V2Ray）</li>
-                            <li>连接远程 SOCKS5 服务器</li>
-                            <li>多层代理串联</li>
-                            <li>支持有无认证的 SOCKS5 服务器</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <!-- VMess 配置区域 -->
-                <div id="vmessConfig" style="display: none;">
-                    <div class="form-group">
-                        <label>VMess 订阅链接</label>
-                        <input type="text" name="vmessSubscription" id="vmessSub" value="{{.proxy.VmessSubscription}}" placeholder="可选: 粘贴 vmess:// 链接自动解析">
-                        <button type="button" class="btn btn-secondary" onclick="parseVmessSub()">解析订阅</button>
-                    </div>
-
-                    <div class="row">
-                        <div class="col">
-                            <div class="form-group">
-                                <label>服务器地址 *</label>
-                                <input type="text" name="vmessServer" id="vmessServer" value="{{.proxy.VmessServer}}" placeholder="example.com">
-                            </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>服务器 *</label>
+                            <input type="text" id="ob-vmessServer" placeholder="example.com">
                         </div>
-                        <div class="col">
-                            <div class="form-group">
-                                <label>端口 *</label>
-                                <input type="number" name="vmessPort" id="vmessPort" value="{{if .proxy.VmessPort}}{{.proxy.VmessPort}}{{else}}443{{end}}">
-                            </div>
+                        <div class="form-group">
+                            <label>端口 *</label>
+                            <input type="number" id="ob-vmessPort" value="443" placeholder="443">
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label>UUID *</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="text" name="vmessUUID" id="vmessUUID" value="{{.proxy.VmessUUID}}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="flex: 1;">
-                            <button type="button" class="btn btn-secondary" onclick="copyToClipboard('vmessUUID', 'VMess UUID')" style="padding: 8px 15px;">📋 复制</button>
-                        </div>
+                        <input type="text" id="ob-vmessUUID" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
                     </div>
-
-                    <div class="row">
-                        <div class="col">
-                            <div class="form-group">
-                                <label>alterID</label>
-                                <input type="number" name="vmessAlterID" id="vmessAlterID" value="{{.proxy.VmessAlterID}}">
-                            </div>
-                        </div>
-                        <div class="col">
-                            <div class="form-group">
-                                <label>加密方式</label>
-                                <select name="vmessSecurity" id="vmessSecurity">
-                                    <option value="auto" {{if eq .proxy.VmessSecurity "auto"}}selected{{end}}>auto</option>
-                                    <option value="aes-128-gcm" {{if eq .proxy.VmessSecurity "aes-128-gcm"}}selected{{end}}>aes-128-gcm</option>
-                                    <option value="chacha20-poly1305" {{if eq .proxy.VmessSecurity "chacha20-poly1305"}}selected{{end}}>chacha20-poly1305</option>
-                                    <option value="none" {{if eq .proxy.VmessSecurity "none"}}selected{{end}}>none</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col">
-                            <div class="form-group">
-                                <label>传输协议</label>
-                                <select name="vmessNetwork" id="vmessNetwork" onchange="toggleVmessWsConfig()">
-                                    <option value="tcp" {{if eq .proxy.VmessNetwork "tcp"}}selected{{end}}>TCP</option>
-                                    <option value="ws" {{if eq .proxy.VmessNetwork "ws"}}selected{{end}}>WebSocket</option>
-                                    <option value="h2" {{if eq .proxy.VmessNetwork "h2"}}selected{{end}}>HTTP/2</option>
-                                    <option value="grpc" {{if eq .proxy.VmessNetwork "grpc"}}selected{{end}}>gRPC</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col">
-                            <div class="form-group">
-                                <label>
-                                    <input type="checkbox" name="vmessTLS" id="vmessTLS" value="1" {{if .proxy.VmessTLS}}checked{{end}} onchange="toggleVmessTLSConfig()">
-                                    启用 TLS
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="vmessTLSConfig" style="display: {{if .proxy.VmessTLS}}block{{else}}none{{end}};">
+                    <div class="form-row">
                         <div class="form-group">
-                            <label>TLS Server Name (SNI)</label>
-                            <input type="text" name="vmessServerName" id="vmessServerName" value="{{.proxy.VmessServerName}}" placeholder="example.com">
-                        </div>
-                    </div>
-
-                    <div id="vmessWsConfig" style="display: {{if eq .proxy.VmessNetwork "ws"}}block{{else}}none{{end}};">
-                        <div class="form-group">
-                            <label>WebSocket 路径</label>
-                            <input type="text" name="vmessWsPath" id="vmessWsPath" value="{{.proxy.VmessWsPath}}" placeholder="/path">
+                            <label>传输协议</label>
+                            <select id="ob-vmessNetwork">
+                                <option value="tcp">TCP</option>
+                                <option value="ws">WebSocket</option>
+                            </select>
                         </div>
                         <div class="form-group">
-                            <label>WebSocket Host</label>
-                            <input type="text" name="vmessWsHost" id="vmessWsHost" value="{{.proxy.VmessWsHost}}" placeholder="example.com">
+                            <label>启用TLS</label>
+                            <select id="ob-vmessTLS">
+                                <option value="0">否</option>
+                                <option value="1">是</option>
+                            </select>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <button type="submit" class="btn btn-primary">💾 保存更改</button>
-            <a href="/proxy" class="btn btn-secondary" style="text-decoration: none; display: inline-block;">取消</a>
-        </form>
-
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideOutboundModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>
-        function toggleOutboundConfig() {
-            const outboundType = document.getElementById('outboundType').value;
-            const hy2Config = document.getElementById('hy2Config');
-            const socks5Config = document.getElementById('socks5Config');
-            const vmessConfig = document.getElementById('vmessConfig');
+        // 当前代理的出站配置信息
+        const currentConfig = {
+            outboundId: {{.proxy.OutboundConfigId}},
+            outboundType: '{{.proxy.OutboundType}}',
+            hy2Server: '{{.proxy.Hy2Server}}',
+            socks5Addr: '{{.proxy.Socks5Addr}}',
+            vmessServer: '{{.proxy.VmessServer}}'
+        };
 
-            // 隐藏所有配置
-            hy2Config.style.display = 'none';
-            socks5Config.style.display = 'none';
-            if (vmessConfig) vmessConfig.style.display = 'none';
+        let outboundList = [];
+        let selectedOutboundId = currentConfig.outboundId || 0;
 
-            // 清除所有必填项
-            document.getElementById('hy2Server').removeAttribute('required');
-            document.getElementById('hy2Password').removeAttribute('required');
-            document.getElementById('socks5Addr').removeAttribute('required');
+        document.addEventListener('DOMContentLoaded', loadOutbounds);
 
-            // 根据类型显示对应配置
-            if (outboundType === 'socks5') {
-                socks5Config.style.display = 'block';
-                document.getElementById('socks5Addr').setAttribute('required', 'required');
-            } else if (outboundType === 'vmess') {
-                if (vmessConfig) vmessConfig.style.display = 'block';
-            } else {
-                hy2Config.style.display = 'block';
-                document.getElementById('hy2Server').setAttribute('required', 'required');
-                document.getElementById('hy2Password').setAttribute('required', 'required');
+        async function loadOutbounds() {
+            try {
+                const response = await fetch('/outbound/list');
+                const result = await response.json();
+                if (result.code === 0) {
+                    outboundList = result.data || [];
+                    renderOutbounds();
+                }
+            } catch (error) {
+                console.error('加载出站配置失败:', error);
+            }
+        }
+
+        function renderOutbounds() {
+            const container = document.getElementById('outbound-list');
+
+            if (outboundList.length === 0) {
+                container.innerHTML = '<div class="empty-hint">暂无出站配置，请点击"+ 添加"创建</div>';
+                return;
+            }
+
+            container.innerHTML = outboundList.map(item => {
+                const typeLabel = {hysteria2: 'HY2', socks5: 'SOCKS5', vmess: 'VMess'}[item.type] || item.type;
+                const serverInfo = getServerInfo(item);
+
+                // 判断是否是当前配置
+                let isCurrent = false;
+                if (currentConfig.outboundId && currentConfig.outboundId === item.id) {
+                    isCurrent = true;
+                } else if (!currentConfig.outboundId && item.type === currentConfig.outboundType) {
+                    if (item.type === 'hysteria2' && item.hy2Server === currentConfig.hy2Server) isCurrent = true;
+                    if (item.type === 'socks5' && item.socks5Addr === currentConfig.socks5Addr) isCurrent = true;
+                    if (item.type === 'vmess' && item.vmessServer === currentConfig.vmessServer) isCurrent = true;
+                }
+
+                // 默认选中当前配置
+                const isSelected = selectedOutboundId ? (item.id === selectedOutboundId) : isCurrent;
+                if (isSelected && !selectedOutboundId) {
+                    selectedOutboundId = item.id;
+                    document.getElementById('outboundId').value = item.id;
+                }
+
+                const cardClass = isSelected ? 'selected' : (isCurrent ? 'current-config' : '');
+
+                return `
+                <div class="outbound-card ${cardClass}" id="card-${item.id}" onclick="selectOutbound(${item.id})"
+                     data-id="${item.id}" data-type="${item.type}"
+                     data-hy2-server="${item.hy2Server || ''}" data-hy2-port="${item.hy2Port || '443'}"
+                     data-hy2-password="${item.hy2Password || ''}" data-hy2-subscription="${item.hy2Subscription || ''}"
+                     data-hy2-obfs="${item.hy2Obfs || ''}" data-hy2-obfs-password="${item.hy2ObfsPassword || ''}"
+                     data-hy2-sni="${item.hy2SNI || ''}" data-hy2-insecure="${item.hy2Insecure ? '1' : '0'}"
+                     data-hy2-up-mbps="${item.hy2UpMbps || 100}" data-hy2-down-mbps="${item.hy2DownMbps || 100}"
+                     data-socks5-addr="${item.socks5Addr || ''}" data-socks5-port="${item.socks5Port || 1080}"
+                     data-socks5-user="${item.socks5User || ''}" data-socks5-password="${item.socks5Password || ''}"
+                     data-vmess-server="${item.vmessServer || ''}" data-vmess-port="${item.vmessPort || 443}"
+                     data-vmess-uuid="${item.vmessUUID || ''}" data-vmess-alter-id="${item.vmessAlterID || 0}"
+                     data-vmess-security="${item.vmessSecurity || 'auto'}" data-vmess-network="${item.vmessNetwork || 'tcp'}"
+                     data-vmess-tls="${item.vmessTLS ? '1' : '0'}" data-vmess-server-name="${item.vmessServerName || ''}"
+                     data-vmess-ws-path="${item.vmessWsPath || ''}" data-vmess-ws-host="${item.vmessWsHost || ''}">
+                    <div class="card-header">
+                        <span class="card-name">${escapeHtml(item.name)}${isCurrent ? '<span class="current-badge">当前</span>' : ''}${isSelected ? '<span class="selected-badge">已选</span>' : ''}</span>
+                        <span class="card-type type-${item.type}">${typeLabel}</span>
+                    </div>
+                    <div class="card-server">${escapeHtml(serverInfo)}</div>
+                    <div class="card-speed" id="speed-${item.id}"><span style="color: #999;">未测试</span></div>
+                    <div class="card-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); testOutbound(${item.id})">测试</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); editOutbound(${item.id})">编辑</button>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteOutbound(${item.id})">删除</button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // 填充选中配置的隐藏字段
+            if (selectedOutboundId) {
+                const card = document.getElementById('card-' + selectedOutboundId);
+                if (card) fillOutboundFields(card);
+            }
+        }
+
+        function getServerInfo(item) {
+            switch (item.type) {
+                case 'hysteria2': return (item.hy2Server || '') + ':' + (item.hy2Port || '443');
+                case 'socks5': return (item.socks5Addr || '') + ':' + (item.socks5Port || 1080);
+                case 'vmess': return (item.vmessServer || '') + ':' + (item.vmessPort || 443);
+                default: return '';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        function selectOutbound(id) {
+            selectedOutboundId = id;
+            document.getElementById('outboundId').value = id;
+
+            document.querySelectorAll('.outbound-card').forEach(card => {
+                card.classList.remove('selected');
+                const badge = card.querySelector('.selected-badge');
+                if (badge) badge.remove();
+            });
+
+            const card = document.getElementById('card-' + id);
+            if (card) {
+                card.classList.add('selected');
+                const nameSpan = card.querySelector('.card-name');
+                if (nameSpan && !nameSpan.querySelector('.selected-badge')) {
+                    nameSpan.insertAdjacentHTML('beforeend', '<span class="selected-badge">已选</span>');
+                }
+                fillOutboundFields(card);
+            }
+        }
+
+        function fillOutboundFields(card) {
+            const type = card.dataset.type;
+            document.getElementById('outboundType').value = type;
+
+            if (type === 'hysteria2') {
+                document.getElementById('hy2Server').value = card.dataset.hy2Server || '';
+                document.getElementById('hy2Port').value = card.dataset.hy2Port || '443';
+                document.getElementById('hy2Password').value = card.dataset.hy2Password || '';
+                document.getElementById('hy2Subscription').value = card.dataset.hy2Subscription || '';
+                document.getElementById('hy2Obfs').value = card.dataset.hy2Obfs || '';
+                document.getElementById('hy2ObfsPassword').value = card.dataset.hy2ObfsPassword || '';
+                document.getElementById('hy2SNI').value = card.dataset.hy2Sni || '';
+                document.getElementById('hy2Insecure').value = card.dataset.hy2Insecure || '0';
+                document.getElementById('hy2UpMbps').value = card.dataset.hy2UpMbps || '100';
+                document.getElementById('hy2DownMbps').value = card.dataset.hy2DownMbps || '100';
+            } else if (type === 'socks5') {
+                document.getElementById('socks5Addr').value = card.dataset.socks5Addr || '';
+                document.getElementById('socks5Port').value = card.dataset.socks5Port || '1080';
+                document.getElementById('socks5User').value = card.dataset.socks5User || '';
+                document.getElementById('socks5Password').value = card.dataset.socks5Password || '';
+            } else if (type === 'vmess') {
+                document.getElementById('vmessServer').value = card.dataset.vmessServer || '';
+                document.getElementById('vmessPort').value = card.dataset.vmessPort || '443';
+                document.getElementById('vmessUUID').value = card.dataset.vmessUuid || '';
+                document.getElementById('vmessAlterID').value = card.dataset.vmessAlterId || '0';
+                document.getElementById('vmessSecurity').value = card.dataset.vmessSecurity || 'auto';
+                document.getElementById('vmessNetwork').value = card.dataset.vmessNetwork || 'tcp';
+                document.getElementById('vmessTLS').value = card.dataset.vmessTls || '0';
+                document.getElementById('vmessServerName').value = card.dataset.vmessServerName || '';
+                document.getElementById('vmessWsPath').value = card.dataset.vmessWsPath || '';
+                document.getElementById('vmessWsHost').value = card.dataset.vmessWsHost || '';
+            }
+        }
+
+        // 测速功能
+        async function testOutbound(id) {
+            const speedEl = document.getElementById('speed-' + id);
+            speedEl.innerHTML = '<span class="spinner"></span> 测试中...';
+
+            try {
+                const response = await fetch('/outbound/test/' + id, { method: 'POST' });
+                const result = await response.json();
+
+                if (result.code === 0 && result.data) {
+                    const data = result.data;
+                    if (data.success) {
+                        const latencyClass = data.latencyMs < 100 ? 'speed-good' : (data.latencyMs < 300 ? 'speed-medium' : 'speed-bad');
+                        let html = `<span class="${latencyClass}">延迟: ${data.latency}</span>`;
+                        if (data.downloadSpeed > 0) html += ` <span>↓${data.downloadSpeed.toFixed(1)}KB/s</span>`;
+                        speedEl.innerHTML = html;
+                    } else {
+                        speedEl.innerHTML = `<span class="speed-bad">失败: ${data.message || '连接失败'}</span>`;
+                    }
+                }
+            } catch (error) {
+                speedEl.innerHTML = '<span class="speed-bad">测试出错</span>';
+            }
+        }
+
+        async function testAllOutbounds() {
+            const statusEl = document.getElementById('outbound-status');
+            statusEl.innerHTML = '<span class="spinner"></span> 测试中...';
+
+            outboundList.forEach(item => {
+                const speedEl = document.getElementById('speed-' + item.id);
+                if (speedEl) speedEl.innerHTML = '<span class="spinner"></span>';
+            });
+
+            try {
+                const response = await fetch('/outbound/test-all', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.code === 0 && result.data) {
+                    let fastestId = null;
+                    let fastestLatency = Infinity;
+
+                    result.data.forEach(data => {
+                        const speedEl = document.getElementById('speed-' + data.id);
+                        if (!speedEl) return;
+
+                        if (data.success) {
+                            const latencyClass = data.latencyMs < 100 ? 'speed-good' : (data.latencyMs < 300 ? 'speed-medium' : 'speed-bad');
+                            let html = `<span class="${latencyClass}">延迟: ${data.latency}</span>`;
+                            if (data.downloadSpeed > 0) html += ` <span>↓${data.downloadSpeed.toFixed(1)}KB/s</span>`;
+                            speedEl.innerHTML = html;
+
+                            if (data.latencyMs < fastestLatency) {
+                                fastestLatency = data.latencyMs;
+                                fastestId = data.id;
+                            }
+                        } else {
+                            speedEl.innerHTML = '<span class="speed-bad">失败</span>';
+                        }
+                    });
+
+                    if (fastestId) {
+                        statusEl.innerHTML = `✓ 测试完成，最快: ${fastestLatency}ms`;
+                        statusEl.style.color = '#28a745';
+                    } else {
+                        statusEl.innerHTML = '所有节点测试失败';
+                        statusEl.style.color = '#dc3545';
+                    }
+                }
+            } catch (error) {
+                statusEl.innerHTML = '测试出错';
+                statusEl.style.color = '#dc3545';
+            }
+        }
+
+        // 出站配置管理
+        function showAddOutboundModal() {
+            document.getElementById('modal-title').textContent = '添加出站配置';
+            document.getElementById('edit-outbound-id').value = '';
+            document.getElementById('outbound-form').reset();
+            document.getElementById('ob-type').value = 'hysteria2';
+            toggleOutboundFields();
+            document.getElementById('outboundModal').classList.add('show');
+        }
+
+        function hideOutboundModal() {
+            document.getElementById('outboundModal').classList.remove('show');
+        }
+
+        function toggleOutboundFields() {
+            const type = document.getElementById('ob-type').value;
+            document.getElementById('hy2-fields').style.display = type === 'hysteria2' ? 'block' : 'none';
+            document.getElementById('socks5-fields').style.display = type === 'socks5' ? 'block' : 'none';
+            document.getElementById('vmess-fields').style.display = type === 'vmess' ? 'block' : 'none';
+        }
+
+        function editOutbound(id) {
+            const item = outboundList.find(o => o.id === id);
+            if (!item) return;
+
+            document.getElementById('modal-title').textContent = '编辑出站配置';
+            document.getElementById('edit-outbound-id').value = id;
+            document.getElementById('ob-name').value = item.name || '';
+            document.getElementById('ob-type').value = item.type;
+            toggleOutboundFields();
+
+            if (item.type === 'hysteria2') {
+                document.getElementById('ob-hy2Server').value = item.hy2Server || '';
+                document.getElementById('ob-hy2Port').value = item.hy2Port || '443';
+                document.getElementById('ob-hy2Password').value = item.hy2Password || '';
+                document.getElementById('ob-hy2SNI').value = item.hy2SNI || '';
+                document.getElementById('ob-hy2Insecure').value = item.hy2Insecure ? '1' : '0';
+                document.getElementById('ob-hy2Subscription').value = item.hy2Subscription || '';
+            } else if (item.type === 'socks5') {
+                document.getElementById('ob-socks5Addr').value = item.socks5Addr || '';
+                document.getElementById('ob-socks5Port').value = item.socks5Port || 1080;
+                document.getElementById('ob-socks5User').value = item.socks5User || '';
+                document.getElementById('ob-socks5Password').value = item.socks5Password || '';
+            } else if (item.type === 'vmess') {
+                document.getElementById('ob-vmessServer').value = item.vmessServer || '';
+                document.getElementById('ob-vmessPort').value = item.vmessPort || 443;
+                document.getElementById('ob-vmessUUID').value = item.vmessUUID || '';
+                document.getElementById('ob-vmessNetwork').value = item.vmessNetwork || 'tcp';
+                document.getElementById('ob-vmessTLS').value = item.vmessTLS ? '1' : '0';
+                document.getElementById('ob-vmessSubscription').value = item.vmessSubscription || '';
+            }
+
+            document.getElementById('outboundModal').classList.add('show');
+        }
+
+        async function saveOutbound(event) {
+            event.preventDefault();
+            const editId = document.getElementById('edit-outbound-id').value;
+            const type = document.getElementById('ob-type').value;
+            const formData = new FormData();
+
+            formData.append('name', document.getElementById('ob-name').value);
+            formData.append('type', type);
+            formData.append('status', '0');
+
+            if (type === 'hysteria2') {
+                formData.append('hy2Server', document.getElementById('ob-hy2Server').value);
+                formData.append('hy2Port', document.getElementById('ob-hy2Port').value);
+                formData.append('hy2Password', document.getElementById('ob-hy2Password').value);
+                formData.append('hy2SNI', document.getElementById('ob-hy2SNI').value);
+                formData.append('hy2Insecure', document.getElementById('ob-hy2Insecure').value);
+                formData.append('hy2Subscription', document.getElementById('ob-hy2Subscription').value);
+            } else if (type === 'socks5') {
+                formData.append('socks5Addr', document.getElementById('ob-socks5Addr').value);
+                formData.append('socks5Port', document.getElementById('ob-socks5Port').value);
+                formData.append('socks5User', document.getElementById('ob-socks5User').value);
+                formData.append('socks5Password', document.getElementById('ob-socks5Password').value);
+            } else if (type === 'vmess') {
+                formData.append('vmessServer', document.getElementById('ob-vmessServer').value);
+                formData.append('vmessPort', document.getElementById('ob-vmessPort').value);
+                formData.append('vmessUUID', document.getElementById('ob-vmessUUID').value);
+                formData.append('vmessNetwork', document.getElementById('ob-vmessNetwork').value);
+                formData.append('vmessTLS', document.getElementById('ob-vmessTLS').value);
+                formData.append('vmessSubscription', document.getElementById('ob-vmessSubscription').value);
+            }
+
+            const url = editId ? `/outbound/update/${editId}` : '/outbound/add';
+            try {
+                const response = await fetch(url, { method: 'POST', body: formData });
+                const result = await response.json();
+                if (result.code === 0 || result.id) {
+                    hideOutboundModal();
+                    loadOutbounds();
+                } else {
+                    alert('保存失败: ' + (result.error || result.msg));
+                }
+            } catch (error) {
+                alert('保存失败: ' + error.message);
+            }
+            return false;
+        }
+
+        async function deleteOutbound(id) {
+            if (!confirm('确定删除此出站配置？')) return;
+            try {
+                const response = await fetch(`/outbound/delete/${id}`, { method: 'POST' });
+                const result = await response.json();
+                if (result.code === 0) {
+                    if (selectedOutboundId === id) selectedOutboundId = 0;
+                    loadOutbounds();
+                } else {
+                    alert('删除失败: ' + result.error);
+                }
+            } catch (error) {
+                alert('删除失败: ' + error.message);
+            }
+        }
+
+        // 订阅解析
+        async function parseHy2Sub() {
+            const sub = document.getElementById('ob-hy2Subscription').value;
+            if (!sub) { alert('请输入订阅链接'); return; }
+
+            const formData = new FormData();
+            formData.append('subscription', sub);
+            try {
+                const response = await fetch('/outbound/parse-hy2', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('ob-hy2Server').value = data.server || '';
+                    document.getElementById('ob-hy2Port').value = data.port || '443';
+                    document.getElementById('ob-hy2Password').value = data.password || '';
+                    document.getElementById('ob-hy2SNI').value = data.sni || '';
+                    document.getElementById('ob-hy2Insecure').value = data.insecure ? '1' : '0';
+                } else {
+                    alert('解析失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('解析失败: ' + error.message);
+            }
+        }
+
+        async function parseVmessSub() {
+            const sub = document.getElementById('ob-vmessSubscription').value;
+            if (!sub) { alert('请输入VMess链接'); return; }
+
+            const formData = new FormData();
+            formData.append('subscription', sub);
+            try {
+                const response = await fetch('/outbound/parse-vmess', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('ob-vmessServer').value = data.server || '';
+                    document.getElementById('ob-vmessPort').value = data.port || '443';
+                    document.getElementById('ob-vmessUUID').value = data.uuid || '';
+                    document.getElementById('ob-vmessNetwork').value = data.network || 'tcp';
+                    document.getElementById('ob-vmessTLS').value = data.tls ? '1' : '0';
+                } else {
+                    alert('解析失败: ' + data.error);
+                }
+            } catch (error) {
+                alert('解析失败: ' + error.message);
             }
         }
 
         function updateSNI() {
             const dest = document.getElementById('realityDest').value;
             if (dest) {
-                const sni = dest.split(':')[0];
-                document.getElementById('sni').value = sni;
+                document.getElementById('sni').value = dest.split(':')[0];
             }
         }
 
-        function toggleVmessWsConfig() {
-            const network = document.getElementById('vmessNetwork').value;
-            const wsConfig = document.getElementById('vmessWsConfig');
-            if (wsConfig) {
-                wsConfig.style.display = (network === 'ws') ? 'block' : 'none';
-            }
-        }
-
-        function toggleVmessTLSConfig() {
-            const tlsEnabled = document.getElementById('vmessTLS').checked;
-            const tlsConfig = document.getElementById('vmessTLSConfig');
-            if (tlsConfig) {
-                tlsConfig.style.display = tlsEnabled ? 'block' : 'none';
-            }
-        }
-
-        // 解析 Hysteria2 订阅
-        async function parseHy2Sub() {
-            const subUrl = document.getElementById('hy2Sub').value;
-            if (!subUrl) {
-                alert('请输入订阅链接');
-                return;
-            }
-
-            try {
-                const formData = new FormData();
-                formData.append('subscription', subUrl);
-
-                const response = await fetch('/proxy/parse-hy2', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-                if (data.error) {
-                    alert('解析失败: ' + data.error);
-                    return;
-                }
-
-                document.getElementById('hy2Server').value = data.server || '';
-                document.getElementById('hy2Port').value = data.port || '443';
-                document.getElementById('hy2Password').value = data.password || '';
-                document.getElementById('hy2Obfs').value = data.obfs || '';
-                document.getElementById('hy2ObfsPassword').value = data.obfsPass || '';
-                document.getElementById('hy2SNI').value = data.sni || '';
-                document.getElementById('hy2Insecure').checked = data.insecure || false;
-                alert('订阅解析成功！');
-            } catch (error) {
-                alert('解析失败: ' + error.message);
-            }
-        }
-
-        // 解析 VMess 订阅
-        async function parseVmessSub() {
-            const subUrl = document.getElementById('vmessSub').value;
-            if (!subUrl) {
-                alert('请输入 VMess 链接');
-                return;
-            }
-
-            try {
-                const formData = new FormData();
-                formData.append('subscription', subUrl);
-
-                const response = await fetch('/proxy/parse-vmess', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-                if (data.error) {
-                    alert('解析失败: ' + data.error);
-                    return;
-                }
-
-                document.getElementById('vmessServer').value = data.server || '';
-                document.getElementById('vmessPort').value = data.port || '443';
-                document.getElementById('vmessUUID').value = data.uuid || '';
-                document.getElementById('vmessAlterID').value = data.alterId || '0';
-                document.getElementById('vmessSecurity').value = data.security || 'auto';
-                document.getElementById('vmessNetwork').value = data.network || 'tcp';
-                document.getElementById('vmessTLS').checked = data.tls || false;
-                document.getElementById('vmessServerName').value = data.serverName || '';
-                document.getElementById('vmessWsPath').value = data.wsPath || '';
-                document.getElementById('vmessWsHost').value = data.wsHost || '';
-
-                // 触发相关配置显示
-                toggleVmessWsConfig();
-                toggleVmessTLSConfig();
-
-                alert('VMess 订阅解析成功！');
-            } catch (error) {
-                alert('解析失败: ' + error.message);
-            }
-        }
-
-        // 通用的复制功能
-        function copyToClipboard(elementId, fieldName) {
-            const element = document.getElementById(elementId);
-            if (!element) {
-                alert('❌ 未找到字段: ' + fieldName);
-                return;
-            }
-
-            const text = element.value;
-            if (!text) {
-                alert('❌ ' + fieldName + ' 为空，无法复制');
-                return;
-            }
-
-            // 尝试使用现代 Clipboard API
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(() => {
-                    showCopySuccess(fieldName);
-                }).catch(err => {
-                    fallbackCopy(text, fieldName);
-                });
-            } else {
-                fallbackCopy(text, fieldName);
-            }
-        }
-
-        // 显示复制成功消息
-        function showCopySuccess(fieldName) {
-            const msg = `✅ ${fieldName}已复制到剪贴板！`;
-            alert(msg);
-        }
-
-        // 复制 Hysteria2 安装命令
-        function copyHy2InstallCmd() {
-            const cmd = 'curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash';
-
-            // 尝试使用现代 Clipboard API
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(cmd).then(() => {
-                    alert('✅ 安装命令已复制到剪贴板！\n\n在服务器上以 root 权限执行此命令即可安装 Hysteria2');
-                }).catch(err => {
-                    fallbackCopy(cmd, '安装命令');
-                });
-            } else {
-                fallbackCopy(cmd, '安装命令');
-            }
-        }
-
-        // 降级方案：使用传统方法复制
-        function fallbackCopy(text, fieldName) {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-999999px';
-            textArea.style.top = '-999999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-
-            try {
-                document.execCommand('copy');
-                if (fieldName) {
-                    alert(`✅ ${fieldName}已复制到剪贴板！`);
-                } else {
-                    alert('✅ 内容已复制到剪贴板！');
-                }
-            } catch (err) {
-                if (fieldName) {
-                    alert(`❌ 复制失败，请手动复制${fieldName}：\n\n${text}`);
-                } else {
-                    alert('❌ 复制失败，请手动复制内容');
-                }
-            }
-
-            document.body.removeChild(textArea);
-        }
-
-        // 页面加载时初始化显示
-        window.addEventListener('DOMContentLoaded', function() {
-            toggleOutboundConfig();
+        // 点击弹窗外部关闭
+        document.getElementById('outboundModal').addEventListener('click', function(e) {
+            if (e.target === this) hideOutboundModal();
         });
-
-        // 处理编辑表单提交 - AJAX 提交并跳转回代理列表
-        async function handleEditSubmit(event) {
-            event.preventDefault();
-
-            const form = document.getElementById('editForm');
-            const submitBtn = form.querySelector('button[type="submit"]');
-            const originalText = submitBtn.textContent;
-
-            // 显示加载状态
-            submitBtn.disabled = true;
-            submitBtn.textContent = '⏳ 保存中...';
-
-            try {
-                const formData = new FormData(form);
-                const response = await fetch(form.action, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (response.redirected) {
-                    // 服务端重定向，跳转到目标页面
-                    window.location.href = '/proxy';
-                } else if (response.ok) {
-                    // 成功，显示消息并跳转
-                    alert('✅ 配置保存成功！');
-                    window.location.href = '/proxy';
-                } else {
-                    // 失败，显示错误
-                    const text = await response.text();
-                    alert('❌ 保存失败: ' + text);
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = originalText;
-                }
-            } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-            }
-
-            return false;
-        }
     </script>
 </body>
 </html>

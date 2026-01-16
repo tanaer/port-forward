@@ -1,8 +1,15 @@
 package proxy
 
 import (
+	"bytes"
+	"crypto/tls"
 	"fmt"
+	"io"
+	"math/rand"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -17,8 +24,222 @@ type TestResult struct {
 	RTT     string        `json:"rtt"`
 }
 
-// TestHysteria2Connection 测试Hysteria2连接（通过SOCKS5代理测试出站）
-func TestHysteria2Connection(socks5Addr string, socks5Port int) *TestResult {
+// SpeedTestResult 出站测速结果
+type SpeedTestResult struct {
+	Latency       time.Duration `json:"latency"`
+	DownloadSpeed float64       `json:"downloadSpeed"`
+	UploadSpeed   float64       `json:"uploadSpeed"`
+	Success       bool          `json:"success"`
+	Message       string        `json:"message"`
+}
+
+// TestOutboundSpeed 通过SOCKS5代理测试出站延迟、上传和下载速度
+func TestOutboundSpeed(socks5Addr, socks5Port, user, pass string) *SpeedTestResult {
+	result := &SpeedTestResult{}
+
+	start := time.Now()
+	deadline := start.Add(10 * time.Second)
+
+	// 延迟测试
+	latencyStart := time.Now()
+	latencyConn, err := dialThroughSocks(socks5Addr, socks5Port, user, pass, "www.google.com", 443, deadline)
+	if err != nil {
+		result.Success = false
+		result.Message = fmt.Sprintf("延迟测试失败: %v", err)
+		return result
+	}
+	result.Latency = time.Since(latencyStart)
+	latencyConn.Close()
+
+	// 上传速度测试（上传1KB数据）
+	if time.Now().After(deadline) {
+		result.Success = false
+		result.Message = "测速超时"
+		return result
+	}
+	uploadBody := bytes.Repeat([]byte("a"), 1024)
+	_, uploadDuration, err := executeSocksHTTPRequest(socks5Addr, socks5Port, user, pass, "speed.cloudflare.com", "/__down?bytes=1000", "POST", uploadBody, deadline)
+	if err != nil {
+		result.Success = false
+		result.Message = fmt.Sprintf("上传测试失败: %v", err)
+		return result
+	}
+	if uploadDuration <= 0 {
+		uploadDuration = time.Millisecond
+	}
+	result.UploadSpeed = float64(len(uploadBody)) / uploadDuration.Seconds()
+
+	// 下载速度测试（下载少量数据）
+	if time.Now().After(deadline) {
+		result.Success = false
+		result.Message = "测速超时"
+		return result
+	}
+	downloadBytes, downloadDuration, err := executeSocksHTTPRequest(socks5Addr, socks5Port, user, pass, "speed.cloudflare.com", "/__down?bytes=1000", "GET", nil, deadline)
+	if err != nil {
+		result.Success = false
+		result.Message = fmt.Sprintf("下载测试失败: %v", err)
+		return result
+	}
+	if downloadDuration <= 0 {
+		downloadDuration = time.Millisecond
+	}
+	result.DownloadSpeed = float64(downloadBytes) / downloadDuration.Seconds()
+
+	result.Success = true
+	result.Message = "测速完成"
+	return result
+}
+
+func dialThroughSocks(socks5Addr, socks5Port, user, pass, targetHost string, targetPort int, deadline time.Time) (net.Conn, error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return nil, fmt.Errorf("已超出超时时间")
+	}
+
+	dialer := &net.Dialer{
+		Timeout:  remaining,
+		Deadline: deadline,
+	}
+	conn, err := dialer.Dial("tcp", net.JoinHostPort(socks5Addr, socks5Port))
+	if err != nil {
+		return nil, fmt.Errorf("连接SOCKS5代理失败: %w", err)
+	}
+
+	if err := conn.SetDeadline(deadline); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	// SOCKS5握手
+	if user != "" && pass != "" {
+		_, err = conn.Write([]byte{0x05, 0x02, 0x00, 0x02})
+	} else {
+		_, err = conn.Write([]byte{0x05, 0x01, 0x00})
+	}
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("SOCKS5握手失败: %w", err)
+	}
+
+	buf := make([]byte, 2)
+	_, err = conn.Read(buf)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("SOCKS5握手响应失败: %w", err)
+	}
+
+	if buf[1] == 0xFF {
+		conn.Close()
+		return nil, fmt.Errorf("SOCKS5服务器不支持请求的认证方法")
+	}
+
+	if buf[1] == 0x02 {
+		if user == "" || pass == "" {
+			conn.Close()
+			return nil, fmt.Errorf("SOCKS5服务器要求认证但未提供凭据")
+		}
+		authReq := make([]byte, 0, 3+len(user)+len(pass))
+		authReq = append(authReq, 0x01)
+		authReq = append(authReq, byte(len(user)))
+		authReq = append(authReq, []byte(user)...)
+		authReq = append(authReq, byte(len(pass)))
+		authReq = append(authReq, []byte(pass)...)
+
+		if _, err = conn.Write(authReq); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("SOCKS5认证失败: %w", err)
+		}
+
+		authResp := make([]byte, 2)
+		if _, err = conn.Read(authResp); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("SOCKS5认证响应失败: %w", err)
+		}
+		if authResp[1] != 0x00 {
+			conn.Close()
+			return nil, fmt.Errorf("SOCKS5认证失败：用户名或密码错误")
+		}
+	}
+
+	if len(targetHost) > 255 {
+		targetHost = targetHost[:255]
+	}
+
+	req := make([]byte, 0, 7+len(targetHost))
+	req = append(req, 0x05, 0x01, 0x00)
+	req = append(req, 0x03)
+	req = append(req, byte(len(targetHost)))
+	req = append(req, []byte(targetHost)...)
+	req = append(req, byte(targetPort>>8), byte(targetPort&0xff))
+
+	if _, err = conn.Write(req); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("SOCKS5请求发送失败: %w", err)
+	}
+
+	resp := make([]byte, 10)
+	if _, err = conn.Read(resp); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("SOCKS5响应读取失败: %w", err)
+	}
+
+	if len(resp) < 2 || resp[1] != 0x00 {
+		conn.Close()
+		return nil, fmt.Errorf("出站连接失败")
+	}
+
+	return conn, nil
+}
+
+func executeSocksHTTPRequest(socks5Addr, socks5Port, user, pass, host, path, method string, body []byte, deadline time.Time) (int, time.Duration, error) {
+	conn, err := dialThroughSocks(socks5Addr, socks5Port, user, pass, host, 443, deadline)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer conn.Close()
+
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: host})
+	if err := tlsConn.Handshake(); err != nil {
+		return 0, 0, fmt.Errorf("TLS握手失败: %w", err)
+	}
+	defer tlsConn.Close()
+
+	start := time.Now()
+
+	if method == "" {
+		method = "GET"
+	}
+
+	requestHeader := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", method, path, host, len(body))
+	if _, err := tlsConn.Write([]byte(requestHeader)); err != nil {
+		return 0, 0, fmt.Errorf("请求发送失败: %w", err)
+	}
+
+	if len(body) > 0 {
+		if _, err := tlsConn.Write(body); err != nil {
+			return 0, 0, fmt.Errorf("请求体发送失败: %w", err)
+		}
+	}
+
+	respData, err := io.ReadAll(tlsConn)
+	if err != nil {
+		return 0, 0, fmt.Errorf("响应读取失败: %w", err)
+	}
+
+	duration := time.Since(start)
+	separator := []byte("\r\n\r\n")
+	index := bytes.Index(respData, separator)
+	if index == -1 {
+		return 0, duration, fmt.Errorf("响应格式错误")
+	}
+
+	bodyData := respData[index+4:]
+	return len(bodyData), duration, nil
+}
+
+// TestHysteria2Socks5 测试已运行的Hysteria2客户端的SOCKS5端口连通性
+func TestHysteria2Socks5(socks5Addr string, socks5Port int) *TestResult {
 	return TestHysteria2ConnectionWithTarget(socks5Addr, socks5Port, defaultHy2TestTarget)
 }
 
@@ -282,7 +503,7 @@ func TestSOCKS5WithTarget(addr string, port int, user, pass, target string) *Tes
 		}
 		// 发送用户名密码
 		authReq := make([]byte, 0, 3+len(user)+len(pass))
-		authReq = append(authReq, 0x01)           // 版本
+		authReq = append(authReq, 0x01)            // 版本
 		authReq = append(authReq, byte(len(user))) // 用户名长度
 		authReq = append(authReq, []byte(user)...) // 用户名
 		authReq = append(authReq, byte(len(pass))) // 密码长度
@@ -314,7 +535,7 @@ func TestSOCKS5WithTarget(addr string, port int, user, pass, target string) *Tes
 	// 发送CONNECT请求
 	req := make([]byte, 0, 7+len(targetHost))
 	req = append(req, 0x05, 0x01, 0x00) // VER, CMD(CONNECT), RSV
-	req = append(req, 0x03)              // ATYP: 域名
+	req = append(req, 0x03)             // ATYP: 域名
 	req = append(req, byte(len(targetHost)))
 	req = append(req, []byte(targetHost)...)
 	req = append(req, byte(targetPort>>8), byte(targetPort&0xff))
@@ -378,5 +599,116 @@ func TestSOCKS5WithTarget(addr string, port int, user, pass, target string) *Tes
 
 	result.Success = true
 	result.Message = fmt.Sprintf("通过SOCKS5代理连接 %s 成功", target)
+	return result
+}
+
+// TestHysteria2Connection 启动临时Hysteria2客户端测试连接
+// 参数: server, port, password - Hysteria2服务器信息
+//       sni - TLS SNI
+//       insecure - 是否跳过证书验证
+func TestHysteria2Connection(server, port, password, sni string, insecure bool) *SpeedTestResult {
+	result := &SpeedTestResult{}
+
+	// 验证参数
+	if server == "" || port == "" || password == "" {
+		result.Message = "Hysteria2配置不完整"
+		return result
+	}
+
+	// 获取可执行文件路径
+	exePath, err := os.Executable()
+	if err != nil {
+		result.Message = fmt.Sprintf("获取程序路径失败: %v", err)
+		return result
+	}
+	baseDir := filepath.Dir(exePath)
+	hy2Binary := filepath.Join(baseDir, "bin", "hysteria2")
+
+	// 检查 hysteria2 二进制文件是否存在
+	if _, err := os.Stat(hy2Binary); os.IsNotExist(err) {
+		result.Message = "Hysteria2客户端不存在"
+		return result
+	}
+
+	// 生成随机SOCKS5端口 (60000-65000)
+	rand.Seed(time.Now().UnixNano())
+	socks5Port := 60000 + rand.Intn(5000)
+
+	// 创建临时配置文件
+	configDir := filepath.Join(baseDir, "proxy_configs")
+	configFile := filepath.Join(configDir, fmt.Sprintf("hy2_test_%d.yaml", socks5Port))
+
+	insecureStr := "false"
+	if insecure {
+		insecureStr = "true"
+	}
+	if sni == "" {
+		sni = server
+	}
+
+	configContent := fmt.Sprintf(`server: %s:%s
+auth: %s
+tls:
+    sni: %s
+    insecure: %s
+bandwidth:
+    up: 100 mbps
+    down: 100 mbps
+socks5:
+    listen: 127.0.0.1:%d
+`, server, port, password, sni, insecureStr, socks5Port)
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		result.Message = fmt.Sprintf("创建配置文件失败: %v", err)
+		return result
+	}
+	defer os.Remove(configFile) // 清理配置文件
+
+	// 启动 Hysteria2 客户端
+	cmd := exec.Command(hy2Binary, "client", "-c", configFile)
+	if err := cmd.Start(); err != nil {
+		result.Message = fmt.Sprintf("启动Hysteria2客户端失败: %v", err)
+		return result
+	}
+
+	// 确保进程被清理
+	defer func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait()
+		}
+	}()
+
+	// 等待 SOCKS5 端口就绪 (最多等待5秒)
+	socks5Addr := fmt.Sprintf("127.0.0.1:%d", socks5Port)
+	portReady := false
+	for i := 0; i < 50; i++ {
+		conn, err := net.DialTimeout("tcp", socks5Addr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			portReady = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !portReady {
+		result.Message = "Hysteria2客户端启动超时"
+		return result
+	}
+
+	// 只测试延迟，不测速（加快测试速度）
+	start := time.Now()
+	deadline := start.Add(10 * time.Second)
+	latencyConn, err := dialThroughSocks("127.0.0.1", strconv.Itoa(socks5Port), "", "", "www.google.com", 443, deadline)
+	if err != nil {
+		result.Message = fmt.Sprintf("延迟测试失败: %v", err)
+		return result
+	}
+	result.Latency = time.Since(start)
+	latencyConn.Close()
+
+	result.Success = true
+	result.Message = "连接成功"
 	return result
 }

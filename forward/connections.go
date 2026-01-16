@@ -24,8 +24,10 @@ func NewConnectionManager(outTime int) *ConnectionManager {
 		outTime:     outTime,
 	}
 	// 每10秒执行一次空闲连接清理
-	cm.gcTicker = time.NewTicker(10 * time.Second)
-	go cm.gcIdleConnectionsLoop()
+	if outTime > 0 {
+		cm.gcTicker = time.NewTicker(10 * time.Second)
+		go cm.gcIdleConnectionsLoop()
+	}
 
 	return cm
 }
@@ -38,8 +40,10 @@ func NewConnectionManagerWithCallback(outTime int, onRemove func(string)) *Conne
 		onRemove:    onRemove,
 	}
 	// 每10秒执行一次空闲连接清理
-	cm.gcTicker = time.NewTicker(10 * time.Second)
-	go cm.gcIdleConnectionsLoop()
+	if outTime > 0 {
+		cm.gcTicker = time.NewTicker(10 * time.Second)
+		go cm.gcIdleConnectionsLoop()
+	}
 
 	return cm
 }
@@ -104,6 +108,13 @@ func (cm *ConnectionManager) RemoveConnection(id string) {
 		}
 		delete(cm.connections, id)
 	}
+}
+
+// ForgetConnection 删除连接记录但不触发额外关闭（用于主动关闭后的清理）
+func (cm *ConnectionManager) ForgetConnection(id string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	delete(cm.connections, id)
 }
 
 // GetConnectionCount 获取当前连接数

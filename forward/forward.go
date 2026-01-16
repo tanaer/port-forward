@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	poolBufSize   = 64 * 1024 // larger shared buffer to reduce syscalls
-	tcpSocketSize = 4 << 20   // TCP socket buffer target
-	udpSocketSize = 4 << 20   // 4 MiB socket buffers for bursty traffic
+	poolBufSize          = 64 * 1024 // larger shared buffer to reduce syscalls
+	tcpSocketSize        = 4 << 20   // TCP socket buffer target
+	udpSocketSize        = 4 << 20   // 4 MiB socket buffers for bursty traffic
+	tcpKeepAliveInterval = 5 * time.Second
 )
 
 type IPStruct struct {
@@ -49,13 +50,24 @@ var bufPool = sync.Pool{
 	},
 }
 
+func tuneTCPConn(tconn *net.TCPConn) {
+	if tconn == nil {
+		return
+	}
+	_ = tconn.SetReadBuffer(tcpSocketSize)
+	_ = tconn.SetWriteBuffer(tcpSocketSize)
+	_ = tconn.SetNoDelay(true)
+	_ = tconn.SetKeepAlive(true)
+	_ = tconn.SetKeepAlivePeriod(tcpKeepAliveInterval)
+}
+
 // 开启转发，负责分发具体转发
 func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer releaseResources(stats) // 在函数返回时释放资源
 
 	// 初始化连接管理器（Phase 1 Week 2 优化）
-	if stats.connManager == nil {
+	if stats.OutTime > 0 && stats.connManager == nil {
 		// 创建带回调的连接管理器，用于清理TCPConnections映射
 		stats.connManager = NewConnectionManagerWithCallback(stats.OutTime, func(connID string) {
 			stats.TotalBytesLock.Lock()
@@ -63,7 +75,9 @@ func Run(stats *ConnectionStats, wg *sync.WaitGroup) {
 			stats.TotalBytesLock.Unlock()
 		})
 	}
-	defer stats.connManager.Stop()
+	if stats.connManager != nil {
+		defer stats.connManager.Stop()
+	}
 
 	var ctx, cancel = context.WithCancel(context.Background())
 	var innerWg sync.WaitGroup
@@ -175,9 +189,7 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 	srcremoteAddr := clientConn.RemoteAddr()
 	srctcpAddr, _ := srcremoteAddr.(*net.TCPAddr)
 	if tconn, ok := clientConn.(*net.TCPConn); ok {
-		_ = tconn.SetReadBuffer(tcpSocketSize)
-		_ = tconn.SetWriteBuffer(tcpSocketSize)
-		_ = tconn.SetNoDelay(true)
+		tuneTCPConn(tconn)
 	}
 
 	if cs.Whitelist != "" {
@@ -201,9 +213,7 @@ func (cs *ConnectionStats) handleTCPConnection(wg *sync.WaitGroup, clientConn ne
 		return
 	}
 	if tconn, ok := remoteConn.(*net.TCPConn); ok {
-		_ = tconn.SetReadBuffer(tcpSocketSize)
-		_ = tconn.SetWriteBuffer(tcpSocketSize)
-		_ = tconn.SetNoDelay(true)
+		tuneTCPConn(tconn)
 	}
 	defer remoteConn.Close()
 
@@ -309,13 +319,15 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 	dstremoteAddr := dst.RemoteAddr()
 	dsttcpAddr, _ := dstremoteAddr.(*net.TCPAddr)
 	dsttcpAddrstr := fmt.Sprintf("%v:%v", dsttcpAddr.IP, dsttcpAddr.Port)
+	connID := srctcpAddrstr + "->" + dsttcpAddrstr
+	reverseConnID := dsttcpAddrstr + "->" + srctcpAddrstr
+	defer cs.cleanupConnectionRecords(connID, reverseConnID)
 
 	// 长连接时候，中断，数据丢失，重连
 	for {
 		//从源读取
 		n, err := src.Read(buf)
 		if n > 0 {
-			connID := srctcpAddrstr + "->" + dsttcpAddrstr
 			ipStruct := &IPStruct{
 				Time:           time.Now().Unix(),
 				TCPConnections: src,
@@ -343,9 +355,10 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 				// 从ConnectionManager中移除（Week 2 优化）
 				if cs.connManager != nil {
 					cs.connManager.RemoveConnection(connID)
+					cs.connManager.RemoveConnection(reverseConnID)
 				}
-				delete(cs.TCPConnections, dsttcpAddrstr+"->"+srctcpAddrstr)
-				delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
+				delete(cs.TCPConnections, reverseConnID)
+				delete(cs.TCPConnections, connID)
 				cs.TotalBytesLock.Unlock()
 				Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 				fmt.Printf("%v 写入目标时发生错误: %v \n", Timestr, err)
@@ -372,8 +385,8 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 			cs.TotalBytesLock.Lock()
 			src.Close()
 			dst.Close()
-			delete(cs.TCPConnections, dsttcpAddrstr+"->"+srctcpAddrstr)
-			delete(cs.TCPConnections, srctcpAddrstr+"->"+dsttcpAddrstr)
+			delete(cs.TCPConnections, reverseConnID)
+			delete(cs.TCPConnections, connID)
 			cs.TotalBytesLock.Unlock()
 			Timestr = time.Unix(time.Now().Unix(), 0).Format("2006-01-02 15:04:05")
 			fmt.Printf("%v 从源读取时发生错误: %v \n", Timestr, err)
@@ -384,6 +397,26 @@ func (cs *ConnectionStats) copyBytes(dst, src net.Conn) {
 	// 关闭连接
 	dst.Close()
 	src.Close()
+}
+
+func (cs *ConnectionStats) cleanupConnectionRecords(connIDs ...string) {
+	cs.TotalBytesLock.Lock()
+	for _, id := range connIDs {
+		if id == "" {
+			continue
+		}
+		delete(cs.TCPConnections, id)
+	}
+	cs.TotalBytesLock.Unlock()
+
+	if cs.connManager != nil {
+		for _, id := range connIDs {
+			if id == "" {
+				continue
+			}
+			cs.connManager.ForgetConnection(id)
+		}
+	}
 }
 
 // 定时打印和处理流量变化

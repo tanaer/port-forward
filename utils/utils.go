@@ -40,8 +40,8 @@ func sanitizeConnectionInput(f conf.ConnectionStats) conf.ConnectionStats {
 	f.Blacklist = strings.ReplaceAll(f.Blacklist, " ", "")
 	f.Whitelist = strings.ReplaceAll(f.Whitelist, " ", "")
 	f.Remark = strings.TrimSpace(f.Remark)
-	if f.OutTime <= 0 {
-		f.OutTime = 5
+	if f.OutTime < 0 {
+		f.OutTime = conf.DefaultOutTime
 	}
 	return f
 }

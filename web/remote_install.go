@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/ssh"
 	"goForward/conf"
 	"goForward/proxy"
 	"goForward/proxy/xray"
 	"goForward/sql"
+	"golang.org/x/crypto/ssh"
 )
 
 // RemoteInstallRequest 远程安装请求
@@ -185,6 +185,8 @@ echo "PORT:%d"
 	if nodeName == "" {
 		nodeName = fmt.Sprintf("Hy2-%s", req.Host)
 	}
+	// 生成落地（出站）配置名称
+	outboundName := fmt.Sprintf("落地-%s", nodeName)
 
 	// 生成密钥对
 	keys, err := xray.GenerateRealityKeys()
@@ -218,6 +220,31 @@ echo "PORT:%d"
 	inboundPort := proxy.GetRandomAvailablePort()
 	socks5Port := proxy.GetRandomAvailablePortFromRange(10808, 10808+10000)
 
+	// 创建落地（出站）配置
+	outboundCfg := conf.OutboundConfig{
+		Name:            outboundName,
+		Type:            "hysteria2",
+		Status:          1, // 默认不启用全局出站，仅绑定到本代理
+		Hy2Server:       req.Host,
+		Hy2Port:         fmt.Sprintf("%d", req.Hy2Port),
+		Hy2Password:     password,
+		Hy2SNI:          "bing.com",
+		Hy2Insecure:     true,
+		Hy2UpMbps:       100,
+		Hy2DownMbps:     100,
+		Hy2Obfs:         "",
+		Hy2ObfsPassword: "",
+	}
+
+	outboundId, err := createOutboundWithFallback(outboundCfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("创建落地配置失败: %v", err),
+		})
+		return
+	}
+
 	// 创建代理配置
 	proxyConfig := conf.ProxyConfig{
 		Name:              nodeName,
@@ -230,6 +257,7 @@ echo "PORT:%d"
 		PublicKey:         keys.PublicKey,
 		ShortId:           shortId,
 		OutboundType:      "hysteria2",
+		OutboundConfigId:  outboundId,
 		Hy2Server:         req.Host,
 		Hy2Port:           fmt.Sprintf("%d", req.Hy2Port),
 		Hy2Password:       password,
@@ -261,20 +289,43 @@ echo "PORT:%d"
 	pm := proxy.GetProxyManager()
 	if err := pm.StartProxy(id); err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success":  true,
-			"nodeName": nodeName,
-			"warning":  fmt.Sprintf("节点已添加但启动失败: %v", err),
-			"proxyId":  id,
+			"success":    true,
+			"nodeName":   nodeName,
+			"warning":    fmt.Sprintf("节点已添加但启动失败: %v", err),
+			"proxyId":    id,
+			"outboundId": outboundId,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"nodeName": nodeName,
-		"proxyId":  id,
-		"server":   fmt.Sprintf("%s:%d", req.Host, req.Hy2Port),
+		"success":    true,
+		"nodeName":   nodeName,
+		"proxyId":    id,
+		"outboundId": outboundId,
+		"server":     fmt.Sprintf("%s:%d", req.Host, req.Hy2Port),
 	})
+}
+
+// createOutboundWithFallback 创建出站配置，若命名冲突自动附加时间戳重试
+func createOutboundWithFallback(base conf.OutboundConfig) (int, error) {
+	candidates := []string{base.Name}
+	candidates = append(candidates, fmt.Sprintf("%s-%d", base.Name, time.Now().Unix()))
+
+	for _, name := range candidates {
+		cfg := base
+		cfg.Name = name
+		id, err := sql.AddOutbound(&cfg)
+		if err == nil {
+			return id, nil
+		}
+		// 若非命名冲突，也直接返回
+		if !strings.Contains(err.Error(), "已存在") {
+			return 0, err
+		}
+	}
+
+	return 0, fmt.Errorf("落地配置创建失败：名称冲突")
 }
 
 // generateRandomPassword 生成随机密码

@@ -140,6 +140,9 @@
         .table-row-active { background: #e0edff !important; }
         .data-empty { text-align: center; padding: 24px 12px; color: #6b7280; font-size: 13px; }
         .quality-modal-error { margin-top: 16px; color: #dc3545; font-size: 13px; }
+        .hy2-script-box { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+        .hy2-script-box pre { margin: 8px 0 0 0; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; overflow-x: auto; }
+        .hy2-script-box small { color: #6c757d; }
         @keyframes modal-pop {
             from { opacity: 0; transform: translateY(20px) scale(0.97); }
             to { opacity: 1; transform: translateY(0) scale(1); }
@@ -154,6 +157,7 @@
             <div class="logo">🚀 goForward</div>
             <a href="/">📡 端口隧道</a>
             <a href="/proxy" class="active">🔐 代理转发</a>
+            <a href="/outbound">📤 落地配置</a>
             <a href="/environment">⚙️ 环境配置</a>
         </div>
 
@@ -162,7 +166,7 @@
 
         <div class="nav">
             <a href="/proxy/add">➕ 添加代理</a>
-            <a href="javascript:void(0)" onclick="showOutboundManager()" style="background: #6610f2;">📡 出站配置管理</a>
+            <a href="javascript:void(0)" onclick="showOutboundManager()" style="background: #6610f2;">📡 落地配置管理</a>
             <a href="javascript:void(0)" onclick="showHy2Install()" style="background: #28a745;">🚀 快速安装Hysteria2</a>
             <a href="javascript:void(0)" onclick="exportSelected()" style="background: #17a2b8;">📤 导出配置</a>
             <a href="javascript:void(0)" onclick="showImportModal()" style="background: #6f42c1;">📥 导入配置</a>
@@ -255,7 +259,7 @@
                     <th>入站端口</th>
                     <th>出站类型</th>
                     <th>Reality域名</th>
-                    <th>出站服务器</th>
+                    <th>落地服务器</th>
                     <th>状态</th>
                     <th>RTT</th>
                     <th>今日流量</th>
@@ -264,7 +268,7 @@
             </thead>
             <tbody>
                 {{range .proxyList}}
-                <tr data-proxy-id="{{.Id}}" data-proxy-name="{{.Name}}" data-total-traffic="{{.TotalTraffic}}" data-today-traffic="{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}" data-has-ssh="{{if .SSHHost}}true{{else}}false{{end}}" data-has-ipcheck="{{if .IPCheckResult}}true{{else}}false{{end}}">
+                <tr data-proxy-id="{{.Id}}" data-proxy-name="{{.Name}}" data-outbound-config-id="{{.OutboundConfigId}}" data-total-traffic="{{.TotalTraffic}}" data-today-traffic="{{if .TodayTraffic}}{{.TodayTraffic}}{{else}}{{.TotalTraffic}}{{end}}" data-has-ssh="{{if .SSHHost}}true{{else}}false{{end}}" data-has-ipcheck="{{if .IPCheckResult}}true{{else}}false{{end}}">
                     <td><input type="checkbox" name="proxyIds" value="{{.Id}}" onchange="updateSelectAll()"></td>
                     <td>{{.Id}}</td>
                     <td>
@@ -291,13 +295,21 @@
                     </td>
                     <td>{{.RealityServerName}}</td>
                     <td>
-                        {{if eq .OutboundType "socks5"}}
-                        {{.Socks5Addr}}:{{.Socks5Port}}
-                        {{else if eq .OutboundType "vmess"}}
-                        {{.VmessServer}}:{{.VmessPort}}
-                        {{else}}
-                        {{.Hy2Server}}:{{.Hy2Port}}
-                        {{end}}
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div class="outbound-name" data-outbound-id="{{.OutboundConfigId}}" style="font-weight: 600; color: #333; font-size: 13px;">
+                                {{if .OutboundConfigId}}<span class="outbound-name-text">-</span>{{else}}<span style="color: #999;">未绑定配置</span>{{end}}
+                            </div>
+                            <div class="outbound-addr-row" style="display: flex; align-items: center; gap: 6px;">
+                                {{if eq .OutboundType "socks5"}}
+                                <code class="outbound-addr" style="background: #f1f3f5; padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #495057;">{{.Socks5Addr}}:{{.Socks5Port}}</code>
+                                {{else if eq .OutboundType "vmess"}}
+                                <code class="outbound-addr" style="background: #f1f3f5; padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #495057;">{{.VmessServer}}:{{.VmessPort}}</code>
+                                {{else}}
+                                <code class="outbound-addr" style="background: #f1f3f5; padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #495057;">{{.Hy2Server}}:{{.Hy2Port}}</code>
+                                {{end}}
+                                <button type="button" class="copy-addr-btn" onclick="copyOutboundAddr(this)" style="padding: 2px 6px; border: 1px solid #dee2e6; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #6c757d;" title="复制地址">📋</button>
+                            </div>
+                        </div>
                     </td>
                     <td>
                         {{if eq .Status 0}}
@@ -451,6 +463,17 @@
             </div>
 
             <form id="remote-install-form" onsubmit="return submitRemoteInstall(event)">
+                <div class="hy2-script-box">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-weight: 600; color: #333;">🐚 一键安装脚本</div>
+                            <small>在目标服务器上手动执行也可以完成安装</small>
+                        </div>
+                        <button type="button" class="copy-btn" onclick="copyHy2InstallScript(this)" aria-label="复制Hysteria2安装命令">复制命令</button>
+                    </div>
+                    <pre id="hy2-install-script">curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash</pre>
+                </div>
+
                 <div style="display: grid; gap: 15px; margin-bottom: 20px;">
                     <div>
                         <label style="display: block; margin-bottom: 5px; font-weight: 600; color: #333;">服务器IP地址 <span style="color: #dc3545;">*</span></label>
@@ -566,13 +589,13 @@
         </div>
     </div>
 
-    <!-- 出站配置管理弹窗 -->
+    <!-- 落地配置管理弹窗 -->
     <div id="outbound-modal" class="quality-modal" aria-hidden="true">
         <div class="quality-modal-card" role="dialog" aria-modal="true" style="max-width: 1000px;">
             <div class="modal-header">
                 <div>
-                    <h2>📡 出站配置管理</h2>
-                    <p class="modal-subtitle">管理 Hysteria2/VMess/SOCKS5 出站配置，每次只能启用一个</p>
+                    <h2>📡 落地配置管理</h2>
+                    <p class="modal-subtitle">管理 Hysteria2/VMess/SOCKS5 落地配置，每次只能启用一个</p>
                 </div>
                 <div class="modal-header-actions">
                     <button type="button" class="btn btn-primary" onclick="showAddOutboundForm()" style="padding: 8px 16px;">➕ 新增配置</button>
@@ -580,7 +603,7 @@
                 </div>
             </div>
 
-            <!-- 出站配置列表 -->
+            <!-- 落地配置列表 -->
             <div id="outbound-list-container">
                 <table id="outbound-table" style="width: 100%; border-collapse: collapse;">
                     <thead>
@@ -588,17 +611,16 @@
                             <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">名称</th>
                             <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">类型</th>
                             <th style="padding: 12px; text-align: left; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">服务器</th>
-                            <th style="padding: 12px; text-align: center; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">状态</th>
                             <th style="padding: 12px; text-align: center; background: #f8f9fa; border-bottom: 2px solid #dee2e6;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="outbound-tbody">
-                        <tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>
+                        <tr><td colspan="4" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
 
-            <!-- 出站配置表单（新增/编辑） -->
+            <!-- 落地配置表单（新增/编辑） -->
             <div id="outbound-form-container" style="display: none;">
                 <form id="outbound-form">
                     <input type="hidden" name="id" id="outbound-id">
@@ -803,6 +825,147 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
     <script>
+        const HY2_INSTALL_SCRIPT = `curl -fsSL https://raw.githubusercontent.com/tanaer/port-forward/refs/heads/master/scripts/install.sh | bash`;
+
+        // 落地配置列表数据（JSON序列化确保安全）
+        const outboundListData = [];
+        {{range .outboundList}}
+        outboundListData.push({
+            id: {{.Id}},
+            name: {{printf "%q" .Name}},
+            type: {{printf "%q" .Type}},
+            hy2Server: {{printf "%q" .Hy2Server}},
+            hy2Port: {{printf "%q" .Hy2Port}},
+            vmessServer: {{printf "%q" .VmessServer}},
+            vmessPort: {{.VmessPort}},
+            socks5Addr: {{printf "%q" .Socks5Addr}},
+            socks5Port: {{.Socks5Port}}
+        });
+        {{end}}
+
+        // 根据落地配置ID获取名称
+        function getOutboundNameById(id) {
+            if (!id) return null;
+            const config = outboundListData.find(c => c.id === id);
+            return config ? config.name : null;
+        }
+
+        // 根据落地配置ID获取服务器地址
+        function getOutboundServerById(id) {
+            if (!id) return null;
+            const config = outboundListData.find(c => c.id === id);
+            if (!config) return null;
+            switch (config.type) {
+                case 'hysteria2': return config.hy2Server + ':' + config.hy2Port;
+                case 'vmess': return config.vmessServer + ':' + config.vmessPort;
+                case 'socks5': return config.socks5Addr + ':' + config.socks5Port;
+                default: return null;
+            }
+        }
+
+        // 复制出站地址
+        function copyOutboundAddr(btn) {
+            const addrCode = btn.parentElement.querySelector('.outbound-addr');
+            if (!addrCode) return;
+            const text = addrCode.textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.textContent = '✓';
+                    btn.style.color = '#28a745';
+                    setTimeout(() => {
+                        btn.textContent = '📋';
+                        btn.style.color = '#6c757d';
+                    }, 1500);
+                }).catch(() => {
+                    fallbackCopyAddr(text, btn);
+                });
+            } else {
+                fallbackCopyAddr(text, btn);
+            }
+        }
+
+        function fallbackCopyAddr(text, btn) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                btn.textContent = '✓';
+                btn.style.color = '#28a745';
+                setTimeout(() => {
+                    btn.textContent = '📋';
+                    btn.style.color = '#6c757d';
+                }, 1500);
+            } catch (e) {
+                alert('复制失败');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function copyHy2InstallScript(btn) {
+            if (!btn) return;
+            const originalText = btn.textContent || '复制命令';
+            const onSuccess = () => {
+                btn.textContent = '已复制';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.classList.remove('copied');
+                }, 1500);
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(HY2_INSTALL_SCRIPT).then(onSuccess).catch(() => {
+                    if (fallbackCopyText(HY2_INSTALL_SCRIPT)) {
+                        onSuccess();
+                    } else {
+                        alert('复制失败，请手动复制命令');
+                    }
+                });
+            } else {
+                if (fallbackCopyText(HY2_INSTALL_SCRIPT)) {
+                    onSuccess();
+                } else {
+                    alert('复制失败，请手动复制命令');
+                }
+            }
+        }
+
+        function fallbackCopyText(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            let success = false;
+            try {
+                success = document.execCommand('copy');
+            } catch (e) {
+                success = false;
+            }
+            document.body.removeChild(textarea);
+            return success;
+        }
+
+        // 填充落地配置名称
+        function populateOutboundNames() {
+            document.querySelectorAll('.outbound-name[data-outbound-id]').forEach(el => {
+                const id = parseInt(el.dataset.outboundId, 10);
+                if (id) {
+                    const name = getOutboundNameById(id);
+                    const nameSpan = el.querySelector('.outbound-name-text');
+                    if (nameSpan && name) {
+                        nameSpan.textContent = name;
+                    }
+                }
+            });
+        }
+
         const proxyQualityCache = {};
         const proxyTrafficTrendCache = {};
         let currentQualityModalId = null;
@@ -813,6 +976,7 @@
             }
             loadProxyMetrics();
             initQualityModalEvents();
+            populateOutboundNames(); // 填充落地配置名称
         });
 
         async function saveQualityConfig(event) {
@@ -1740,6 +1904,10 @@
             // 显示远程安装弹窗
             const modal = document.getElementById('remote-install-modal');
             if (modal) {
+                const scriptBlock = document.getElementById('hy2-install-script');
+                if (scriptBlock) {
+                    scriptBlock.textContent = HY2_INSTALL_SCRIPT;
+                }
                 modal.classList.add('show');
                 document.body.style.overflow = 'hidden';
                 // 重置表单
@@ -2928,7 +3096,7 @@
             }
         }
 
-        // ==================== 出站配置管理 ====================
+        // ==================== 落地配置管理 ====================
         let outboundList = [];
 
         function showOutboundManager() {
@@ -2966,7 +3134,7 @@
 
         async function loadOutboundList() {
             const tbody = document.getElementById('outbound-tbody');
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #666;">加载中...</td></tr>';
 
             try {
                 const response = await fetch('/outbound/list');
@@ -2987,7 +3155,7 @@
             const tbody = document.getElementById('outbound-tbody');
 
             if (!outboundList.length) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #666;">暂无出站配置，点击上方按钮添加</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #666;">暂无落地配置，点击上方按钮添加</td></tr>';
                 return;
             }
 
@@ -3004,10 +3172,6 @@
                     serverInfo = `${item.vmessServer}:${item.vmessPort}`;
                 }
 
-                const statusHtml = item.status === 0
-                    ? '<span class="status active">✅ 启用中</span>'
-                    : '<span class="status inactive">⏸️ 停用</span>';
-
                 return `
                     <tr>
                         <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600;">${item.name}</td>
@@ -3015,31 +3179,13 @@
                             <span style="background: ${typeColors[item.type]}; color: white; padding: 3px 10px; border-radius: 12px; font-size: 12px;">${typeLabels[item.type]}</span>
                         </td>
                         <td style="padding: 12px; border-bottom: 1px solid #eee; font-family: monospace; color: #666;">${serverInfo}</td>
-                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">${statusHtml}</td>
                         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
-                            ${item.status !== 0 ? `<a href="javascript:void(0)" onclick="activateOutbound(${item.id})" class="btn-success" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none;">启用</a>` : ''}
                             <a href="javascript:void(0)" onclick="editOutbound(${item.id})" class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none; margin-left: 5px;">编辑</a>
                             <a href="javascript:void(0)" onclick="deleteOutbound(${item.id}, '${item.name}')" class="btn-danger" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; text-decoration: none; margin-left: 5px;">删除</a>
                         </td>
                     </tr>
                 `;
             }).join('');
-        }
-
-        async function activateOutbound(id) {
-            try {
-                const response = await fetch(`/outbound/activate/${id}`, { method: 'POST' });
-                const data = await response.json();
-
-                if (data.code !== 0) {
-                    throw new Error(data.error || '启用失败');
-                }
-
-                alert('✅ 出站配置已启用');
-                loadOutboundList();
-            } catch (error) {
-                alert('❌ ' + error.message);
-            }
         }
 
         function editOutbound(id) {
@@ -3080,7 +3226,7 @@
         }
 
         async function deleteOutbound(id, name) {
-            if (!confirm(`确定要删除出站配置 "${name}" 吗？`)) {
+            if (!confirm(`确定要删除落地配置 "${name}" 吗？`)) {
                 return;
             }
 
@@ -3092,14 +3238,14 @@
                     throw new Error(data.error || '删除失败');
                 }
 
-                alert('✅ 出站配置已删除');
+                alert('✅ 落地配置已删除');
                 loadOutboundList();
             } catch (error) {
                 alert('❌ ' + error.message);
             }
         }
 
-        // 出站配置表单提交
+        // 落地配置表单提交
         document.addEventListener('DOMContentLoaded', () => {
             const outboundForm = document.getElementById('outbound-form');
             if (outboundForm) {
@@ -3121,7 +3267,7 @@
                             throw new Error(data.error || '保存失败');
                         }
 
-                        alert('✅ 出站配置已保存');
+                        alert('✅ 落地配置已保存');
                         showOutboundList();
                         loadOutboundList();
                     } catch (error) {

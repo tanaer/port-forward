@@ -129,7 +129,7 @@ func Run() {
 			outTimeStr := c.PostForm("outTime")
 			outTimeInt, err := strconv.Atoi(outTimeStr)
 			if err != nil {
-				outTimeInt = 5
+				outTimeInt = conf.DefaultOutTime
 			}
 			protocolSet := map[string]struct{}{}
 			for _, protocol := range protocols {

@@ -36,6 +36,10 @@ func GetProxyTodayTraffic(proxyID int) (uint64, uint64) {
 	if proxyID <= 0 {
 		return 0, 0
 	}
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	nextDay := dayStart.Add(24 * time.Hour)
+
 	type trafficSum struct {
 		BytesUp   stdsql.NullInt64
 		BytesDown stdsql.NullInt64
@@ -44,7 +48,7 @@ func GetProxyTodayTraffic(proxyID int) (uint64, uint64) {
 	// 使用 proxy_traffic_daily 表查询今日流量，数据更准确
 	err := db.Table("proxy_traffic_daily").
 		Select("COALESCE(bytes_up,0) AS bytes_up, COALESCE(bytes_down,0) AS bytes_down").
-		Where("proxy_id = ? AND DATE(day_start) = DATE('now')", proxyID).
+		Where("proxy_id = ? AND day_start >= ? AND day_start < ?", proxyID, dayStart, nextDay).
 		Scan(&result).Error
 	if err != nil {
 		log.Printf("查询今日流量失败 proxy=%d: %v", proxyID, err)

@@ -4,6 +4,8 @@ import (
 	"sync"
 )
 
+const DefaultOutTime = 300 // 默认TCP空闲超时时间（秒），更宽松以减少误删连接
+
 // ConnectionStats 结构体用于保存多个连接信息
 type ConnectionStats struct {
 	Id            int `gorm:"primaryKey;autoIncrement"`
