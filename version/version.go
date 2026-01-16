@@ -20,7 +20,7 @@ type VersionInfo struct {
 
 var (
 	// Version 应用版本（通过构建时注入���
-	Version = "v1.7.1.0"
+	Version = "v1.7.2.0"
 
 	// BuildTime 构建时间（通过构建时注入）
 	BuildTime = "2025-12-02 18:00:00"
