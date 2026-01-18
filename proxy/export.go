@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"goForward/conf"
 	"goForward/sql"
@@ -14,6 +15,16 @@ type ExportConfig struct {
 	Version string             `json:"version"`
 	Proxies []conf.ProxyConfig `json:"proxies"`
 }
+
+// ImportProgress 导入进度
+type ImportProgress struct {
+	Total    int
+	Imported int
+	Failed   int
+}
+
+// ImportProgressFunc 导入进度回调
+type ImportProgressFunc func(ImportProgress)
 
 // ExportProxies 导出代理配置（支持批量选择）
 func ExportProxies(ids []int) (string, error) {
@@ -73,33 +84,110 @@ func ExportProxiesToFile(ids []int, filename string) error {
 
 // ImportProxies 导入代理配置
 func ImportProxies(jsonData string) ([]int, error) {
-	var exportData ExportConfig
-	if err := json.Unmarshal([]byte(jsonData), &exportData); err != nil {
-		return nil, fmt.Errorf("解析配置失败: %v", err)
+	return ImportProxiesWithProgress(jsonData, nil)
+}
+
+// ImportProxiesWithProgress 导入代理配置并回调进度
+func ImportProxiesWithProgress(jsonData string, progressFn ImportProgressFunc) ([]int, error) {
+	exportData, err := parseExportConfig(jsonData)
+	if err != nil {
+		return nil, err
 	}
+
+	total := len(exportData.Proxies)
+	if total == 0 {
+		return nil, fmt.Errorf("配置为空")
+	}
+	imported := 0
+	failed := 0
 
 	var importedIds []int
 	pm := GetProxyManager()
+
+	notifyImportProgress(progressFn, ImportProgress{
+		Total:    total,
+		Imported: imported,
+		Failed:   failed,
+	})
 
 	for _, cfg := range exportData.Proxies {
 		// 添加到数据库
 		id := sql.AddProxy(cfg)
 		if id == 0 {
 			fmt.Printf("[Import] 添加代理 %s 失败\n", cfg.Name)
+			failed++
+			notifyImportProgress(progressFn, ImportProgress{
+				Total:    total,
+				Imported: imported,
+				Failed:   failed,
+			})
 			continue
 		}
 
 		// 启动代理
 		if err := pm.StartProxy(id); err != nil {
 			fmt.Printf("[Import] 启动代理 ID=%d 失败: %v\n", id, err)
+			failed++
+			notifyImportProgress(progressFn, ImportProgress{
+				Total:    total,
+				Imported: imported,
+				Failed:   failed,
+			})
 			continue
 		}
 
+		imported++
 		importedIds = append(importedIds, id)
+		notifyImportProgress(progressFn, ImportProgress{
+			Total:    total,
+			Imported: imported,
+			Failed:   failed,
+		})
 		fmt.Printf("[Import] 成功导入代理 ID=%d Name=%s\n", id, cfg.Name)
 	}
 
 	return importedIds, nil
+}
+
+func notifyImportProgress(progressFn ImportProgressFunc, progress ImportProgress) {
+	if progressFn != nil {
+		progressFn(progress)
+	}
+}
+
+func parseExportConfig(jsonData string) (ExportConfig, error) {
+	cleaned := sanitizeImportJSON(jsonData)
+	if cleaned == "" {
+		return ExportConfig{}, fmt.Errorf("配置数据不能为空")
+	}
+
+	var exportData ExportConfig
+	err := json.Unmarshal([]byte(cleaned), &exportData)
+	if err == nil && len(exportData.Proxies) > 0 {
+		return exportData, nil
+	}
+
+	var proxies []conf.ProxyConfig
+	if errArray := json.Unmarshal([]byte(cleaned), &proxies); errArray == nil {
+		if len(proxies) == 0 {
+			return ExportConfig{}, fmt.Errorf("配置为空")
+		}
+		return ExportConfig{
+			Version: "1.0",
+			Proxies: proxies,
+		}, nil
+	}
+
+	if err != nil {
+		return ExportConfig{}, fmt.Errorf("解析配置失败: %w", err)
+	}
+
+	return ExportConfig{}, fmt.Errorf("配置为空")
+}
+
+func sanitizeImportJSON(input string) string {
+	trimmed := strings.TrimSpace(input)
+	return strings.TrimPrefix(trimmed, "\ufeff")
 }
 
 // ImportProxiesFromFile 从文件导入代理配置

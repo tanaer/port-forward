@@ -165,6 +165,73 @@ func RegisterProxyRoutes(r *gin.Engine) {
 		})
 	})
 
+	// 异步导入代理配置
+	r.POST("/proxy/import/async", func(c *gin.Context) {
+		jsonData := c.PostForm("config")
+		if jsonData == "" {
+			c.JSON(400, gin.H{"error": "配置数据不能为空"})
+			return
+		}
+
+		job := conf.ProxyImportJobs.Create()
+
+		go func(jobID string, data string) {
+			startedAt := time.Now()
+			conf.ProxyImportJobs.Update(jobID, func(job *conf.ProxyImportJob) {
+				job.Status = conf.ProxyImportRunning
+				job.StartedAt = &startedAt
+			})
+
+			importedIds, err := proxy.ImportProxiesWithProgress(data, func(progress proxy.ImportProgress) {
+				conf.ProxyImportJobs.Update(jobID, func(job *conf.ProxyImportJob) {
+					job.Total = progress.Total
+					job.Imported = progress.Imported
+					job.Failed = progress.Failed
+				})
+			})
+			if err != nil {
+				finishedAt := time.Now()
+				conf.ProxyImportJobs.Update(jobID, func(job *conf.ProxyImportJob) {
+					job.Status = conf.ProxyImportFailed
+					job.Error = err.Error()
+					job.FinishedAt = &finishedAt
+				})
+				return
+			}
+
+			finishedAt := time.Now()
+			conf.ProxyImportJobs.Update(jobID, func(job *conf.ProxyImportJob) {
+				job.Status = conf.ProxyImportSucceeded
+				job.FinishedAt = &finishedAt
+				if job.Total == 0 {
+					job.Total = len(importedIds)
+				}
+				if job.Imported == 0 {
+					job.Imported = len(importedIds)
+				}
+			})
+		}(job.ID, jsonData)
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"success":   true,
+			"jobId":     job.ID,
+			"status":    job.Status,
+			"statusUrl": fmt.Sprintf("/proxy/import/status/%s", job.ID),
+		})
+	})
+
+	// 导入代理配置状态查询
+	r.GET("/proxy/import/status/:id", func(c *gin.Context) {
+		jobID := c.Param("id")
+		job, ok := conf.ProxyImportJobs.Get(jobID)
+		if !ok {
+			c.JSON(404, gin.H{"error": "导入任务不存在"})
+			return
+		}
+
+		c.JSON(200, job)
+	})
+
 	// 批量重启全部代理
 	r.POST("/proxy/batch-restart", func(c *gin.Context) {
 		// 获取所有代理

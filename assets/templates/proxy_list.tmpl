@@ -2642,6 +2642,7 @@
         }
 
         // 导出选中的代理
+        let exportInProgress = false;
         async function exportSelected() {
             const checkedIds = document.querySelectorAll('input[name="proxyIds"]:checked');
 
@@ -2651,12 +2652,35 @@
                 }
             }
 
+            if (exportInProgress) {
+                return;
+            }
+
+            exportInProgress = true;
+            const progressModal = showProgressModal('📤 正在导出代理配置', [
+                '整理导出列表...',
+                '服务器生成文件...',
+                '准备下载...',
+                '完成'
+            ]);
+            updateProgressStep(progressModal, 0);
+            setProgressStatus(progressModal, '正在整理导出列表...');
+
+            const startTime = Date.now();
+            const elapsedTimer = setInterval(() => {
+                const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                setProgressElapsed(progressModal, `已等待 ${formatElapsedSeconds(elapsedSeconds)}`);
+            }, 1000);
+
             try {
                 const formData = new FormData();
                 if (checkedIds.length > 0) {
                     const ids = Array.from(checkedIds).map(cb => cb.value).join(',');
                     formData.append('ids', ids);
                 }
+
+                updateProgressStep(progressModal, 1);
+                setProgressStatus(progressModal, '服务器正在生成导出文件...');
 
                 const response = await fetch('/proxy/export', {
                     method: 'POST',
@@ -2665,11 +2689,12 @@
 
                 if (!response.ok) {
                     const error = await response.json();
-                    alert('导出失败: ' + error.error);
-                    return;
+                    throw new Error(error.error || '导出失败');
                 }
 
                 // 获取JSON数据并触发下载
+                updateProgressStep(progressModal, 2);
+                setProgressStatus(progressModal, '正在准备下载...');
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -2681,8 +2706,18 @@
                 window.URL.revokeObjectURL(url);
                 a.remove();
 
-                alert('导出成功！');
+                updateProgressStep(progressModal, 3);
+                setProgressStatus(progressModal, '导出完成');
+                clearInterval(elapsedTimer);
+                exportInProgress = false;
+                setTimeout(() => {
+                    hideProgressModal(progressModal);
+                    alert('导出成功！');
+                }, 300);
             } catch (error) {
+                exportInProgress = false;
+                clearInterval(elapsedTimer);
+                hideProgressModal(progressModal);
                 alert('导出出错: ' + error.message);
             }
         }
@@ -2690,6 +2725,7 @@
         // 显示导入对话框
         function showImportModal() {
             const modal = document.createElement('div');
+            modal.id = 'importModal';
             modal.style.cssText = `
                 position: fixed;
                 top: 0;
@@ -2723,8 +2759,8 @@
                     </div>
 
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button onclick="this.closest('div[style*=position]').remove()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">取消</button>
-                        <button onclick="importConfig()" style="padding: 10px 20px; background: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 导入</button>
+                        <button onclick="closeImportModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">取消</button>
+                        <button id="importConfirmBtn" onclick="importConfig()" style="padding: 10px 20px; background: #6f42c1; color: white; border: none; border-radius: 4px; cursor: pointer;">📥 导入</button>
                     </div>
                 </div>
             `;
@@ -2737,8 +2773,79 @@
             });
         }
 
+        function closeImportModal() {
+            const modal = document.getElementById('importModal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        function formatElapsedSeconds(seconds) {
+            if (seconds < 60) {
+                return `${seconds}s`;
+            }
+            const minutes = Math.floor(seconds / 60);
+            const remain = seconds % 60;
+            return `${minutes}m${remain}s`;
+        }
+
+        function parseImportPayload(text) {
+            const trimmed = text.trim();
+            if (!trimmed) {
+                return { error: '配置文件为空' };
+            }
+
+            const parseJson = (input) => {
+                try {
+                    return { value: JSON.parse(input) };
+                } catch (error) {
+                    return { error };
+                }
+            };
+
+            let result = parseJson(trimmed);
+            if (!result.error) {
+                return result;
+            }
+
+            const firstObject = trimmed.indexOf('{');
+            const firstArray = trimmed.indexOf('[');
+            let start = -1;
+            if (firstObject >= 0 && firstArray >= 0) {
+                start = Math.min(firstObject, firstArray);
+            } else {
+                start = Math.max(firstObject, firstArray);
+            }
+            const end = Math.max(trimmed.lastIndexOf('}'), trimmed.lastIndexOf(']'));
+            if (start >= 0 && end > start) {
+                result = parseJson(trimmed.slice(start, end + 1));
+                if (!result.error) {
+                    return result;
+                }
+            }
+
+            return { error: result.error?.message || '配置文件不是有效的JSON' };
+        }
+
+        async function readJsonResponse(response) {
+            const text = await response.text();
+            if (!text) {
+                return { data: null, text: '' };
+            }
+            try {
+                return { data: JSON.parse(text), text };
+            } catch (error) {
+                return { error, text };
+            }
+        }
+
         // 执行导入操作
+        let importInProgress = false;
         async function importConfig() {
+            if (importInProgress) {
+                return;
+            }
+
             const fileInput = document.getElementById('importFile');
             const file = fileInput.files[0];
 
@@ -2747,30 +2854,165 @@
                 return;
             }
 
+            importInProgress = true;
+            closeImportModal();
+
+            const progressModal = showProgressModal('📥 正在导入代理配置', [
+                '读取配置文件...',
+                '上传配置数据...',
+                '服务器处理中...',
+                '导入完成'
+            ]);
+            updateProgressStep(progressModal, 0);
+            setProgressStatus(progressModal, '正在读取文件...');
+
+            const startTime = Date.now();
+            const elapsedTimer = setInterval(() => {
+                const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                setProgressElapsed(progressModal, `已等待 ${formatElapsedSeconds(elapsedSeconds)}`);
+            }, 1000);
+
             try {
                 const text = await file.text();
-                const formData = new FormData();
-                formData.append('config', text);
+                const parsed = parseImportPayload(text);
+                if (parsed.error) {
+                    throw new Error(`配置文件解析失败: ${parsed.error}`);
+                }
+                let payload = parsed.value;
+                if (Array.isArray(payload)) {
+                    payload = { version: '1.0', proxies: payload };
+                }
 
-                const response = await fetch('/proxy/import', {
+                const formData = new FormData();
+                formData.append('config', JSON.stringify(payload));
+
+                updateProgressStep(progressModal, 1);
+                setProgressStatus(progressModal, '正在上传配置数据...');
+
+                const response = await fetch('/proxy/import/async', {
                     method: 'POST',
                     body: formData
                 });
 
-                const result = await response.json();
+                const parsedResponse = await readJsonResponse(response);
+                if (response.status === 404) {
+                    updateProgressStep(progressModal, 2);
+                    setProgressStatus(progressModal, '异步接口不可用，改用同步导入...');
 
-                if (!response.ok) {
-                    alert('导入失败: ' + result.error);
+                    const fallbackResponse = await fetch('/proxy/import', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const fallbackParsed = await readJsonResponse(fallbackResponse);
+                    if (fallbackParsed.error) {
+                        throw new Error(fallbackParsed.text.trim() || '导入失败');
+                    }
+                    if (!fallbackResponse.ok) {
+                        throw new Error((fallbackParsed.data && fallbackParsed.data.error) || '导入失败');
+                    }
+
+                    updateProgressStep(progressModal, 3);
+                    setProgressStatus(progressModal, '导入完成');
+                    clearInterval(elapsedTimer);
+                    importInProgress = false;
+                    hideProgressModal(progressModal);
+                    alert(`导入成功！共导入 ${fallbackParsed.data.count || 0} 个代理`);
+                    location.reload();
                     return;
                 }
 
-                alert(`导入成功！共导入 ${result.count} 个代理`);
+                if (parsedResponse.error) {
+                    throw new Error(parsedResponse.text.trim() || '导入接口返回非JSON');
+                }
 
-                // 关闭对话框并刷新页面
-                document.querySelector('div[style*="position: fixed"]').remove();
-                location.reload();
+                const result = parsedResponse.data || {};
+
+                if (!response.ok) {
+                    throw new Error(result.error || '导入启动失败');
+                }
+
+                if (!result.jobId) {
+                    throw new Error('导入任务创建失败');
+                }
+
+                updateProgressStep(progressModal, 2);
+                setProgressStatus(progressModal, '服务器正在导入，请稍候...');
+
+                await pollImportStatus(result.jobId, progressModal);
+
+                clearInterval(elapsedTimer);
+                importInProgress = false;
             } catch (error) {
+                importInProgress = false;
+                clearInterval(elapsedTimer);
+                hideProgressModal(progressModal);
                 alert('导入出错: ' + error.message);
+            }
+        }
+
+        async function pollImportStatus(jobId, progressModal) {
+            let attempts = 0;
+            while (true) {
+                let response;
+                let result;
+
+                try {
+                    response = await fetch(`/proxy/import/status/${jobId}`);
+                    result = await response.json();
+                } catch (error) {
+                    attempts++;
+                    setProgressStatus(progressModal, '状态获取失败，正在重试...');
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                    if (attempts > 5) {
+                        throw new Error('状态获取失败，请稍后刷新页面查看结果');
+                    }
+                    continue;
+                }
+
+                if (!response.ok) {
+                    throw new Error(result.error || '状态获取失败');
+                }
+
+                attempts = 0;
+
+                if (result.status === 'queued' || result.status === 'running') {
+                    const total = result.total || 0;
+                    const imported = result.imported || 0;
+                    const failed = result.failed || 0;
+
+                    if (total > 0) {
+                        const failureText = failed > 0 ? `，失败 ${failed}` : '';
+                        setProgressStatus(progressModal, `服务器导入中：${imported}/${total}${failureText}`);
+                    } else {
+                        setProgressStatus(progressModal, '服务器正在导入，请稍候...');
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                    continue;
+                }
+
+                updateProgressStep(progressModal, 3);
+
+                if (result.status === 'failed') {
+                    hideProgressModal(progressModal);
+                    throw new Error(result.error || '导入失败');
+                }
+
+                const total = result.total || result.imported || 0;
+                const imported = result.imported || 0;
+                const failed = result.failed || 0;
+                let message = `导入完成！成功导入 ${imported} 个代理`;
+                if (failed > 0) {
+                    message += `，失败 ${failed} 个`;
+                }
+                if (total > 0 && total !== imported + failed) {
+                    message += `（总计 ${total} 个）`;
+                }
+
+                hideProgressModal(progressModal);
+                alert(message);
+                location.reload();
+                return;
             }
         }
 
@@ -2895,7 +3137,10 @@
                 <div style="background: white; padding: 40px; border-radius: 12px; max-width: 500px; width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.4);">
                     <h2 style="margin: 0 0 30px 0; color: #333; font-size: 20px;">${title}</h2>
                     <div id="progressSteps" style="margin-bottom: 30px;"></div>
-                    <div style="text-align: center; color: #666; font-size: 14px;">请稍候，正在执行中...</div>
+                    <div style="text-align: center; color: #666; font-size: 14px;">
+                        <div id="progressStatus">请稍候，正在执行中...</div>
+                        <div id="progressElapsed" style="margin-top: 6px; font-size: 12px; color: #888;"></div>
+                    </div>
                 </div>
             `;
 
@@ -2922,6 +3167,20 @@
 
             document.body.appendChild(modal);
             return modal;
+        }
+
+        function setProgressStatus(modal, message) {
+            const statusEl = modal.querySelector('#progressStatus');
+            if (statusEl) {
+                statusEl.textContent = message;
+            }
+        }
+
+        function setProgressElapsed(modal, message) {
+            const elapsedEl = modal.querySelector('#progressElapsed');
+            if (elapsedEl) {
+                elapsedEl.textContent = message || '';
+            }
         }
 
         // 更新进度步骤
