@@ -146,7 +146,7 @@ func ImportProxiesWithProgress(jsonData string, progressFn ImportProgressFunc) (
 
 	// 尝试解析 V2 格式
 	var exportDataV2 ExportConfigV2
-	if err := json.Unmarshal([]byte(cleaned), &exportDataV2); err == nil && exportDataV2.Version == "2.0" {
+	if err := json.Unmarshal([]byte(cleaned), &exportDataV2); err == nil && isV2Export(exportDataV2) {
 		return importProxiesV2(exportDataV2, progressFn)
 	}
 
@@ -170,23 +170,28 @@ func importProxiesV2(exportData ExportConfigV2, progressFn ImportProgressFunc) (
 	outboundNameToId := make(map[string]int)
 	for _, outbound := range exportData.Outbounds {
 		// 检查是否已存在同名出站配置
-		existingId := findOutboundByName(outbound.Name)
+		name := strings.TrimSpace(outbound.Name)
+		if name == "" {
+			continue
+		}
+		existingId := findOutboundByName(name)
 		if existingId > 0 {
-			outboundNameToId[outbound.Name] = existingId
-			fmt.Printf("[Import] 出站配置 %s 已存在，使用现有ID=%d\n", outbound.Name, existingId)
+			outboundNameToId[name] = existingId
+			fmt.Printf("[Import] 出站配置 %s 已存在，使用现有ID=%d\n", name, existingId)
 			continue
 		}
 
 		// 添加新的出站配置
 		newOutbound := outbound
 		newOutbound.Status = 1 // 默认停用
+		newOutbound.Name = name
 		id, err := sql.AddOutbound(&newOutbound)
 		if err != nil {
-			fmt.Printf("[Import] 添加出站配置 %s 失败: %v\n", outbound.Name, err)
+			fmt.Printf("[Import] 添加出站配置 %s 失败: %v\n", name, err)
 			continue
 		}
-		outboundNameToId[outbound.Name] = id
-		fmt.Printf("[Import] 成功导入出站配置 %s ID=%d\n", outbound.Name, id)
+		outboundNameToId[name] = id
+		fmt.Printf("[Import] 成功导入出站配置 %s ID=%d\n", name, id)
 	}
 
 	// 第二步：导入代理配置
@@ -205,9 +210,13 @@ func importProxiesV2(exportData ExportConfigV2, progressFn ImportProgressFunc) (
 		cfg := exportProxy.ProxyConfig
 
 		// 恢复出站配置关联
-		if exportProxy.OutboundConfigName != "" {
-			if outboundId, exists := outboundNameToId[exportProxy.OutboundConfigName]; exists {
+		outboundName := strings.TrimSpace(exportProxy.OutboundConfigName)
+		if outboundName != "" {
+			if outboundId, exists := outboundNameToId[outboundName]; exists {
 				cfg.OutboundConfigId = outboundId
+			} else if existingId := findOutboundByName(outboundName); existingId > 0 {
+				outboundNameToId[outboundName] = existingId
+				cfg.OutboundConfigId = existingId
 			}
 		}
 
@@ -354,6 +363,21 @@ func parseExportConfigV1(cleaned string) (ExportConfig, error) {
 func sanitizeImportJSON(input string) string {
 	trimmed := strings.TrimSpace(input)
 	return strings.TrimPrefix(trimmed, "\ufeff")
+}
+
+func isV2Export(exportData ExportConfigV2) bool {
+	if strings.TrimSpace(exportData.Version) == "2.0" {
+		return true
+	}
+	if len(exportData.Outbounds) > 0 {
+		return true
+	}
+	for _, proxy := range exportData.Proxies {
+		if strings.TrimSpace(proxy.OutboundConfigName) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ImportProxiesFromFile 从文件导入代理配置

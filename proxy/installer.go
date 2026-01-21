@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +38,7 @@ type ReleaseInfo struct {
 type ReleaseStatus struct {
 	Xray      ReleaseSummary `json:"xray"`
 	Hysteria2 ReleaseSummary `json:"hysteria2"`
+	SingBox   ReleaseSummary `json:"singbox"`
 }
 
 // ReleaseSummary 单个依赖的版本/更新摘要
@@ -89,6 +92,13 @@ func (i *Installer) CheckEnvironment() EnvironmentStatus {
 	hy2Status := i.checkHysteria2()
 	status.Dependencies = append(status.Dependencies, hy2Status)
 	if !hy2Status.Installed {
+		status.Ready = false
+	}
+
+	// 检查 Sing-Box
+	singStatus := i.checkSingBox()
+	status.Dependencies = append(status.Dependencies, singStatus)
+	if !singStatus.Installed {
 		status.Ready = false
 	}
 
@@ -174,6 +184,32 @@ func (i *Installer) checkHysteria2() DependencyStatus {
 	return status
 }
 
+// checkSingBox 检查 Sing-Box 是否安装
+func (i *Installer) checkSingBox() DependencyStatus {
+	status := DependencyStatus{
+		Name:     "Sing-Box",
+		Required: true,
+	}
+
+	localSing := filepath.Join(i.BinDir, "sing-box")
+	if _, err := os.Stat(localSing); err == nil {
+		status.Installed = true
+		status.Path = localSing
+		status.Version = i.getSingBoxVersion(localSing)
+		return status
+	}
+
+	if singPath, err := exec.LookPath("sing-box"); err == nil {
+		status.Installed = true
+		status.Path = singPath
+		status.Version = i.getSingBoxVersion(singPath)
+		return status
+	}
+
+	status.Installed = false
+	return status
+}
+
 // getXrayVersion 获取 Xray 版本
 func (i *Installer) getXrayVersion(path string) string {
 	cmd := exec.Command(path, "version")
@@ -217,17 +253,77 @@ func (i *Installer) getHy2Version(path string) string {
 	return "unknown"
 }
 
+// getSingBoxVersion 获取 Sing-Box 版本
+func (i *Installer) getSingBoxVersion(path string) string {
+	cmd := exec.Command(path, "version")
+	output, err := cmd.Output()
+	if err != nil {
+		return "unknown"
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		for idx, part := range parts {
+			if part == "version" && idx+1 < len(parts) {
+				return parts[idx+1]
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+func normalizeXrayTag(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
+	}
+	if strings.HasPrefix(version, "v") {
+		return version
+	}
+	return "v" + strings.TrimPrefix(version, "v")
+}
+
+func normalizeHy2Tag(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
+	}
+	if strings.HasPrefix(version, "app/") {
+		return version
+	}
+	if strings.HasPrefix(version, "v") {
+		return "app/" + version
+	}
+	return "app/v" + version
+}
+
 // InstallXray 安装 Xray
 func (i *Installer) InstallXray() error {
+	return i.InstallXrayVersion("")
+}
+
+// InstallXrayVersion 安装指定版本 Xray（留空则安装最新）
+func (i *Installer) InstallXrayVersion(version string) error {
 	fmt.Println("[Installer] 开始安装 Xray-core...")
 
 	// 获取最新版本
-	latestVersion, err := i.getLatestXrayVersion()
-	if err != nil {
-		return fmt.Errorf("获取 Xray 最新版本失败: %v", err)
+	targetVersion := strings.TrimSpace(version)
+	if strings.EqualFold(targetVersion, "latest") {
+		targetVersion = ""
+	}
+	if targetVersion == "" {
+		latestVersion, err := i.getLatestXrayVersion()
+		if err != nil {
+			return fmt.Errorf("获取 Xray 最新版本失败: %w", err)
+		}
+		targetVersion = latestVersion
+	} else {
+		targetVersion = normalizeXrayTag(targetVersion)
 	}
 
-	fmt.Printf("[Installer] 最新版本: %s\n", latestVersion)
+	fmt.Printf("[Installer] 目标版本: %s\n", targetVersion)
 
 	// 确定平台
 	osType := runtime.GOOS
@@ -248,19 +344,19 @@ func (i *Installer) InstallXray() error {
 		return fmt.Errorf("不支持的操作系统: %s", osType)
 	}
 
-	downloadURL = fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/%s", latestVersion, fileName)
+	downloadURL = fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/%s", targetVersion, fileName)
 	fmt.Printf("[Installer] 下载地址: %s\n", downloadURL)
 
 	// 下载文件
 	zipPath := filepath.Join(i.BinDir, fileName)
 	if err := i.downloadFile(downloadURL, zipPath); err != nil {
-		return fmt.Errorf("下载 Xray 失败: %v", err)
+		return fmt.Errorf("下载 Xray 失败: %w", err)
 	}
 
 	// 解压文件
 	if err := i.unzipXray(zipPath); err != nil {
 		os.Remove(zipPath)
-		return fmt.Errorf("解压 Xray 失败: %v", err)
+		return fmt.Errorf("解压 Xray 失败: %w", err)
 	}
 
 	// 删除压缩包
@@ -276,15 +372,29 @@ func (i *Installer) InstallXray() error {
 
 // InstallHysteria2 安装 Hysteria2
 func (i *Installer) InstallHysteria2() error {
+	return i.InstallHysteria2Version("")
+}
+
+// InstallHysteria2Version 安装指定版本 Hysteria2（留空则安装最新）
+func (i *Installer) InstallHysteria2Version(version string) error {
 	fmt.Println("[Installer] 开始安装 Hysteria2...")
 
 	// 获取最新版本
-	latestVersion, err := i.getLatestHy2Version()
-	if err != nil {
-		return fmt.Errorf("获取 Hysteria2 最新版本失败: %v", err)
+	targetVersion := strings.TrimSpace(version)
+	if strings.EqualFold(targetVersion, "latest") {
+		targetVersion = ""
+	}
+	if targetVersion == "" {
+		latestVersion, err := i.getLatestHy2Version()
+		if err != nil {
+			return fmt.Errorf("获取 Hysteria2 最新版本失败: %w", err)
+		}
+		targetVersion = latestVersion
+	} else {
+		targetVersion = normalizeHy2Tag(targetVersion)
 	}
 
-	fmt.Printf("[Installer] 最新版本: %s\n", latestVersion)
+	fmt.Printf("[Installer] 目标版本: %s\n", targetVersion)
 
 	// 确定平台
 	osType := runtime.GOOS
@@ -305,10 +415,7 @@ func (i *Installer) InstallHysteria2() error {
 	}
 
 	// 移除 v 前缀
-	versionTag := latestVersion
-	if !strings.HasPrefix(versionTag, "app/") {
-		versionTag = "app/" + strings.TrimPrefix(versionTag, "v")
-	}
+	versionTag := targetVersion
 
 	downloadURL := fmt.Sprintf("https://github.com/apernet/hysteria/releases/download/%s/%s", versionTag, fileName)
 	fmt.Printf("[Installer] 下载地址: %s\n", downloadURL)
@@ -316,13 +423,81 @@ func (i *Installer) InstallHysteria2() error {
 	// 下载文件
 	hy2Path := filepath.Join(i.BinDir, "hysteria2")
 	if err := i.downloadFile(downloadURL, hy2Path); err != nil {
-		return fmt.Errorf("下载 Hysteria2 失败: %v", err)
+		return fmt.Errorf("下载 Hysteria2 失败: %w", err)
 	}
 
 	// 设置执行权限
 	os.Chmod(hy2Path, 0755)
 
 	fmt.Println("[Installer] Hysteria2 安装完成")
+	return nil
+}
+
+// InstallSingBox 安装 Sing-Box
+func (i *Installer) InstallSingBox() error {
+	return i.InstallSingBoxVersion("")
+}
+
+// InstallSingBoxVersion 安装指定版本 Sing-Box（留空则安装最新）
+func (i *Installer) InstallSingBoxVersion(version string) error {
+	fmt.Println("[Installer] 开始安装 Sing-Box...")
+
+	targetVersion := strings.TrimSpace(version)
+	if strings.EqualFold(targetVersion, "latest") {
+		targetVersion = ""
+	}
+	if targetVersion == "" {
+		latestVersion, err := i.getLatestSingBoxVersion()
+		if err != nil {
+			return fmt.Errorf("获取 Sing-Box 最新版本失败: %w", err)
+		}
+		targetVersion = latestVersion
+	}
+
+	fmt.Printf("[Installer] 目标版本: %s\n", targetVersion)
+
+	osType := runtime.GOOS
+	archType := runtime.GOARCH
+
+	var fileName string
+	if osType == "linux" {
+		if archType == "amd64" {
+			fileName = "sing-box-%s-linux-amd64.tar.gz"
+		} else if archType == "arm64" {
+			fileName = "sing-box-%s-linux-arm64.tar.gz"
+		} else {
+			return fmt.Errorf("不支持的架构: %s", archType)
+		}
+	} else {
+		return fmt.Errorf("不支持的操作系统: %s", osType)
+	}
+
+	versionTag := targetVersion
+	if !strings.HasPrefix(versionTag, "v") {
+		versionTag = "v" + strings.TrimPrefix(versionTag, "v")
+	}
+	versionNumber := strings.TrimPrefix(versionTag, "v")
+	versionNumber = strings.ReplaceAll(versionNumber, "/", "")
+	versionNumber = strings.ReplaceAll(versionNumber, "\\", "")
+	if versionNumber == "" {
+		return fmt.Errorf("无效版本号: %s", targetVersion)
+	}
+	archiveName := fmt.Sprintf(fileName, versionNumber)
+	downloadURL := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/%s/%s", versionTag, archiveName)
+	fmt.Printf("[Installer] 下载地址: %s\n", downloadURL)
+
+	archivePath := filepath.Join(i.BinDir, archiveName)
+	if err := i.downloadFile(downloadURL, archivePath); err != nil {
+		return fmt.Errorf("下载 Sing-Box 失败: %w", err)
+	}
+
+	if err := i.extractSingBox(archivePath); err != nil {
+		os.Remove(archivePath)
+		return fmt.Errorf("解压 Sing-Box 失败: %w", err)
+	}
+
+	os.Remove(archivePath)
+	fmt.Println("[Installer] Sing-Box 安装完成")
 	return nil
 }
 
@@ -338,6 +513,15 @@ func (i *Installer) getLatestXrayVersion() (string, error) {
 // getLatestHy2Version 获取 Hysteria2 最新版本
 func (i *Installer) getLatestHy2Version() (string, error) {
 	info, err := i.fetchReleaseInfo("https://api.github.com/repos/apernet/hysteria/releases/latest")
+	if err != nil {
+		return "", err
+	}
+	return info.Tag, nil
+}
+
+// getLatestSingBoxVersion 获取 Sing-Box 最新版本
+func (i *Installer) getLatestSingBoxVersion() (string, error) {
+	info, err := i.fetchReleaseInfo("https://api.github.com/repos/SagerNet/sing-box/releases/latest")
 	if err != nil {
 		return "", err
 	}
@@ -379,6 +563,7 @@ func (i *Installer) GetReleaseStatus() (ReleaseStatus, error) {
 	status := ReleaseStatus{
 		Xray:      ReleaseSummary{Name: "Xray-core"},
 		Hysteria2: ReleaseSummary{Name: "Hysteria2"},
+		SingBox:   ReleaseSummary{Name: "Sing-Box"},
 	}
 
 	// 读取已安装版本
@@ -389,6 +574,9 @@ func (i *Installer) GetReleaseStatus() (ReleaseStatus, error) {
 		if dep.Name == "Hysteria2" {
 			status.Hysteria2.InstalledVersion = dep.Version
 		}
+		if dep.Name == "Sing-Box" {
+			status.SingBox.InstalledVersion = dep.Version
+		}
 	}
 
 	xrayRelease, err := i.fetchReleaseInfo("https://api.github.com/repos/XTLS/Xray-core/releases/latest")
@@ -396,6 +584,10 @@ func (i *Installer) GetReleaseStatus() (ReleaseStatus, error) {
 		return status, err
 	}
 	hyRelease, err := i.fetchReleaseInfo("https://api.github.com/repos/apernet/hysteria/releases/latest")
+	if err != nil {
+		return status, err
+	}
+	singRelease, err := i.fetchReleaseInfo("https://api.github.com/repos/SagerNet/sing-box/releases/latest")
 	if err != nil {
 		return status, err
 	}
@@ -409,6 +601,11 @@ func (i *Installer) GetReleaseStatus() (ReleaseStatus, error) {
 	status.Hysteria2.PublishedAt = hyRelease.PublishedAt
 	status.Hysteria2.URL = hyRelease.URL
 	status.Hysteria2.Notes = trimReleaseNotes(hyRelease.Body)
+
+	status.SingBox.LatestVersion = singRelease.Tag
+	status.SingBox.PublishedAt = singRelease.PublishedAt
+	status.SingBox.URL = singRelease.URL
+	status.SingBox.Notes = trimReleaseNotes(singRelease.Body)
 
 	return status, nil
 }
@@ -505,6 +702,59 @@ func (i *Installer) unzipXray(zipPath string) error {
 	return nil
 }
 
+// extractSingBox 解压 Sing-Box 压缩包
+func (i *Installer) extractSingBox(archivePath string) error {
+	fmt.Println("[Installer] 开始解压 Sing-Box...")
+
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+
+	tr := tar.NewReader(gzipReader)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			continue
+		}
+
+		name := strings.TrimPrefix(header.Name, "./")
+		if filepath.Base(name) != "sing-box" {
+			continue
+		}
+
+		destPath := filepath.Join(i.BinDir, "sing-box")
+		outFile, err := os.Create(destPath)
+		if err != nil {
+			return err
+		}
+
+		if _, err := io.Copy(outFile, tr); err != nil {
+			outFile.Close()
+			return err
+		}
+		outFile.Close()
+		os.Chmod(destPath, 0755)
+		fmt.Printf("[Installer] 已解压: %s\n", destPath)
+		return nil
+	}
+
+	return fmt.Errorf("未在压缩包中找到 sing-box")
+}
+
 // InstallAll 安装所有依赖
 func (i *Installer) InstallAll() error {
 	// 检查环境
@@ -520,10 +770,12 @@ func (i *Installer) InstallAll() error {
 				err = i.InstallXray()
 			} else if dep.Name == "Hysteria2" {
 				err = i.InstallHysteria2()
+			} else if dep.Name == "Sing-Box" {
+				err = i.InstallSingBox()
 			}
 
 			if err != nil {
-				return fmt.Errorf("安装 %s 失败: %v", dep.Name, err)
+				return fmt.Errorf("安装 %s 失败: %w", dep.Name, err)
 			}
 		} else {
 			fmt.Printf("[Installer] %s 已安装: %s\n", dep.Name, dep.Version)

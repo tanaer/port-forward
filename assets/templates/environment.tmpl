@@ -84,6 +84,7 @@
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .action-buttons { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
+        .version-input { padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 4px; min-width: 180px; }
 
         .info-box { background: #d1ecf1; border-left: 4px solid #0c5460; padding: 15px; margin-top: 30px; border-radius: 4px; }
         .info-box h3 { color: #0c5460; margin-bottom: 10px; }
@@ -142,7 +143,7 @@
         <div class="dependency-card {{if .Installed}}installed{{else}}not-installed{{end}}">
             <div class="dep-header">
                 <div class="dep-name">
-                    {{if eq .Name "Xray-core"}}🔐{{else}}🚀{{end}} {{.Name}}
+                    {{if eq .Name "Xray-core"}}🔐{{else if eq .Name "Hysteria2"}}🚀{{else}}🧰{{end}} {{.Name}}
                 </div>
                 <div class="dep-status {{if .Installed}}installed{{else}}not-installed{{end}}">
                     {{if .Installed}}✅ 已安装{{else}}❌ 未安装{{end}}
@@ -164,14 +165,16 @@
                 <strong>状态:</strong> <span style="color: #dc3545;">✗ 未安装</span>
             </div>
             <div class="dep-info">
-                <strong>说明:</strong> {{if eq .Name "Xray-core"}}Xray 是 VLESS+Reality 协议的核心引擎{{else}}Hysteria2 是高速代理协议客户端{{end}}
+                <strong>说明:</strong> {{if eq .Name "Xray-core"}}Xray 是 VLESS+Reality 协议的核心引擎{{else if eq .Name "Hysteria2"}}Hysteria2 是高速代理协议客户端{{else}}Sing-Box 是通用代理核心，支持多协议出站{{end}}
             </div>
 
             <div class="action-buttons">
                 {{if eq .Name "Xray-core"}}
                 <button class="btn btn-primary" onclick="installXray()">📥 安装 Xray</button>
-                {{else}}
+                {{else if eq .Name "Hysteria2"}}
                 <button class="btn btn-primary" onclick="installHy2()">📥 安装 Hysteria2</button>
+                {{else}}
+                <button class="btn btn-primary" onclick="installSingBox()">📥 安装 Sing-Box</button>
                 {{end}}
             </div>
             {{end}}
@@ -197,6 +200,8 @@
                 <div class="changelog" id="xray-notes">点击“检查更新”以加载发布说明</div>
                 <div class="action-buttons">
                     <button class="btn btn-primary" onclick="upgradeXray()">⬆️ 升级 / 重装 Xray</button>
+                    <input class="version-input" id="xray-version" placeholder="指定版本，如 v1.8.8 或 1.8.8">
+                    <button class="btn btn-success" onclick="upgradeXray(getVersionInput('xray-version'))">🎯 更新到指定版本</button>
                 </div>
             </div>
 
@@ -214,6 +219,27 @@
                 <div class="changelog" id="hy2-notes">点击“检查更新”以加载发布说明</div>
                 <div class="action-buttons">
                     <button class="btn btn-primary" onclick="upgradeHy2()">⬆️ 升级 / 重装 Hysteria2</button>
+                    <input class="version-input" id="hy2-version" placeholder="指定版本，如 v2.5.0 或 app/v2.5.0">
+                    <button class="btn btn-success" onclick="upgradeHy2(getVersionInput('hy2-version'))">🎯 更新到指定版本</button>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #e9ecef; margin: 10px 0;">
+
+            <div class="update-row">
+                <div class="dep-name" style="font-size: 16px;">Sing-Box</div>
+                <div class="dep-info">
+                    <strong>当前:</strong> <span id="singbox-installed">--</span>
+                    <strong style="margin-left: 10px;">最新:</strong> <span id="singbox-latest">--</span>
+                    <a id="singbox-url" href="#" target="_blank" style="margin-left: 10px; display: none;">发布页</a>
+                    <span id="singbox-date" style="color: #666; margin-left: 10px;"></span>
+                </div>
+                <div class="dep-info"><strong>新版特性:</strong></div>
+                <div class="changelog" id="singbox-notes">点击“检查更新”以加载发布说明</div>
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="upgradeSingBox()">⬆️ 升级 / 重装 Sing-Box</button>
+                    <input class="version-input" id="singbox-version" placeholder="指定版本，如 v1.8.2 或 1.8.2">
+                    <button class="btn btn-success" onclick="upgradeSingBox(getVersionInput('singbox-version'))">🎯 更新到指定版本</button>
                 </div>
             </div>
         </div>
@@ -224,6 +250,7 @@
             <ul>
                 <li><strong>Xray-core:</strong> 用于处理 VLESS+Reality 入站连接，提供加密和流量伪装</li>
                 <li><strong>Hysteria2:</strong> 用于连接上游服务器，提供高速、稳定的代理传输</li>
+                <li><strong>Sing-Box:</strong> 通用代理核心，可在出站中作为多协议实现</li>
                 <li>安装过程会从 GitHub 下载最新版本的二进制文件</li>
                 <li>文件将安装到 <code>bin/</code> 目录下</li>
                 <li>安装过程可能需要几分钟，请耐心等待</li>
@@ -238,7 +265,8 @@
             <ul style="color: #856404;">
                 <li><strong>Xray:</strong> <code>bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install</code></li>
                 <li><strong>Hysteria2:</strong> <code>bash &lt;(curl -fsSL https://get.hy2.sh/)</code></li>
-                <li>或直接下载二进制文件到 <code>bin/</code> 目录并重命名为 <code>xray</code> 和 <code>hysteria2</code></li>
+                <li><strong>Sing-Box:</strong> 从 <code>https://github.com/SagerNet/sing-box/releases</code> 下载对应平台的二进制</li>
+                <li>或直接下载二进制文件到 <code>bin/</code> 目录并重命名为 <code>xray</code>、<code>hysteria2</code>、<code>sing-box</code></li>
             </ul>
         </div>
         {{end}}
@@ -325,6 +353,35 @@
             }
         }
 
+        async function installSingBox() {
+            if (!confirm('确定要安装 Sing-Box 吗？\n\n这将从 GitHub 下载最新版本，可能需要几分钟。')) {
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch('/api/environment/install-singbox', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('安装已开始！\n\n请等待约 1-2 分钟后刷新页面查看安装结果。');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 60000); // 60秒后自动刷新
+                } else {
+                    alert('安装失败: ' + (data.message || '未知错误'));
+                    hideLoading();
+                }
+            } catch (error) {
+                alert('安装失败: ' + error.message);
+                hideLoading();
+            }
+        }
+
         async function installAll() {
             if (!confirm('确定要一键安装所有依赖吗？\n\n这将安装 Xray-core 和 Hysteria2，可能需要几分钟。')) {
                 return;
@@ -365,6 +422,7 @@
                 if (data.data) {
                     renderRelease('xray', data.data.xray);
                     renderRelease('hy2', data.data.hysteria2);
+                    renderRelease('singbox', data.data.singbox);
                 }
             } catch (error) {
                 alert('获取更新信息失败: ' + error.message);
@@ -394,17 +452,31 @@
             if (date) date.textContent = info.publishedAt ? ('发布: ' + info.publishedAt) : '';
         }
 
-        async function upgradeXray() {
-            if (!confirm('确定要升级 / 重装 Xray 吗？\n\n将重新下载最新版本并覆盖 bin/xray。')) {
+        function getVersionInput(id) {
+            const input = document.getElementById(id);
+            if (!input) return '';
+            return (input.value || '').trim();
+        }
+
+        async function upgradeXray(version) {
+            const target = (version || '').trim();
+            const message = target && target.toLowerCase() !== 'latest'
+                ? '确定要更新 Xray 到指定版本 ' + target + ' 吗？\n\n将重新下载并覆盖 bin/xray。'
+                : '确定要升级 / 重装 Xray 吗？\n\n将重新下载最新版本并覆盖 bin/xray。';
+            if (!confirm(message)) {
                 return;
             }
             showLoading();
             try {
-                const response = await fetch('/api/environment/upgrade-xray', { method: 'POST' });
+                const response = await fetch('/api/environment/upgrade-xray', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version: target })
+                });
                 const data = await response.json();
                 if (data.success) {
-                    alert('升级已开始，约 1-2 分钟后生效。');
-                    setTimeout(() => { location.reload(); }, 60000);
+                    alert(data.message || '升级完成');
+                    setTimeout(() => { location.reload(); }, 1000);
                 } else {
                     alert('升级失败: ' + (data.message || '未知错误'));
                 }
@@ -414,17 +486,53 @@
             hideLoading();
         }
 
-        async function upgradeHy2() {
-            if (!confirm('确定要升级 / 重装 Hysteria2 吗？\n\n将重新下载最新版本并覆盖 bin/hysteria2。')) {
+        async function upgradeHy2(version) {
+            const target = (version || '').trim();
+            const message = target && target.toLowerCase() !== 'latest'
+                ? '确定要更新 Hysteria2 到指定版本 ' + target + ' 吗？\n\n将重新下载并覆盖 bin/hysteria2。'
+                : '确定要升级 / 重装 Hysteria2 吗？\n\n将重新下载最新版本并覆盖 bin/hysteria2。';
+            if (!confirm(message)) {
                 return;
             }
             showLoading();
             try {
-                const response = await fetch('/api/environment/upgrade-hy2', { method: 'POST' });
+                const response = await fetch('/api/environment/upgrade-hy2', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version: target })
+                });
                 const data = await response.json();
                 if (data.success) {
-                    alert('升级已开始，约 1-2 分钟后生效。');
-                    setTimeout(() => { location.reload(); }, 60000);
+                    alert(data.message || '升级完成');
+                    setTimeout(() => { location.reload(); }, 1000);
+                } else {
+                    alert('升级失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                alert('升级失败: ' + error.message);
+            }
+            hideLoading();
+        }
+
+        async function upgradeSingBox(version) {
+            const target = (version || '').trim();
+            const message = target && target.toLowerCase() !== 'latest'
+                ? '确定要更新 Sing-Box 到指定版本 ' + target + ' 吗？\n\n将重新下载并覆盖 bin/sing-box。'
+                : '确定要升级 / 重装 Sing-Box 吗？\n\n将重新下载最新版本并覆盖 bin/sing-box。';
+            if (!confirm(message)) {
+                return;
+            }
+            showLoading();
+            try {
+                const response = await fetch('/api/environment/upgrade-singbox', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version: target })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    alert(data.message || '升级完成');
+                    setTimeout(() => { location.reload(); }, 1000);
                 } else {
                     alert('升级失败: ' + (data.message || '未知错误'));
                 }
