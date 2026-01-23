@@ -1,1546 +1,373 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-# --- injected by server: begin ---
-export CLAUDE_API_KEY="cr_61de38b1892e2a03b777ee59fac3aeeb00885d183f55a667c9cefdf50be7eebf"
-# --- injected by server: end ---
-
-
-# ==============================================================================
-# Claude Code 自动安装配置脚本 - 增强版
-# 支持更多系统，包括 Windows WSL
-# ==============================================================================
-
-# 脚本常量
-readonly CLAUDE_COMMAND="claude"
-readonly NPM_PACKAGE="@anthropic-ai/claude-code"
-readonly CLAUDE_CONFIG_FILE="$HOME/.claude.json"
-readonly CLAUDE_DIR="$HOME/.claude"
-
-# API 配置 - 默认值
-API_KEY=""
-API_BASE_URL="https://ccapi.muskapi.com/api/"
-USE_CN_MIRROR=""
-# 解析镜像选择：环境变量优先，未设置则交互询问（默认使用国内镜像）
-resolve_mirror_choice() {
-    # 环境变量优先（INSTALL_MIRROR / CN_MIRROR / USE_CN_MIRROR）
-    local val="${INSTALL_MIRROR:-${CN_MIRROR:-${USE_CN_MIRROR}}}"
-    case "$(echo "$val" | tr '[:upper:]' '[:lower:]')" in
-        cn|china|domestic|1|true)
-            USE_CN_MIRROR="1" ;;
-        global|intl|international|0|false)
-            USE_CN_MIRROR="0" ;;
+# 获取系统架构
+get_architecture() {
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)
+            echo "amd64"
+            ;;
+        aarch64|arm64)
+            echo "arm64"
+            ;;
         *)
-            # 未设置则交互询问
-            if [ -t 0 ]; then
-                echo -ne "是否使用国内镜像(更快更稳)? [Y/n]: "
-                read -r reply
-                if [ -z "$reply" ] || [[ "$reply" =~ ^[Yy]$ ]]; then
-                    USE_CN_MIRROR="1"
-                else
-                    USE_CN_MIRROR="0"
-                fi
-            else
-                # 非交互默认启用国内镜像
-                USE_CN_MIRROR="1"
-            fi
-            ;;
-    esac
-
-    if [ "$USE_CN_MIRROR" = "1" ]; then
-        print_info "已选择：使用国内镜像"
-    else
-        print_info "已选择：使用国外官方源"
-    fi
-}
-
-# ANSI 颜色代码
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly CYAN='\033[0;36m'
-readonly WHITE='\033[1;37m'
-readonly NC='\033[0m' # No Color
-
-# 显示彩色消息
-print_info() {
-    echo -e "${WHITE}ℹ️  $1${NC}"
-}
-
-print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-# 检测操作系统和环境
-detect_environment() {
-    local os_type=""
-    local is_wsl=false
-    
-    # 检测 WSL
-    if grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
-        is_wsl=true
-        os_type="wsl"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        os_type="macos"
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        os_type="linux"
-    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-        os_type="windows_bash"
-        # 在Windows环境下，提供PowerShell脚本选项
-        print_warning "检测到 Windows Git Bash/MSYS 环境"
-        print_info "推荐使用 Windows PowerShell 版本以获得更好的体验"
-        echo
-        read -p "是否下载并运行 PowerShell 版本? (Y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            # 下载PowerShell脚本
-            print_info "正在下载 PowerShell 安装脚本..."
-            local ps_script="install-claude-code.ps1"
-            if command -v curl &> /dev/null; then
-                curl -sSL "https://1.muskapi.com/install-claude-code.ps1" -o "$ps_script"
-            elif command -v wget &> /dev/null; then
-                wget -q "https://1.muskapi.com/install-claude-code.ps1" -O "$ps_script"
-            else
-                print_error "需要 curl 或 wget 来下载脚本"
-                return 1
-            fi
-            
-            print_success "PowerShell 脚本已下载: $ps_script"
-            print_info "请在 PowerShell 中运行以下命令："
-            echo
-            echo "  powershell.exe -ExecutionPolicy Bypass -File $ps_script"
-            echo
-            print_info "或者在 Windows 资源管理器中右键点击脚本选择'使用 PowerShell 运行'"
-            exit 0
-        fi
-    else
-        os_type="unknown"
-    fi
-    
-    echo "$os_type"
-}
-
-# 检测 Linux 发行版
-detect_linux_distro() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "$ID"
-    elif [ -f /etc/redhat-release ]; then
-        echo "rhel"
-    elif [ -f /etc/debian_version ]; then
-        echo "debian"
-    else
-        echo "unknown"
-    fi
-}
-
-# 检查是否有 sudo 权限
-check_sudo() {
-    if command -v sudo &> /dev/null; then
-        if sudo -n true 2>/dev/null; then
-            return 0
-        else
-            print_warning "需要 sudo 权限来安装依赖包"
-            sudo -v
-            return $?
-        fi
-    else
-        # 没有 sudo，检查是否是 root
-        if [ "$EUID" -eq 0 ]; then
-            return 0
-        else
-            print_error "需要 root 权限或 sudo 来安装依赖包"
-            return 1
-        fi
-    fi
-}
-
-# 安装 Node.js (通用方法)
-install_nodejs_universal() {
-    print_info "使用 NodeSource 安装 Node.js..."
-    
-    # 检测架构
-    local arch=$(uname -m)
-    local node_version="22"  # 最新 LTS 版本
-    
-    # NodeSource 安装脚本
-    if command -v curl &> /dev/null; then
-        curl -fsSL https://deb.nodesource.com/setup_${node_version}.x | sudo -E bash -
-    elif command -v wget &> /dev/null; then
-        wget -qO- https://deb.nodesource.com/setup_${node_version}.x | sudo -E bash -
-    else
-        print_error "需要 curl 或 wget 来下载 Node.js"
-        return 1
-    fi
-}
-
-# WSL 特定的安装函数
-install_wsl_packages() {
-    print_info "检测到 Windows WSL 环境"
-    
-    # WSL 可能需要更新包列表
-    if command -v apt-get &> /dev/null; then
-        print_info "更新包管理器..."
-        sudo apt-get update -qq
-    fi
-    
-    # 安装基础工具
-    local packages=("curl" "wget" "jq" "python3" "python3-pip")
-    
-    for pkg in "${packages[@]}"; do
-        if ! command -v "$pkg" &> /dev/null; then
-            print_info "安装 $pkg..."
-            sudo apt-get install -y "$pkg" || print_warning "无法安装 $pkg"
-        fi
-    done
-    
-    # 安装 Node.js
-    if ! command -v node &> /dev/null; then
-        install_nodejs_universal
-        sudo apt-get install -y nodejs
-    fi
-}
-
-# 安装 Homebrew (macOS)
-install_homebrew() {
-    if ! command -v brew &> /dev/null; then
-        print_info "安装 Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        
-        # 添加 Homebrew 到 PATH
-        if [[ -f "/opt/homebrew/bin/brew" ]]; then
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-        elif [[ -f "/usr/local/bin/brew" ]]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-        fi
-        
-        print_success "Homebrew 安装完成"
-    fi
-}
-
-# macOS 安装函数
-install_macos_packages() {
-    install_homebrew
-    
-    local packages=("node" "jq" "python3")
-    
-    for pkg in "${packages[@]}"; do
-        if ! command -v "$pkg" &> /dev/null; then
-            print_info "安装 $pkg..."
-            brew install "$pkg"
-        fi
-    done
-}
-
-# Linux 通用安装函数
-install_linux_packages() {
-    local distro=$(detect_linux_distro)
-    print_info "检测到 Linux 发行版: $distro"
-    
-    case "$distro" in
-        ubuntu|debian|linuxmint|pop)
-            sudo apt-get update -qq
-            local packages=("nodejs" "npm" "jq" "python3" "python3-pip" "curl" "wget")
-            
-            # 先安装 Node.js 仓库
-            if ! command -v node &> /dev/null; then
-                install_nodejs_universal
-            fi
-            
-            for pkg in "${packages[@]}"; do
-                if ! command -v "${pkg%%[0-9]*}" &> /dev/null; then
-                    sudo apt-get install -y "$pkg"
-                fi
-            done
-            ;;
-            
-        fedora|rhel|centos|rocky|almalinux)
-            sudo yum install -y epel-release 2>/dev/null || true
-            local packages=("nodejs" "npm" "jq" "python3" "python3-pip" "curl" "wget")
-            
-            for pkg in "${packages[@]}"; do
-                if ! command -v "${pkg%%[0-9]*}" &> /dev/null; then
-                    sudo yum install -y "$pkg"
-                fi
-            done
-            ;;
-            
-        arch|manjaro)
-            sudo pacman -Sy --noconfirm
-            local packages=("nodejs" "npm" "jq" "python" "python-pip" "curl" "wget")
-            
-            for pkg in "${packages[@]}"; do
-                if ! command -v "${pkg%%[0-9]*}" &> /dev/null; then
-                    sudo pacman -S --noconfirm "$pkg"
-                fi
-            done
-            ;;
-            
-        opensuse*)
-            sudo zypper refresh
-            local packages=("nodejs" "npm" "jq" "python3" "python3-pip" "curl" "wget")
-            
-            for pkg in "${packages[@]}"; do
-                if ! command -v "${pkg%%[0-9]*}" &> /dev/null; then
-                    sudo zypper install -y "$pkg"
-                fi
-            done
-            ;;
-            
-        *)
-            print_warning "未知的 Linux 发行版: $distro"
-            print_info "尝试通用安装方法..."
-            
-            # 尝试使用可用的包管理器
-            if command -v apt-get &> /dev/null; then
-                sudo apt-get update && sudo apt-get install -y nodejs npm jq python3
-            elif command -v yum &> /dev/null; then
-                sudo yum install -y nodejs npm jq python3
-            elif command -v pacman &> /dev/null; then
-                sudo pacman -S --noconfirm nodejs npm jq python
-            else
-                print_error "无法自动安装依赖，请手动安装: nodejs, npm, jq, python3"
-                return 1
-            fi
+            echo "amd64"  # 默认使用 amd64
             ;;
     esac
 }
 
-# 确保 Node.js >= 22（优先使用 nvm；否则使用系统包管理器/NodeSource）
-ensure_nodejs_v22() {
-    print_info "检查 Node.js 版本..."
-
-    local need_upgrade=false
-    local current_version=""
-    local current_major=0
-
-    if command -v node &> /dev/null; then
-        current_version=$(node -v 2>/dev/null | sed 's/^v//')
-        current_major=$(echo "$current_version" | cut -d. -f1)
-        if [ -z "$current_major" ]; then current_major=0; fi
-        if [ "$current_major" -lt 22 ]; then
-            need_upgrade=true
-            print_warning "已安装 Node.js v$current_version，低于 v22，准备升级"
-        else
-            print_success "已安装 Node.js v$current_version（>=22）"
-            return 0
-        fi
-    else
-        need_upgrade=true
-        print_warning "未检测到 Node.js，准备安装 v22"
-    fi
-
-    # 优先使用 nvm（按镜像选择）
-    if command -v nvm &> /dev/null; then
-        print_info "检测到 nvm，使用 nvm 安装 Node.js 22"
-        if [ "$USE_CN_MIRROR" = "1" ]; then
-            export NVM_NODEJS_ORG_MIRROR="https://npmmirror.com/mirrors/node"
-        else
-            unset NVM_NODEJS_ORG_MIRROR
-        fi
-        nvm install 22 || true
-        nvm use 22 || true
-        nvm alias default 22 || true
-    else
-        # 安装 nvm（仅限 Linux/macOS）
-        if [ "$(uname)" = "Linux" ] || [ "$(uname)" = "Darwin" ]; then
-            print_info "未检测到 nvm，开始安装 nvm..."
-            export NVM_DIR="$HOME/.nvm"
-            if command -v curl &> /dev/null; then
-                if [ "$USE_CN_MIRROR" = "1" ]; then
-                    curl -fsSL https://cdn.jsdelivr.net/gh/nvm-sh/nvm@v0.40.3/install.sh | bash
-                else
-                    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-                fi
-            elif command -v wget &> /dev/null; then
-                if [ "$USE_CN_MIRROR" = "1" ]; then
-                    wget -qO- https://cdn.jsdelivr.net/gh/nvm-sh/nvm@v0.40.3/install.sh | bash
-                else
-                    wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-                fi
-            else
-                print_warning "缺少 curl/wget，跳过 nvm 安装"
-            fi
-
-            # 载入 nvm
-            if [ -s "$HOME/.nvm/nvm.sh" ]; then
-                # shellcheck disable=SC1090
-                . "$HOME/.nvm/nvm.sh"
-                if [ "$USE_CN_MIRROR" = "1" ]; then
-                    export NVM_NODEJS_ORG_MIRROR="https://npmmirror.com/mirrors/node"
-                else
-                    unset NVM_NODEJS_ORG_MIRROR
-                fi
-                nvm install 22 || true
-                nvm use 22 || true
-                nvm alias default 22 || true
-            fi
-        fi
-    fi
-
-    # 如果依然没有 node 或版本仍 < 22，使用系统包管理器/NodeSource 兜底
-    if ! command -v node &> /dev/null || [ "$(node -v 2>/dev/null | sed 's/^v//; s/\..*$//')" -lt 22 ]; then
-        print_info "使用系统包管理器/NodeSource 安装 Node.js 22 作为兜底"
-        if command -v apt-get &> /dev/null; then
-            install_nodejs_universal
-            sudo apt-get install -y nodejs
-        elif command -v yum &> /dev/null; then
-            sudo yum install -y nodejs npm || true
-        elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm nodejs npm || true
-        elif command -v brew &> /dev/null; then
-            brew install node || brew upgrade node || true
-        fi
-    fi
-
-    if command -v node &> /dev/null; then
-        current_version=$(node -v 2>/dev/null | sed 's/^v//')
-        current_major=$(echo "$current_version" | cut -d. -f1)
-        if [ "$current_major" -lt 22 ]; then
-            print_warning "Node.js 版本仍为 v$current_version，建议手动升级至 v22+"
-        else
-            print_success "Node.js 版本满足要求：v$current_version"
-        fi
-    else
-        print_warning "Node.js 安装失败，请手动安装 v22+ 后重试"
-    fi
-
-    # 按选择配置 npm registry
-    if command -v npm &> /dev/null; then
-        if [ "$USE_CN_MIRROR" = "1" ]; then
-            print_info "配置 npm registry 使用国内源（npmmirror）..."
-            npm config set registry https://registry.npmmirror.com --location=global 2>/dev/null || npm config set registry https://registry.npmmirror.com || true
-        else
-            print_info "配置 npm registry 使用官方源（npmjs）..."
-            npm config set registry https://registry.npmjs.org --location=global 2>/dev/null || npm config set registry https://registry.npmjs.org || true
-        fi
-    fi
+# 构建下载地址
+build_download_url() {
+    local ARCH=$(get_architecture)
+    echo "https://github.com/bqlpfy/flux-panel/releases/download/1.4.3/gost-${ARCH}"
 }
 
-# 将 nvm 自动加载与 Node.js 22 设为默认并在新会话自动启用（永久生效）
-persist_nvm_autouse_22() {
-    # 仅当 nvm 已安装时生效
-    if [ ! -s "$HOME/.nvm/nvm.sh" ]; then
-        return 0
-    fi
+# 下载地址
+DOWNLOAD_URL=$(build_download_url)
+INSTALL_DIR="/etc/gost"
+COUNTRY=$(curl -s https://ipinfo.io/country)
+if [ "$COUNTRY" = "CN" ]; then
+    # 拼接 URL
+    DOWNLOAD_URL="https://ghfast.top/${DOWNLOAD_URL}"
+fi
 
-    local rc_added=false
-    local nvm_block='\n# Claude CLI NVM Node.js v22\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"\n# 默认使用 Node.js v22\nnvm alias default 22 >/dev/null 2>&1 || true\nnvm use 22 >/dev/null 2>&1 || true\n'
 
-    # 写入 ~/.bashrc
-    if [ -f "$HOME/.bashrc" ]; then
-        if ! grep -q "Claude CLI NVM Node.js v22" "$HOME/.bashrc" 2>/dev/null; then
-            printf "$nvm_block" >> "$HOME/.bashrc"
-            rc_added=true
-        fi
-    else
-        printf "$nvm_block" >> "$HOME/.bashrc"
-        rc_added=true
-    fi
 
-    # 写入 ~/.profile（root 或非交互登录兜底）
-    if [ -f "$HOME/.profile" ]; then
-        if ! grep -q "Claude CLI NVM Node.js v22" "$HOME/.profile" 2>/devnull; then
-            printf "$nvm_block" >> "$HOME/.profile"
-            rc_added=true
-        fi
-    else
-        printf "$nvm_block" >> "$HOME/.profile"
-        rc_added=true
-    fi
-
-    # 写入 ~/.zshrc（如存在）
-    if [ -f "$HOME/.zshrc" ]; then
-        if ! grep -q "Claude CLI NVM Node.js v22" "$HOME/.zshrc" 2>/dev/null; then
-            printf "$nvm_block" >> "$HOME/.zshrc"
-            rc_added=true
-        fi
-    fi
-
-    # 立即在当前会话启用（不依赖重新登录）
-    # shellcheck disable=SC1090
-    . "$HOME/.nvm/nvm.sh" 2>/dev/null || true
-    nvm alias default 22 >/dev/null 2>&1 || true
-    nvm use 22 >/dev/null 2>&1 || true
-
-    if [ "$rc_added" = true ]; then
-        print_success "已配置 nvm 自动加载与默认使用 Node.js v22（新会话自动生效）"
-    else
-        print_info "nvm 自动加载已配置，无需重复设置"
-    fi
+# 显示菜单
+show_menu() {
+  echo "==============================================="
+  echo "              管理脚本"
+  echo "==============================================="
+  echo "请选择操作："
+  echo "1. 安装"
+  echo "2. 更新"  
+  echo "3. 卸载"
+  echo "4. 退出"
+  echo "==============================================="
 }
 
-# ========================================
-# Claude CLI 检测和修复功能
-# ========================================
-
-# 检测 Claude CLI 安装情况
-detect_claude_installation() {
-    # 检查是否安装了 Claude CLI
-    if ! command -v claude &> /dev/null; then
-        return 1  # 未安装
-    fi
-    
-    # 获取 Claude CLI 的实际路径
-    CLAUDE_PATH=$(which claude 2>/dev/null)
-    
-    if [ -z "$CLAUDE_PATH" ]; then
-        return 1
-    fi
-    
-    print_info "当前 Claude CLI 路径: $CLAUDE_PATH"
-    
-    # 获取 Claude CLI 版本信息
-    # 使用 timeout 防止命令卡住
-    if command -v timeout &> /dev/null; then
-        CLAUDE_VERSION=$(timeout 5 claude --version 2>/dev/null || echo "未知版本")
-    else
-        # macOS 可能没有 timeout，使用其他方法
-        CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "未知版本") &
-        VERSION_PID=$!
-        sleep 5
-        if kill -0 $VERSION_PID 2>/dev/null; then
-            kill $VERSION_PID 2>/dev/null
-            CLAUDE_VERSION="未知版本"
-        else
-            wait $VERSION_PID
-        fi
-    fi
-    print_info "Claude CLI 版本: $CLAUDE_VERSION"
-    
-    # 检查安装方式
-    if [[ "$CLAUDE_PATH" == *"/.nvm/versions/node/"* ]]; then
-        print_warning "检测到通过 nvm npm 安装"
-        return 0  # nvm 安装（需要修复）
-    elif [[ "$CLAUDE_PATH" == *"/opt/homebrew/bin/"* ]] || [[ "$CLAUDE_PATH" == *"/usr/local/bin/"* ]]; then
-        print_success "检测到通过 Homebrew npm 安装"
-        return 2  # Homebrew 安装（正常）
-    elif [[ "$CLAUDE_PATH" == *"/.local/bin/"* ]]; then
-        print_success "检测到原生安装"
-        return 3  # 原生安装（正常）
-    else
-        print_warning "未知安装方式: $CLAUDE_PATH"
-        return 4  # 未知安装方式
-    fi
+# 删除脚本自身
+delete_self() {
+  echo ""
+  echo "🗑️ 操作已完成，正在清理脚本文件..."
+  SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+  sleep 1
+  rm -f "$SCRIPT_PATH" && echo "✅ 脚本文件已删除" || echo "❌ 删除脚本文件失败"
 }
 
-# 检查 npm 全局包中是否有 Claude CLI
-check_npm_claude() {
-    # 检查当前 npm 是否安装了 Claude CLI
-    if npm list -g @anthropic-ai/claude-code &> /dev/null; then
-        NPM_PATH=$(npm root -g 2>/dev/null)
-        print_info "检测到 npm 全局包: $NPM_PATH/@anthropic-ai/claude-code"
-        
-        # 检查是否是 nvm 管理的 npm
-        if [[ "$NPM_PATH" == *"/.nvm/versions/node/"* ]]; then
-            print_warning "通过 nvm npm 安装"
-            return 0  # nvm npm 安装
-        else
-            print_success "通过系统 npm 安装"
-            return 1  # 系统 npm 安装
-        fi
-    else
-        return 2  # npm 中未安装
-    fi
-}
-
-# 检测 nvm 环境
-detect_nvm_env() {
-    # 检查 nvm 是否存在
-    if [ -d "$HOME/.nvm" ] || command -v nvm &> /dev/null; then
-        print_info "检测到 nvm 环境"
-        
-        # 检查当前使用的 Node.js 版本
-        if command -v node &> /dev/null; then
-            NODE_PATH=$(which node)
-            print_info "当前 Node.js 路径: $NODE_PATH"
-            
-            if [[ "$NODE_PATH" == *"/.nvm/versions/node/"* ]]; then
-                NODE_VERSION=$(node --version 2>/dev/null)
-                print_info "当前 Node.js 版本: $NODE_VERSION"
-                return 0
-            fi
-        fi
-    fi
-    return 1
-}
-
-# 备份 Claude CLI 配置文件
-backup_claude_configs() {
-    print_info "备份 Claude CLI 配置文件..."
-    
-    # 创建备份目录
-    local backup_dir="$HOME/.claude-backup-$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$backup_dir"
-    print_info "备份目录: $backup_dir"
-    
-    local backup_success=true
-    local files_backed_up=0
-    
-    # 定义要备份的配置文件路径
-    local config_files=(
-        "$HOME/.claude/settings.json"
-        "$HOME/.claude/claude.json"
-        ".claude/settings.json"
-        ".claude/settings.local.json"
-        ".claude/claude.json"
-        "claude.json"
-        "配置.json"
-    )
-    
-    # 备份用户级配置
-    if [ -d "$HOME/.claude" ]; then
-        print_info "备份用户级配置目录..."
-        if cp -r "$HOME/.claude" "$backup_dir/user-claude-config" 2>/dev/null; then
-            print_success "已备份: ~/.claude/ → $backup_dir/user-claude-config/"
-            ((files_backed_up++))
-        fi
-    fi
-    
-    # 备份项目级配置
-    if [ -d ".claude" ]; then
-        print_info "备份项目级配置目录..."
-        if cp -r ".claude" "$backup_dir/project-claude-config" 2>/dev/null; then
-            print_success "已备份: .claude/ → $backup_dir/project-claude-config/"
-            ((files_backed_up++))
-        fi
-    fi
-    
-    # 备份当前目录下的配置文件
-    for config_file in "${config_files[@]}"; do
-        if [ -f "$config_file" ]; then
-            local backup_name=$(basename "$config_file")
-            local source_dir=$(dirname "$config_file")
-            
-            # 创建相应的备份子目录
-            local backup_subdir="$backup_dir/configs"
-            if [[ "$source_dir" == "$HOME/.claude" ]]; then
-                backup_subdir="$backup_dir/user-configs"
-            elif [[ "$source_dir" == ".claude" ]]; then
-                backup_subdir="$backup_dir/project-configs"
-            fi
-            
-            mkdir -p "$backup_subdir"
-            
-            if cp "$config_file" "$backup_subdir/$backup_name" 2>/dev/null; then
-                print_success "已备份: $config_file → $backup_subdir/$backup_name"
-                ((files_backed_up++))
-            fi
-        fi
-    done
-    
-    # 备份结果总结
-    if [ $files_backed_up -gt 0 ]; then
-        print_success "备份完成: $files_backed_up 个文件已备份到 $backup_dir"
-        
-        # 创建备份说明文件
-        cat > "$backup_dir/backup-info.txt" << EOF
-Claude CLI 配置备份
-==================
-备份时间: $(date)
-备份原因: Claude CLI 重新安装前的配置备份
-原始路径: $(pwd)
-
-备份内容:
-- user-claude-config/: ~/.claude/ 目录内容
-- project-claude-config/: .claude/ 目录内容  
-- user-configs/: ~/.claude/ 下的配置文件
-- project-configs/: .claude/ 下的配置文件
-- configs/: 当前目录下的配置文件
-
-恢复方法:
-1. 重新安装 Claude CLI 后
-2. 将相应配置文件复制回原位置
-3. 重启终端或运行 'source ~/.bashrc' / 'source ~/.zshrc'
-EOF
-        
-        return 0
-    else
-        print_info "未找到需要备份的配置文件"
-        # 删除空的备份目录
-        rmdir "$backup_dir" 2>/dev/null
-        return 1
-    fi
-}
-
-# 完全清理 Claude CLI
-complete_cleanup_claude() {
-    print_info "正在完全清理 Claude CLI..."
-    
-    # 先备份配置文件
-    backup_claude_configs
-    
-    local cleanup_success=true
-    
-    # 1. 尝试通过 npm 卸载
-    print_info "检查并卸载 npm 全局包..."
-    if npm list -g @anthropic-ai/claude-code &> /dev/null; then
-        if npm uninstall -g @anthropic-ai/claude-code; then
-            print_success "成功卸载 npm 全局包"
-        else
-            print_error "npm 卸载失败"
-            cleanup_success=false
-        fi
-    else
-        print_info "npm 全局包中未找到 Claude CLI"
-    fi
-    
-    # 2. 检查并清理可能的符号链接
-    print_info "检查符号链接..."
-    local possible_paths=(
-        "/usr/local/bin/claude"
-        "/opt/homebrew/bin/claude"
-        "$HOME/.local/bin/claude"
-    )
-    
-    for path in "${possible_paths[@]}"; do
-        if [ -L "$path" ] || [ -f "$path" ]; then
-            print_info "删除: $path"
-            if rm -f "$path" 2>/dev/null; then
-                print_success "已删除: $path"
-            fi
-        fi
-    done
-    
-    # 3. 验证清理结果
-    print_info "验证清理结果..."
-    if command -v claude &> /dev/null; then
-        REMAINING_PATH=$(which claude 2>/dev/null)
-        print_warning "仍然检测到 Claude CLI: $REMAINING_PATH"
-        cleanup_success=false
-    else
-        print_success "Claude CLI 已完全清理"
-    fi
-    
-    if [ "$cleanup_success" = true ]; then
-        print_success "清理完成，配置文件已备份，可以安全重新安装"
-        return 0
-    else
-        print_error "清理不完全，可能需要手动处理"
-        return 1
-    fi
-}
-
-# 检测 Homebrew
-check_homebrew() {
+# 检查并安装 tcpkill
+check_and_install_tcpkill() {
+  # 检查 tcpkill 是否已安装
+  if command -v tcpkill &> /dev/null; then
+    return 0
+  fi
+  
+  # 检测操作系统类型
+  OS_TYPE=$(uname -s)
+  
+  # 检查是否需要 sudo
+  if [[ $EUID -ne 0 ]]; then
+    SUDO_CMD="sudo"
+  else
+    SUDO_CMD=""
+  fi
+  
+  if [[ "$OS_TYPE" == "Darwin" ]]; then
     if command -v brew &> /dev/null; then
-        print_success "检测到 Homebrew"
-        return 0
-    else
-        print_error "未检测到 Homebrew"
-        return 1
+      brew install dsniff &> /dev/null
     fi
+    return 0
+  fi
+  
+  # 检测 Linux 发行版并安装对应的包
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO=$ID
+  elif [ -f /etc/redhat-release ]; then
+    DISTRO="rhel"
+  elif [ -f /etc/debian_version ]; then
+    DISTRO="debian"
+  else
+    return 0
+  fi
+  
+  case $DISTRO in
+    ubuntu|debian)
+      $SUDO_CMD apt update &> /dev/null
+      $SUDO_CMD apt install -y dsniff &> /dev/null
+      ;;
+    centos|rhel|fedora)
+      if command -v dnf &> /dev/null; then
+        $SUDO_CMD dnf install -y dsniff &> /dev/null
+      elif command -v yum &> /dev/null; then
+        $SUDO_CMD yum install -y dsniff &> /dev/null
+      fi
+      ;;
+    alpine)
+      $SUDO_CMD apk add --no-cache dsniff &> /dev/null
+      ;;
+    arch|manjaro)
+      $SUDO_CMD pacman -S --noconfirm dsniff &> /dev/null
+      ;;
+    opensuse*|sles)
+      $SUDO_CMD zypper install -y dsniff &> /dev/null
+      ;;
+    gentoo)
+      $SUDO_CMD emerge --ask=n net-analyzer/dsniff &> /dev/null
+      ;;
+    void)
+      $SUDO_CMD xbps-install -Sy dsniff &> /dev/null
+      ;;
+  esac
+  
+  return 0
 }
 
-# 安装 Homebrew Node.js（与 nvm 并存）
-install_homebrew_node() {
-    print_info "正在通过 Homebrew 安装 Node.js（与 nvm 并存）..."
-    print_info "这不会影响你现有的 nvm 环境"
+
+# 获取用户输入的配置参数
+get_config_params() {
+  if [[ -z "$SERVER_ADDR" || -z "$SECRET" ]]; then
+    echo "请输入配置参数："
     
-    if brew install node; then
-        print_success "Homebrew Node.js 安装成功"
-        
-        # 临时调整 PATH 确保使用 Homebrew 版本
-        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-        
-        NODE_PATH=$(which node)
-        print_info "Node.js 路径: $NODE_PATH"
-        
-        print_info "将在 shell 配置中设置 PATH 优先级..."
-        setup_path_priority
-        
-        return 0
-    else
-        print_error "Homebrew Node.js 安装失败"
-        return 1
+    if [[ -z "$SERVER_ADDR" ]]; then
+      read -p "服务器地址: " SERVER_ADDR
     fi
+    
+    if [[ -z "$SECRET" ]]; then
+      read -p "密钥: " SECRET
+    fi
+    
+    if [[ -z "$SERVER_ADDR" || -z "$SECRET" ]]; then
+      echo "❌ 参数不完整，操作取消。"
+      exit 1
+    fi
+  fi
 }
 
-# 设置 PATH 优先级
-setup_path_priority() {
-    local shell_config=""
-    
-    # 检测当前 shell
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_config="$HOME/.zshrc"
-    elif [[ "$SHELL" == *"bash"* ]]; then
-        shell_config="$HOME/.bashrc"
-    else
-        print_warning "无法检测 shell 类型，请手动配置 PATH"
-        return 1
-    fi
-    
-    # 检查是否已经配置
-    if grep -q "# Claude CLI Homebrew Priority" "$shell_config" 2>/dev/null; then
-        print_success "PATH 优先级已配置"
-        return 0
-    fi
-    
-    # 添加 PATH 配置
-    echo "" >> "$shell_config"
-    echo "# Claude CLI Homebrew Priority" >> "$shell_config"
-    echo "# 确保 Homebrew 路径优先于 nvm，用于全局工具如 Claude CLI" >> "$shell_config"
-    echo 'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"' >> "$shell_config"
-    echo "" >> "$shell_config"
-    
-    print_success "已配置 PATH 优先级到 $shell_config"
-    print_info "请运行 'source $shell_config' 或重新打开终端"
-}
+# 解析命令行参数
+while getopts "a:s:" opt; do
+  case $opt in
+    a) SERVER_ADDR="$OPTARG" ;;
+    s) SECRET="$OPTARG" ;;
+    *) echo "❌ 无效参数"; exit 1 ;;
+  esac
+done
 
-# 安装 Claude CLI 通过 Homebrew npm
-install_claude_via_homebrew() {
-    print_info "正在通过 Homebrew npm 安装 Claude CLI..."
-    
-    if npm install -g @anthropic-ai/claude-code; then
-        print_success "Claude CLI 安装成功"
-        CLAUDE_PATH=$(which claude)
-        print_info "Claude CLI 路径: $CLAUDE_PATH"
-        print_info "运行 'claude --version' 验证安装"
-        return 0
-    else
-        print_error "Claude CLI 安装失败"
-        return 1
-    fi
-}
+# 安装功能
+install_gost() {
+  echo "🚀 开始安装 GOST..."
+  get_config_params
 
-# 检测和修复 Claude CLI 安装问题
-detect_and_fix_claude() {
-    print_info "检测 Claude CLI 安装环境..."
-    
-    # 检测 nvm 环境
-    if detect_nvm_env; then
-        echo ""
-    fi
-    
-    # 检测 Claude CLI 安装情况
-    detect_claude_installation
-    DETECTION_RESULT=$?
-    
-    echo ""
-    
-    case $DETECTION_RESULT in
-        0)  # nvm 安装 - 需要修复
-            print_warning "问题说明:"
-            print_warning "Claude CLI 通过 nvm 管理的 npm 安装"
-            print_warning "这会导致 Node.js 版本切换时 Claude CLI 不可用"
-            echo ""
-            
-            # 显示当前环境信息
-            print_info "当前环境信息:"
-            check_npm_claude
-            echo ""
-            
-            read -p "是否要修复此问题？这将完全卸载当前版本并重新安装 (y/N): " -n 1 -r
-            echo
-            
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                print_info "开始修复流程..."
-                
-                # 完全清理现有安装
-                if complete_cleanup_claude; then
-                    echo ""
-                    print_info "选择新的安装方式:"
-                    echo "1) 通过 Homebrew + npm 安装 (推荐，与 nvm 并存)"
-                    echo "2) 继续使用当前安装方式"
-                    echo ""
-                    read -p "请选择 (1-2): " -n 1 -r
-                    echo
-                    
-                    case $REPLY in
-                        1)
-                            if check_homebrew; then
-                                # 检查是否已有 Homebrew Node.js
-                                NODE_PATH=$(which node 2>/dev/null)
-                                if [[ "$NODE_PATH" == *"/opt/homebrew/bin/node"* ]] || [[ "$NODE_PATH" == *"/usr/local/bin/node"* ]]; then
-                                    print_success "检测到 Homebrew Node.js"
-                                    install_claude_via_homebrew
-                                else
-                                    print_info "需要安装 Homebrew Node.js（与 nvm 并存）"
-                                    if install_homebrew_node; then
-                                        install_claude_via_homebrew
-                                    fi
-                                fi
-                                # 修复完成，直接返回，跳过后续安装
-                                return 0
-                            else
-                                print_error "需要先安装 Homebrew: https://brew.sh"
-                                print_info "将继续使用标准安装方式"
-                            fi
-                            ;;
-                        2)
-                            print_info "将继续使用标准安装方式"
-                            ;;
-                        *)
-                            print_error "无效选择，将继续使用标准安装方式"
-                            ;;
-                    esac
-                else
-                    print_error "清理失败，将继续使用标准安装方式"
-                fi
-            else
-                print_info "跳过修复，将继续使用标准安装方式"
-            fi
-            ;;
-        1)  # 未安装
-            print_info "Claude CLI 未安装，将进行安装"
-            ;;
-        2)  # Homebrew 安装 - 正常
-            print_success "Claude CLI 通过 Homebrew npm 安装，配置正常"
-            print_success "不受 nvm 版本切换影响"
-            return 0  # 跳过后续安装
-            ;;
-        3)  # 原生安装 - 正常
-            print_success "Claude CLI 原生安装，配置正常"
-            print_success "独立于 Node.js 环境运行"
-            return 0  # 跳过后续安装
-            ;;
-        4)  # 未知安装方式
-            print_warning "检测到未知的 Claude CLI 安装方式"
-            print_info "路径: $CLAUDE_PATH"
-            print_info "将继续使用标准安装方式"
-            ;;
-    esac
-    
-    return 1  # 继续标准安装流程
-}
+    # 检查并安装 tcpkill
+  check_and_install_tcpkill
+  
 
-# 安装 Claude Code
-install_claude_code() {
-    # 首先执行检测和修复功能
-    if detect_and_fix_claude; then
-        # 如果检测到正常安装或已修复，直接返回
-        print_success "Claude CLI 检测完成，跳过安装步骤"
-        return 0
-    fi
-    
-    # 清理旧的配置文件
-    print_info "检查旧配置文件..."
-    
-    local found_old_files=false
-    
-    # 检查是否存在旧配置文件
-    if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-        found_old_files=true
-        print_warning "检测到旧配置文件，建议删除以避免运行错误"
-        echo
-        echo "发现以下配置文件："
-        
-        if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-            echo "  - $CLAUDE_CONFIG_FILE"
-        fi
-        
-        
-        echo
-        print_info "不删除旧配置文件可能会导致 Claude Code 运行时报错"
-        
-        # Display prompt with default value Y
-        echo -ne "是否删除这些旧配置文件？[Y/n]: "
-        echo -ne "${GREEN}Y${NC}"
-        # Move cursor back one position
-        echo -ne "\b"
-        read -r REPLY
-        
-        # Default to Y if user just presses Enter
-        if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
-            # 删除 ~/.claude.json 文件
-            if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-                rm -f "$CLAUDE_CONFIG_FILE"
-                print_success "已删除 $CLAUDE_CONFIG_FILE"
-            fi
-            
-            
-            # 如果 .claude 目录为空，也删除该目录
-            if [ -d "$CLAUDE_DIR" ]; then
-                if [ -z "$(ls -A "$CLAUDE_DIR")" ]; then
-                    rmdir "$CLAUDE_DIR"
-                    print_info "已删除空目录 $CLAUDE_DIR"
-                fi
-            fi
-            
-            print_success "旧配置文件清理完成"
-        else
-            print_info "保留旧配置文件"
-        fi
-    fi
-    
-    if command -v "$CLAUDE_COMMAND" &> /dev/null; then
-        print_info "Claude Code 已安装"
-        
-        # 获取环境类型
-        local env_type=$(detect_environment)
-        
-        # macOS 和 Linux 系统直接跳过，不询问
-        if [[ "$env_type" == "macos" ]] || [[ "$env_type" == "linux" ]] || [[ "$env_type" == "wsl" ]]; then
-            print_info "检测到已安装 Claude Code，跳过安装步骤"
-            return 0
-        fi
-        
-        # 其他系统（如 Windows Git Bash）仍然询问
-        read -p "是否要重新安装 Claude Code? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            return 0
-        fi
-        
-        print_info "卸载旧版本..."
-        npm uninstall -g "$NPM_PACKAGE" 2>/dev/null || true
-    fi
-    
-    print_info "安装 Claude Code..."
-    
-    # 检查 npm
-    if ! command -v npm &> /dev/null; then
-        print_error "npm 未安装，无法继续"
-        return 1
-    fi
-    
-    # 全局安装
-    if npm install -g "$NPM_PACKAGE"; then
-        print_success "Claude Code 安装成功"
-        
-        # 验证安装
-        if command -v "$CLAUDE_COMMAND" &> /dev/null; then
-            local version=$("$CLAUDE_COMMAND" --version 2>/dev/null || echo "未知版本")
-            print_info "已安装版本: $version"
-        fi
-    else
-        print_error "Claude Code 安装失败"
-        return 1
-    fi
-}
+  mkdir -p "$INSTALL_DIR"
 
-# 检测并修复 API key 中错误添加的 ant- 前缀
-check_and_fix_api_key() {
-    # 同时检查 claude.json 文件（虽然不应该包含 API key，但以防万一）
-    if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-        # 检查是否错误地存储了 API key
-        if grep -q "apiKey" "$CLAUDE_CONFIG_FILE" 2>/dev/null; then
-            print_warning "检测到 claude.json 中包含 API key，正在清理..."
-            
-            # 使用 jq 删除 apiKey 字段
-            if command -v jq &> /dev/null; then
-                jq 'del(.apiKey)' "$CLAUDE_CONFIG_FILE" > "$CLAUDE_CONFIG_FILE.tmp" && \
-                mv "$CLAUDE_CONFIG_FILE.tmp" "$CLAUDE_CONFIG_FILE"
-                print_success "已从 claude.json 中移除 API key"
-            fi
-        fi
-    fi
-}
+  # 停止并禁用已有服务
+  if systemctl list-units --full -all | grep -Fq "gost.service"; then
+    echo "🔍 检测到已存在的gost服务"
+    systemctl stop gost 2>/dev/null && echo "🛑 停止服务"
+    systemctl disable gost 2>/dev/null && echo "🚫 禁用自启"
+  fi
 
-# 配置 Claude Code
-configure_claude_code() {
-    print_info "配置 Claude Code..."
-    
-    # 获取环境类型
-    local env_type=$(detect_environment)
-    
-    # macOS 系统跳过配置文件创建
-    if [[ "$env_type" == "macos" ]]; then
-        print_info "macOS 系统：跳过配置文件创建，仅设置环境变量"
-    else
-        # 非 macOS 系统创建配置文件
-        # 创建 .claude 目录
-        if [ ! -d "$CLAUDE_DIR" ]; then
-            mkdir -p "$CLAUDE_DIR"
-        fi
-        
-        # 备份原配置（如果存在）
-        if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-            cp "$CLAUDE_CONFIG_FILE" "$CLAUDE_CONFIG_FILE.backup"
-            print_info "原配置已备份为 .claude.json.backup"
-        fi
-        
-        # 更新 .claude.json 文件（不包含 API KEY）
-        if [ -f "$CLAUDE_CONFIG_FILE" ]; then
-            # 使用 jq 更新现有配置
-            if command -v jq &> /dev/null; then
-                jq --arg url "$API_BASE_URL" \
-                    '. + {"apiBaseUrl": $url}' \
-                    "$CLAUDE_CONFIG_FILE" > "$CLAUDE_CONFIG_FILE.tmp" && \
-                    mv "$CLAUDE_CONFIG_FILE.tmp" "$CLAUDE_CONFIG_FILE"
-            else
-                # 如果没有 jq，创建新的配置文件
-                cat > "$CLAUDE_CONFIG_FILE" << EOF
-{
-  "apiBaseUrl": "$API_BASE_URL",
-  "installMethod": "script",
-  "autoUpdates": true
-}
-EOF
-            fi
-        else
-            # 创建新的 .claude.json 文件
-            cat > "$CLAUDE_CONFIG_FILE" << EOF
-{
-  "apiBaseUrl": "$API_BASE_URL",
-  "installMethod": "script",
-  "autoUpdates": true
-}
-EOF
-        fi
-        
-        print_success "配置文件创建完成: $CLAUDE_CONFIG_FILE"
-    fi
-    
-    # 配置系统环境变量
-    print_info "配置系统环境变量..."
-    
-    # 获取正确的 shell 配置文件
-    local shell_config=""
-    local env_type=$(detect_environment)
-    
-    if [[ "$env_type" == "macos" ]]; then
-        # macOS 特殊处理：检测默认 shell
-        local default_shell=$(echo $SHELL)
-        print_info "检测到 macOS 默认 Shell: $default_shell"
-        
-        if [[ "$default_shell" == *"zsh"* ]]; then
-            shell_config="$HOME/.zshrc"
-            print_info "使用 zsh 配置文件: $shell_config"
-        else
-            # bash 在 macOS 上通常使用 .bash_profile
-            shell_config="$HOME/.bash_profile"
-            print_info "使用 bash 配置文件: $shell_config"
-        fi
-        
-        # 如果配置文件不存在，创建它
-        if [ ! -f "$shell_config" ]; then
-            touch "$shell_config"
-            print_info "创建配置文件: $shell_config"
-        fi
-    else
-        # 非 macOS 系统的处理
-        if [ -f "$HOME/.bashrc" ]; then
-            shell_config="$HOME/.bashrc"
-        elif [ -f "$HOME/.bash_profile" ]; then
-            shell_config="$HOME/.bash_profile"
-        elif [ -f "$HOME/.zshrc" ]; then
-            shell_config="$HOME/.zshrc"
-        else
-            shell_config="$HOME/.bashrc"
-            touch "$shell_config"
-        fi
-        
-        # 对于root用户，确保同时更新.profile
-        if [ "$EUID" -eq 0 ] || [ "$(whoami)" = "root" ]; then
-            print_info "检测到root用户，将同时配置多个shell文件"
-        fi
-    fi
-    
-    # 清理旧的环境变量
-    sed -i.bak '/ANTHROPIC_BASE_URL/d' "$shell_config" 2>/dev/null || true
-    sed -i.bak '/ANTHROPIC_AUTH_TOKEN/d' "$shell_config" 2>/dev/null || true
-    
-    # 添加新的环境变量
-    echo "" >> "$shell_config"
-    echo "# Anthropic API Configuration" >> "$shell_config"
-    echo "export ANTHROPIC_BASE_URL=\"$API_BASE_URL\"" >> "$shell_config"
-    if [ -n "$API_KEY" ]; then
-        echo "export ANTHROPIC_AUTH_TOKEN=\"$API_KEY\"" >> "$shell_config"
-    fi
-    
-    # 对于root用户，同时写入.profile以确保环境变量生效
-    if [ "$EUID" -eq 0 ] || [ "$(whoami)" = "root" ]; then
-        if [ "$shell_config" != "$HOME/.profile" ]; then
-            print_info "同时更新 $HOME/.profile"
-            sed -i.bak '/ANTHROPIC_BASE_URL/d' "$HOME/.profile" 2>/dev/null || true
-            sed -i.bak '/ANTHROPIC_AUTH_TOKEN/d' "$HOME/.profile" 2>/dev/null || true
-            echo "" >> "$HOME/.profile"
-            echo "# Anthropic API Configuration" >> "$HOME/.profile"
-            echo "export ANTHROPIC_BASE_URL=\"$API_BASE_URL\"" >> "$HOME/.profile"
-            if [ -n "$API_KEY" ]; then echo "export ANTHROPIC_AUTH_TOKEN=\"$API_KEY\"" >> "$HOME/.profile"; fi
-        fi
-    fi
-    
-    # 配置系统级环境变量（如果有权限）- macOS 跳过此步骤
-    if [[ "$env_type" != "macos" ]]; then
-        local has_system_access=false
-        if [ "$EUID" -eq 0 ]; then
-            has_system_access=true
-        elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
-            has_system_access=true
-        fi
-        
-        if [ "$has_system_access" = true ] && [ -w "/etc/environment" -o "$EUID" -eq 0 ]; then
-            print_info "配置系统级环境变量..."
-            
-            # 清理旧配置
-            if [ "$EUID" -eq 0 ]; then
-                sed -i '/ANTHROPIC_BASE_URL/d' /etc/environment 2>/dev/null || true
-                sed -i '/ANTHROPIC_AUTH_TOKEN/d' /etc/environment 2>/dev/null || true
-                echo "ANTHROPIC_BASE_URL=\"$API_BASE_URL\"" >> /etc/environment
-                if [ -n "$API_KEY" ]; then echo "ANTHROPIC_AUTH_TOKEN=\"$API_KEY\"" >> /etc/environment; fi
-            elif command -v sudo &> /dev/null; then
-                sudo sed -i '/ANTHROPIC_BASE_URL/d' /etc/environment 2>/dev/null || true
-                sudo sed -i '/ANTHROPIC_AUTH_TOKEN/d' /etc/environment 2>/dev/null || true
-                echo "ANTHROPIC_BASE_URL=\"$API_BASE_URL\"" | sudo tee -a /etc/environment > /dev/null
-                if [ -n "$API_KEY" ]; then echo "ANTHROPIC_AUTH_TOKEN=\"$API_KEY\"" | sudo tee -a /etc/environment > /dev/null; fi
-            fi
-            
-            print_success "系统级环境变量配置完成"
-        else
-            print_info "跳过系统级环境变量配置（需要 sudo 权限）"
-        fi
-    else
-        print_info "macOS 系统：跳过系统级配置文件写入"
-    fi
-    
-    print_success "所有配置完成！"
-    
-    # 立即应用配置，无需重新登录
-    print_info "正在应用配置..."
-    
-    # 1. 立即导出环境变量到当前会话
-    export ANTHROPIC_BASE_URL="$API_BASE_URL"
-    if [ -n "$API_KEY" ]; then export ANTHROPIC_AUTH_TOKEN="$API_KEY"; fi
-    
-    # 2. 如果 Claude 正在运行，终止它以使用新配置
-    if pgrep -f claude > /dev/null 2>&1; then
-        print_info "检测到 Claude 正在运行，正在重启..."
-        pkill -f claude 2>/dev/null || true
-        sleep 1
-    fi
-    
-    # 3. 清理可能的缓存
-    if [ -d "$CLAUDE_DIR/cache" ]; then
-        rm -rf "$CLAUDE_DIR/cache"
-    fi
-    
-    # 4. 验证配置是否生效
-    print_info "验证配置..."
-    if command -v claude &> /dev/null; then
-        # 测试连接
-        if claude --version > /dev/null 2>&1; then
-            print_success "Claude CLI 配置成功！"
-            print_info "您现在可以直接使用 'claude' 命令，无需重新登录"
-        else
-            print_warning "Claude CLI 已安装但可能需要重新启动终端"
-            print_info "您也可以执行: source $shell_config"
-        fi
-    fi
-    
-    # 5. 创建解决方案使配置立即生效
-    print_info "应用即时生效方案..."
-    
-    # 检查是否有 sudo 权限或是 root 用户
-    local can_use_sudo=false
-    if [ "$EUID" -eq 0 ]; then
-        can_use_sudo=true
-    elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
-        can_use_sudo=true
-    fi
-    
-    if [ "$can_use_sudo" = true ]; then
-        # 有权限，使用系统级安装
-        # 备份原始 claude 命令
-        if [ -f /usr/bin/claude ] && [ ! -f /usr/bin/claude.original ]; then
-            sudo mv /usr/bin/claude /usr/bin/claude.original
-            print_info "已备份原始 claude 命令"
-        fi
-    else
-        # 没有权限，使用用户级安装
-        print_warning "无 sudo 权限，将使用用户级安装"
-        local user_bin_dir="$HOME/.local/bin"
-        
-        # 创建用户 bin 目录
-        if [ ! -d "$user_bin_dir" ]; then
-            mkdir -p "$user_bin_dir"
-            print_info "创建用户 bin 目录: $user_bin_dir"
-        fi
-        
-        # 检查 PATH 是否包含用户 bin 目录
-        if [[ ":$PATH:" != *":$user_bin_dir:"* ]]; then
-            print_info "添加 $user_bin_dir 到 PATH"
-            echo "" >> "$shell_config"
-            echo "# Add user bin to PATH" >> "$shell_config"
-            echo "export PATH=\"\$PATH:$user_bin_dir\"" >> "$shell_config"
-        fi
-    fi
-    
-    # 创建新的 claude 命令作为包装器
-    cat > /tmp/claude-wrapper << 'EOF'
-#!/bin/bash
-# Claude CLI 智能包装器 - 自动加载配置
+  # 删除旧文件
+  [[ -f "$INSTALL_DIR/gost" ]] && echo "🧹 删除旧文件 gost" && rm -f "$INSTALL_DIR/gost"
 
-# 查找原始 claude 命令
-CLAUDE_BIN="/usr/bin/claude.original"
-if [ ! -f "$CLAUDE_BIN" ]; then
-    # 尝试其他位置
-    for bin in /usr/local/bin/claude /opt/claude/claude $(which claude 2>/dev/null); do
-        if [ -f "$bin" ] && [ "$bin" != "$0" ]; then
-            CLAUDE_BIN="$bin"
-            break
-        fi
-    done
-fi
-
-# 读取配置文件
-CONFIG_FILE="$HOME/.claude.json"
-if [ -f "$CONFIG_FILE" ]; then
-    # 使用 grep 和 sed 提取值（兼容性更好）
-    # 不再从配置文件读取 API_KEY
-    API_BASE_URL=$(grep -o '"apiBaseUrl"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*:.*"\(.*\)"/\1/')
-fi
-
-# API KEY 现在只从环境变量读取
-API_KEY="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY:-}}"
-
-# 使用环境变量作为后备
-API_BASE_URL="${API_BASE_URL:-${ANTHROPIC_BASE_URL:-https://muskapi.com}}"
-
-# 如果没有配置，提示用户
-if [ -z "$API_KEY" ]; then
-    echo "错误：未找到 API 配置"
-    echo "请运行安装脚本：curl -sSL https://1.muskapi.com/install.sh | bash"
+  # 下载 gost
+  echo "⬇️ 下载 gost 中..."
+  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost"
+  if [[ ! -f "$INSTALL_DIR/gost" || ! -s "$INSTALL_DIR/gost" ]]; then
+    echo "❌ 下载失败，请检查网络或下载链接。"
     exit 1
-fi
+  fi
+  chmod +x "$INSTALL_DIR/gost"
+  echo "✅ 下载完成"
 
-# 导出环境变量
-export ANTHROPIC_BASE_URL="$API_BASE_URL"
-export ANTHROPIC_AUTH_TOKEN="$API_KEY"
+  # 打印版本
+  echo "🔎 gost 版本：$($INSTALL_DIR/gost -V)"
 
-# 执行原始命令
-exec "$CLAUDE_BIN" "$@"
+  # 写入 config.json (安装时总是创建新的)
+  CONFIG_FILE="$INSTALL_DIR/config.json"
+  echo "📄 创建新配置: config.json"
+  cat > "$CONFIG_FILE" <<EOF
+{
+  "addr": "$SERVER_ADDR",
+  "secret": "$SECRET"
+}
 EOF
-    
-    # 安装新的包装器
-    if [ "$can_use_sudo" = true ]; then
-        # 系统级安装
-        sudo mv /tmp/claude-wrapper /usr/bin/claude
-        sudo chmod +x /usr/bin/claude
-        
-        # 同时创建 claude-ai 作为备用
-        sudo cp /usr/bin/claude /usr/local/bin/claude-ai
-    else
-        # 用户级安装
-        mv /tmp/claude-wrapper "$user_bin_dir/claude"
-        chmod +x "$user_bin_dir/claude"
-        
-        # 同时创建 claude-ai 作为备用
-        cp "$user_bin_dir/claude" "$user_bin_dir/claude-ai"
-    fi
-    
-    # 创建一个恢复脚本
-    if [ "$can_use_sudo" = true ]; then
-        cat > /tmp/claude-restore << 'EOF'
-#!/bin/bash
-# 恢复原始 claude 命令
-if [ -f /usr/bin/claude.original ]; then
-    sudo mv /usr/bin/claude.original /usr/bin/claude
-    echo "已恢复原始 claude 命令"
-else
-    echo "未找到原始备份"
-fi
-EOF
-        sudo mv /tmp/claude-restore /usr/local/bin/claude-restore
-        sudo chmod +x /usr/local/bin/claude-restore
-    else
-        cat > "$user_bin_dir/claude-restore" << 'EOF'
-#!/bin/bash
-# 恢复原始 claude 命令
-echo "用户级安装不需要恢复"
-echo "如需卸载，请删除: ~/.local/bin/claude"
-EOF
-        chmod +x "$user_bin_dir/claude-restore"
-    fi
-    
-    print_success "配置已应用，立即生效！"
-    
-    # 自动检测和修复 API key 中的 ant- 前缀
-    print_info "检测 API key 配置..."
-    check_and_fix_api_key
-    
-    print_info "现在您可以直接使用："
-    echo "  claude '你的问题'"
-    echo
-    print_info "如需恢复原始命令，运行："
-    echo "  claude-restore"
 
-    # 更醒目的安装完成后提示
-    echo
-    echo -e "\033[1;33m====================================================\033[0m"
-    echo -e "\033[1;33m  重要提示（安装完成后）\033[0m"
-    echo -e "\033[1;33m====================================================\033[0m"
-    echo -e "\033[1;33m• Linux / macOS：建议 重新打开终端，使 nvm/Node v22 自动生效\033[0m"
-    echo -e "\033[1;33m• 若需当前会话立刻生效：source ~/.bashrc || source ~/.profile\033[0m"
-    echo -e "\033[1;33m• 验证：node -v  和  claude --version\033[0m"
-    echo -e "\033[1;33m====================================================\033[0m"
+  # 写入 gost.json
+  GOST_CONFIG="$INSTALL_DIR/gost.json"
+  if [[ -f "$GOST_CONFIG" ]]; then
+    echo "⏭️ 跳过配置文件: gost.json (已存在)"
+  else
+    echo "📄 创建新配置: gost.json"
+    cat > "$GOST_CONFIG" <<EOF
+{}
+EOF
+  fi
+
+  # 加强权限
+  chmod 600 "$INSTALL_DIR"/*.json
+
+  # 创建 systemd 服务
+  SERVICE_FILE="/etc/systemd/system/gost.service"
+  cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Gost Proxy Service
+After=network.target
+
+[Service]
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/gost
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  # 启动服务
+  systemctl daemon-reload
+  systemctl enable gost
+  systemctl start gost
+
+  # 检查状态
+  echo "🔄 检查服务状态..."
+  if systemctl is-active --quiet gost; then
+    echo "✅ 安装完成，gost服务已启动并设置为开机启动。"
+    echo "📁 配置目录: $INSTALL_DIR"
+    echo "🔧 服务状态: $(systemctl is-active gost)"
+  else
+    echo "❌ gost服务启动失败，请执行以下命令查看日志："
+    echo "journalctl -u gost -f"
+  fi
 }
 
-# 显示使用说明
-show_usage() {
-    echo
-    echo -e "${WHITE}=========================================="
-    echo -e "    🎉 Claude Code 安装配置完成！"
-    echo -e "==========================================${NC}"
-    echo
-    echo -e "${WHITE}配置信息:${NC}"
-    echo "  API Key: $API_KEY"
-    echo "  API URL: $API_BASE_URL"
-    echo "  配置文件: $CLAUDE_CONFIG_FILE"
-    echo
-    echo -e "${WHITE}使用方法:${NC}"
-    echo "  claude --help    - 查看帮助"
-    echo "  claude \"你的问题\" - 与 Claude 对话"
-    echo
-    echo -e "${WHITE}环境变量:${NC}"
-    echo "  已配置 ANTHROPIC_BASE_URL"
-    echo "  已配置 ANTHROPIC_AUTH_TOKEN"
-    echo
-    
-    # 检查 PATH
-    if ! command -v claude &> /dev/null; then
-        print_warning "claude 命令未在 PATH 中，可能需要重新加载 shell："
-        echo "  source ~/.bashrc"
-        echo "  或重新打开终端"
-    fi
-    
-    # 对root用户的特别提示
-    if [ "$EUID" -eq 0 ] || [ "$(whoami)" = "root" ]; then
-        echo
-        print_info "Root用户注意事项："
-        echo "  环境变量已写入 ~/.bashrc 和 ~/.profile"
-        echo "  请执行以下命令之一使其生效："
-        echo "    source ~/.bashrc"
-        echo "    source ~/.profile"
-        echo "  或重新登录"
-    fi
+# 更新功能
+update_gost() {
+  echo "🔄 开始更新 GOST..."
+  
+  if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "❌ GOST 未安装，请先选择安装。"
+    return 1
+  fi
+  
+  echo "📥 使用下载地址: $DOWNLOAD_URL"
+  
+  # 检查并安装 tcpkill
+  check_and_install_tcpkill
+  
+  # 先下载新版本
+  echo "⬇️ 下载最新版本..."
+  curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/gost.new"
+  if [[ ! -f "$INSTALL_DIR/gost.new" || ! -s "$INSTALL_DIR/gost.new" ]]; then
+    echo "❌ 下载失败。"
+    return 1
+  fi
+
+  # 停止服务
+  if systemctl list-units --full -all | grep -Fq "gost.service"; then
+    echo "🛑 停止 gost 服务..."
+    systemctl stop gost
+  fi
+
+  # 替换文件
+  mv "$INSTALL_DIR/gost.new" "$INSTALL_DIR/gost"
+  chmod +x "$INSTALL_DIR/gost"
+  
+  # 打印版本
+  echo "🔎 新版本：$($INSTALL_DIR/gost -V)"
+
+  # 重启服务
+  echo "🔄 重启服务..."
+  systemctl start gost
+  
+  echo "✅ 更新完成，服务已重新启动。"
 }
 
-# 获取用户输入的API配置
-get_api_config() {
-    # 检查是否通过环境变量或参数提供了 API Key（支持多别名）
-    if [ -n "$API_KEY" ]; then
-        API_KEY="$API_KEY"
-        print_info "使用环境变量中的 API Key (API_KEY)"
-    elif [ -n "$CLAUDE_API_KEY" ]; then
-        API_KEY="$CLAUDE_API_KEY"
-        print_info "使用环境变量中的 API Key (CLAUDE_API_KEY)"
-    elif [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
-        API_KEY="$ANTHROPIC_AUTH_TOKEN"
-        print_info "使用环境变量中的 API Key (ANTHROPIC_AUTH_TOKEN)"
-    elif [ -n "$ANTHROPIC_API_KEY" ]; then
-        API_KEY="$ANTHROPIC_API_KEY"
-        print_info "使用环境变量中的 API Key (ANTHROPIC_API_KEY)"
-    fi
-    
-    # BASE_URL 支持多别名
-    if [ -n "$BASE_URL" ]; then
-        API_BASE_URL="$BASE_URL"
-        print_info "使用环境变量中的 API URL (BASE_URL): $API_BASE_URL"
-    elif [ -n "$CLAUDE_API_URL" ]; then
-        API_BASE_URL="$CLAUDE_API_URL"
-        print_info "使用环境变量中的 API URL (CLAUDE_API_URL): $API_BASE_URL"
-    elif [ -n "$ANTHROPIC_BASE_URL" ]; then
-        API_BASE_URL="$ANTHROPIC_BASE_URL"
-        print_info "使用环境变量中的 API URL (ANTHROPIC_BASE_URL): $API_BASE_URL"
-    fi
-    
-    # 如果没有提供 API Key，则进入交互模式
-    if [ -z "$API_KEY" ]; then
-        echo
-        print_info "请输入您的 API 配置信息："
-        echo
-        
-        # 获取 API Key
-        while [ -z "$API_KEY" ]; do
-            # 使用 /dev/tty 来读取用户输入，即使在管道中也能工作
-            if [ -t 0 ]; then
-                read -p "请输入您的 API Key: " API_KEY
-            else
-                read -p "请输入您的 API Key: " API_KEY < /dev/tty
-            fi
-            if [ -z "$API_KEY" ]; then
-                print_error "API Key 不能为空！"
-                sleep 1  # 避免无限循环太快
-            fi
-        done
-        
-        # 默认使用 ccapi.muskapi.com/api/
-        API_BASE_URL="https://ccapi.muskapi.com/api/"
-    fi
-    
-    echo
-    print_success "配置信息："
-    echo "  API Key: ${API_KEY:0:10}..."
-    echo "  API URL: $API_BASE_URL"
-    echo
+# 卸载功能
+uninstall_gost() {
+  echo "🗑️ 开始卸载 GOST..."
+  
+  read -p "确认卸载 GOST 吗？此操作将删除所有相关文件 (y/N): " confirm
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    echo "❌ 取消卸载"
+    return 0
+  fi
+
+  # 停止并禁用服务
+  if systemctl list-units --full -all | grep -Fq "gost.service"; then
+    echo "🛑 停止并禁用服务..."
+    systemctl stop gost 2>/dev/null
+    systemctl disable gost 2>/dev/null
+  fi
+
+  # 删除服务文件
+  if [[ -f "/etc/systemd/system/gost.service" ]]; then
+    rm -f "/etc/systemd/system/gost.service"
+    echo "🧹 删除服务文件"
+  fi
+
+  # 删除安装目录
+  if [[ -d "$INSTALL_DIR" ]]; then
+    rm -rf "$INSTALL_DIR"
+    echo "🧹 删除安装目录: $INSTALL_DIR"
+  fi
+
+  # 重载 systemd
+  systemctl daemon-reload
+
+  echo "✅ 卸载完成"
 }
 
-# 主函数
+# 主逻辑
 main() {
-    clear
-    echo -e "${WHITE}"
-    echo "================================================"
-    echo "    🚀 Claude Code 远程一键安装脚本    "
-    echo "================================================"
-    echo -e "${NC}"
+  # 如果提供了命令行参数，直接执行安装
+  if [[ -n "$SERVER_ADDR" && -n "$SECRET" ]]; then
+    install_gost
+    delete_self
+    exit 0
+  fi
+
+  # 显示交互式菜单
+  while true; do
+    show_menu
+    read -p "请输入选项 (1-5): " choice
     
-    # 获取 API 配置
-    get_api_config
-    
-    # 检测环境
-    local env_type=$(detect_environment)
-    print_info "检测到环境: $env_type"
-    
-    # 检查权限
-    if [[ "$env_type" != "macos" ]]; then
-        if ! check_sudo; then
-            print_error "无法获取必要的权限"
-            exit 1
-        fi
-    fi
-    
-    # 根据环境安装依赖
-    case "$env_type" in
-        wsl)
-            install_wsl_packages
-            ;;
-        macos)
-            install_macos_packages
-            ;;
-        linux)
-            install_linux_packages
-            ;;
-        windows_bash)
-            print_warning "检测到 Windows Git Bash/MSYS 环境"
-            print_info "建议使用 WSL2 以获得更好的体验"
-            install_linux_packages
-            ;;
-        *)
-            print_error "不支持的操作系统: $env_type"
-            exit 1
-            ;;
+    case $choice in
+      1)
+        install_gost
+        delete_self
+        exit 0
+        ;;
+      2)
+        update_gost
+        delete_self
+        exit 0
+        ;;
+      3)
+        uninstall_gost
+        delete_self
+        exit 0
+        ;;
+      4)
+        block_protocol
+        delete_self
+        exit 0
+        ;;
+      5)
+        echo "👋 退出脚本"
+        delete_self
+        exit 0
+        ;;
+      *)
+        echo "❌ 无效选项，请输入 1-5"
+        echo ""
+        ;;
     esac
-    
-    # 选择镜像
-    resolve_mirror_choice
-
-    # 先确保 Node.js v22+
-    ensure_nodejs_v22
-
-    # 安装 Claude Code
-    if ! install_claude_code; then
-        print_error "Claude Code 安装失败"
-        exit 1
-    fi
-    
-    # 配置 Claude Code
-    configure_claude_code
-
-    # 若 nvm 存在，配置其在新会话自动启用 Node v22（永久）
-    persist_nvm_autouse_22
-    
-    # 显示使用说明
-    show_usage
+  done
 }
 
-# 运行主函数
-main "$@"
+# 执行主函数
+main
